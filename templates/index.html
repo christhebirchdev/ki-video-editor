@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KI Video Editor</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+    <h1>🎬 KI Video Editor</h1>
+
+    <section id="create-project">
+        <h2>1. Neues Projekt</h2>
+        <div class="row">
+            <input type="text" id="project-name" placeholder="Projektname z.B. TikTok_Juni_01" />
+            <select id="platform">
+                <option value="tiktok">TikTok</option>
+                <option value="reels">Instagram Reels</option>
+                <option value="shorts">YouTube Shorts</option>
+            </select>
+            <button onclick="createProject()">Projekt erstellen</button>
+        </div>
+        <div id="project-info" class="status"></div>
+    </section>
+
+    <section id="upload-section" style="display:none">
+        <h2>2. Dateien hochladen</h2>
+        <p class="hint">Rohdateien (Videos, ggf. eigene Sounds/Animationen)</p>
+        <input type="file" id="file-input" multiple accept="video/*,audio/*,.gif" />
+        <button onclick="uploadFiles()">Hochladen</button>
+        <div id="upload-status" class="status"></div>
+    </section>
+
+    <section id="pipeline-section" style="display:none">
+        <h2>3. Pipeline</h2>
+        <div class="pipeline-steps">
+            <button onclick="runAnalysis()" class="step-btn" id="btn-analyse">
+                🔍 Schritt 1: Gemini analysiert Video
+            </button>
+            <button onclick="runCutPlanning()" class="step-btn" id="btn-plan" disabled>
+                🧠 Schritt 2: Claude plant Schnitt
+            </button>
+        </div>
+        <div id="pipeline-status" class="status"></div>
+
+        <div id="take-review" style="display:none">
+            <h3>Claudes Take-Entscheidungen</h3>
+            <div id="take-decisions"></div>
+            <div class="reasoning-box" id="claude-reasoning"></div>
+            <div class="action-row">
+                <button onclick="confirmPlan()" class="btn-confirm">✅ Bestätigen &amp; schneiden</button>
+                <button onclick="showCorrectionForm()" class="btn-secondary">✏️ Korrekturen vornehmen</button>
+            </div>
+            <div id="correction-form" style="display:none">
+                <h4>Korrekturen (Take-ID + deine Begründung)</h4>
+                <div id="correction-inputs"></div>
+                <button onclick="submitCorrections()" class="btn-confirm">💾 Korrekturen speichern &amp; schneiden</button>
+            </div>
+        </div>
+
+        <div id="post-cut" style="display:none">
+            <button onclick="addSubtitles()" class="step-btn" id="btn-subtitles">
+                💬 Schritt 3: Untertitel hinzufügen
+            </button>
+        </div>
+
+        <div id="result-section" style="display:none">
+            <h3>✅ Fertig!</h3>
+            <video id="result-video" controls width="360"></video>
+            <p class="hint">Video gespeichert im Projektordner unter output/with_subtitles.mp4</p>
+        </div>
+    </section>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
