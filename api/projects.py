@@ -38,7 +38,8 @@ async def create_project(data: ProjectCreate):
         id=project_id,
         name=data.name,
         platform=data.platform,
-        created_at=datetime.now()
+        created_at=datetime.now(),
+        engine_version=data.engine_version,
     )
     _save_project(project)
     return ProjectResponse(**project.model_dump(), files=[])

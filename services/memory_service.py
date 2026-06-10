@@ -1,4 +1,11 @@
 # services/memory_service.py
+"""
+Style-Memory: Stil-Regeln aus User-Feedback ableiten und persistieren.
+
+Mit der neuen Architektur (Whisper+Visual+Claude) erzeugt Claude direkt
+Clips — keine segment_id-Korrekturen mehr nötig. learn_from_feedback ist
+für zukünftige UI-Korrekturen vorgesehen (aktuell ungenutzt).
+"""
 import json
 from pathlib import Path
 from datetime import datetime
@@ -16,6 +23,7 @@ def load_memory() -> StyleMemory:
 
 
 def save_memory(memory: StyleMemory):
+    MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
     MEMORY_FILE.write_text(memory.model_dump_json(indent=2))
 
 
@@ -32,27 +40,13 @@ def add_rule(rule_text: str, reason: str) -> StyleMemory:
 
 
 def log_decision(project_id: str, cut_plan: CutPlan, user_override: bool = False):
+    """Loggt einen Schnitt-Entscheid für Audit-Trail."""
     memory = load_memory()
     memory.decision_log.append({
         "project_id": project_id,
         "timestamp": datetime.now().isoformat(),
         "user_override": user_override,
-        "decisions": [d.model_dump() for d in cut_plan.decisions],
-        "claude_reasoning": cut_plan.claude_reasoning
+        "clip_count": len(cut_plan.clips),
+        "claude_reasoning": cut_plan.claude_reasoning,
     })
     save_memory(memory)
-
-
-def learn_from_feedback(original_plan: CutPlan, user_corrections: list[dict]) -> StyleMemory:
-    """Lernt aus User-Korrekturen und leitet neue Regeln ab."""
-    memory = load_memory()
-    for correction in user_corrections:
-        original = next(
-            (d for d in original_plan.decisions if d.take_id == correction["take_id"]), None
-        )
-        if original and original.keep != correction["user_keep"] and correction.get("user_reason"):
-            add_rule(
-                rule_text=correction["user_reason"],
-                reason=f"Nutzer korrigierte Claude-Entscheidung für {correction['take_id']}"
-            )
-    return load_memory()
