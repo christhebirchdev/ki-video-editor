@@ -21,10 +21,11 @@ from config import settings
 from models.analyst import AnalystEvaluationV2, AnalystResult
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
-# Separat gepflegte Editing-Referenz (Prinzipien + kalibrierte Beispiele). Wird vom Skill
-# referenziert und hier zur Laufzeit an den System-Prompt angehängt (das Pipeline-Claude hat
+# Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
+# Skill referenziert und hier zur Laufzeit an den System-Prompt angehängt (das Pipeline-Claude hat
 # keinen Dateizugriff). Optional: fehlt die Datei, läuft die Bewertung unverändert weiter.
-EDITING_REFERENCE_PATH = SKILL_PATH.with_name("analyst_editing_reference.md")
+# Ausführliche Fassung (volle Experten-Zitate + Musteranalysen) liegt separat als Trainingsdoc.
+REFERENCE_PATH = SKILL_PATH.with_name("analyst_video_reference.md")
 
 # Heuristische Richtwerte zur internen Messwert-Interpretation (nur Urteilsgrundlage,
 # Zahlen dürfen laut Skill NICHT im Output erscheinen).
@@ -70,19 +71,19 @@ def load_skill_body() -> str:
     return text.strip()
 
 
-def load_editing_reference() -> str:
-    """Liest die separat gepflegte Editing-Referenz (Prinzipien + kalibrierte Beispiele).
+def load_reference() -> str:
+    """Liest die separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker).
     Wird als zusätzliche Urteilsgrundlage an den System-Prompt angehängt; ändert NICHT den
     Output-Vertrag. Fehlt die Datei, wird sie still übersprungen."""
-    if not EDITING_REFERENCE_PATH.exists():
+    if not REFERENCE_PATH.exists():
         return ""
-    return EDITING_REFERENCE_PATH.read_text(encoding="utf-8").strip()
+    return REFERENCE_PATH.read_text(encoding="utf-8").strip()
 
 
 def build_system_prompt() -> str:
     """Skill-Body (Logik) + optionale Editing-Referenz + strikter JSON-Vertrag (Pipeline-Modus)."""
     parts = [load_skill_body()]
-    ref = load_editing_reference()
+    ref = load_reference()
     if ref:
         parts.append(
             "--- ANGEHÄNGTE REFERENZ: VIDEO-ANALYSE (EDITING + SKRIPT + TECHNIK/AUFTRETEN) ---\n"

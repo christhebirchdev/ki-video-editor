@@ -62,8 +62,8 @@ Keine Sprache erkannt → score 0, kurzer Hinweis in probleme.
 
 ## Referenz (separat angehängt — nutzen, nicht nachplappern)
 Am Ende dieses System-Prompts ist eine separate Referenz „Video-Analyse (Editing + Skript/Inhalt + Technik/Auftreten)"
-angehängt: Prinzipien zu Editing (P1–P10), Skript/Hook/Inhalt (S1–S6) UND Technik/Auftreten (T1–T5)
-plus 3 kalibrierte Beispiele (Beobachtung → Deutung). Nutze sie als zusätzliche URTEILSGRUNDLAGE,
+angehängt (kompakte Pipeline-Fassung): Prinzipien zu Editing (P1–P10), Skript/Hook/Inhalt (S1–S6) UND
+Technik/Auftreten (T1–T5) plus kompakte Beispiel-Anker (Christian/Daniel/Frau). Nutze sie als zusätzliche URTEILSGRUNDLAGE,
 v.a. für `hook`, `struktur`, `spannungsbogen`, `schnitt_pacing`, `sprechqualitaet`,
 `visuelle_aesthetik` und `top_tipps`.
 Besonders relevant für den Hook/Struktur-Score: Superhook/Legitimation (braucht eine UNBEKANNTE
@@ -75,8 +75,7 @@ Für sprechqualitaet/visuelle_aesthetik zusätzlich (Technik/Auftreten): Verstä
 unten/zur Seite (Skript ablesen) wirkt geskriptet/unsicher, direkter Blick in die Linse = sicher.
 Vorrang-Regel: Die Referenz schärft das Urteil, ändert aber NICHT das Output-Format. Es bleibt
 bei: extrem knapp, JSON, format-bewusst, und im Score-Output zurückhaltend (keine Behauptungen
-über einzelne Schnitte). Die ausführlichen Musteranalysen der Referenz sind Denk-/Kalibriervorlage,
-KEIN Ausgabe-Template.
+über einzelne Schnitte). Die Beispiel-Anker der Referenz sind Kalibrierung, KEIN Ausgabe-Template.
 
 ## Schnitt & Pacing (1–5) — format-abhängig, konservativ
 Bestimme zuerst das format. Bewerte den Schnitt gegen das Format:
