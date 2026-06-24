@@ -108,6 +108,8 @@ def build_user_message(result: AnalystResult) -> str:
         tag = " [ERÖFFNUNG]" if s.index == 0 else ""
         kern = s.handlung or s.beschreibung or "(keine Beschreibung)"
         extra = ""
+        if s.personen:
+            extra += f" | Person/Blick: {s.personen}"
         for t in (s.texte or []):
             d = f" ({t.darstellung})" if t.darstellung else ""
             extra += f" | Text: „{t.wortlaut}\"{d}"
@@ -127,6 +129,16 @@ def build_user_message(result: AnalystResult) -> str:
     opening = result.scenes[0] if result.scenes else None
     text_hook = (opening.text_overlays if opening and opening.text_overlays else "") or "(keins erkannt)"
     first_words = (result.transcript or "").strip()[:160] or "(keine Sprache)"
+
+    # Blick-/Auftreten-Signal aggregieren — die Blickrichtung steckt im personen-Feld der Szenen.
+    # Dauerhafter Blick weg von der Kamera (nach unten/zur Seite) = Indiz fürs Ablesen → muss bewertet werden.
+    _away_keys = ("nach unten", "runter", "zur seite", "seitlich", "abgelesen", "blickt weg", "liest", "weg von")
+    _gaze_away = sum(1 for s in result.scenes if any(k in (s.personen or "").lower() for k in _away_keys))
+    blick_txt = (
+        f"In {_gaze_away} von {len(result.scenes)} Szenen ist der Blick NICHT in die Kamera gerichtet "
+        f"(nach unten/zur Seite) — Indiz für Ablesen/Skript; Authentizität & Sicherheit im Auftreten bewerten."
+        if _gaze_away else "Blick überwiegend in die Kamera."
+    )
 
     stats = result.speech_stats
     stats_txt = (
@@ -156,6 +168,7 @@ def build_user_message(result: AnalystResult) -> str:
         f"AUDIO (ganzes Video): {result.audio_overview or '(keine Audio-Beschreibung)'}\n\n"
         f"SPRECH-HOOK-KANDIDAT (erste Worte): {first_words}\n"
         f"TEXT-HOOK-KANDIDAT (Overlay der Eröffnung): {text_hook}\n\n"
+        f"BLICK-PROFIL (Auftreten/Blickrichtung): {blick_txt}\n\n"
         f"TRANSKRIPT:\n{result.transcript or '(leer)'}\n\n"
         f"SPRACHSTATISTIK: {stats_txt}\n\n"
         f"MESSWERTE (intern, NICHT im Output nennen):\n{metrics_txt}"

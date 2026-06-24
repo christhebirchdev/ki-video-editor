@@ -94,6 +94,9 @@ Dramaturgischer Leerlauf am Ende = niedriger Score. kommentar = 1–2 Sätze.
 ## Visuelle Ästhetik (1–5)
 Komposition/Licht/Hintergrund aus den Bild-Fakten + Messwerten (intern).
 probleme nur bei Auffälligem, sonst leeres Array.
+AUFTRETEN/BLICKRICHTUNG zählt hier mit: Achte auf das BLICK-PROFIL und die „Person/Blick"-Angaben der
+Szenen. Dauerhafter Blick weg von der Kamera (nach unten/zur Seite = Skript ablesen) wirkt geskriptet
+und unsicher → MUSS als Problem benannt und als konkreter top_tipp aufgenommen werden (Blick in die Linse).
 
 ## Zielgruppe
 Genau 1 Satz: wer sich angesprochen fühlt.
