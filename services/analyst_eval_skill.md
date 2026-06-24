@@ -40,6 +40,14 @@ Hook-Kalibrierung (aus echten Beobachtungen):
 - Wortlaut-Quelle: Gemmas text_overlays kann OCR-Fehler enthalten (z.B. „Ich bin kein Geld" statt
   „Ich bin kein Geldmensch"). Für GESPROCHENEN Text gilt das TRANSKRIPT als verlässlicher Wortlaut.
 
+## Legitimation & Hook-Start (Referenz S2/P3)
+- **Superhook/Legitimation:** Dir ist NICHT bekannt, ob die Person prominent ist (Gemini bestimmt keine
+  Identität). Behandle sie als unbekannt — eine Legitimations-Hook darf als Chance in top_tipps stehen,
+  aber ziehe dafür KEINEN harten Score-Abzug bei hook/struktur; Bekanntheit könnte sie überflüssig machen.
+- **Hook-Start:** Achte auf den „Sprechbeginn" in der Sprachstatistik. Beginnt das Sprechen deutlich nach
+  0 s (Atmen/Anlauf/Denkpause vor dem ersten Wort), ist die Hook verzögert → top_tipp: Anlauf wegschneiden,
+  ab Sekunde 1 starten.
+
 ## Struktur (1–5)
 Sinnvolle Storyline aus Hook → Bridge → Mid → Peak → (optional CTA)?
 elemente markiert erkennbare Bausteine; score bewertet, wie schlüssig sie

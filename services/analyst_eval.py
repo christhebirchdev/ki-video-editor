@@ -143,7 +143,8 @@ def build_user_message(result: AnalystResult) -> str:
     stats = result.speech_stats
     stats_txt = (
         f"{stats.wort_anzahl} Wörter, {stats.wpm} WPM, {stats.filler_count} Füllwörter, "
-        f"{stats.pausen_count} Pausen >0.5s (längste {stats.laengste_pause_sec}s)"
+        f"{stats.pausen_count} Pausen >0.5s (längste {stats.laengste_pause_sec}s), "
+        f"Sprechbeginn bei {getattr(stats, 'sprechbeginn_sec', 0.0)}s"
         if stats else "Keine Sprache erkannt."
     )
 
