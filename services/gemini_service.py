@@ -19,15 +19,17 @@ from models.analysis import VisualPhase, AudioIssue
 
 client = genai.Client(api_key=settings.gemini_api_key)
 
-GEMINI_MODEL = "gemini-2.5-flash"
-# Fallback-Kette: nur Modelle die tatsächlich existieren.
-# gemini-2.5-flash-lite RAUS — halluziniert massiv (lieferte 103 Filler in 93s Video).
-# gemini-2.0-flash als einziger Fallback — bei Quota-Erschöpfung lieber Pipeline abbrechen
-# als unbrauchbare Audio-Analyse zu produzieren.
-GEMINI_FALLBACK_MODELS = ["gemini-2.0-flash"]
+GEMINI_MODEL = "gemini-3.5-flash"
+# Fallback-Kette (Stand 2026-06, an der offiziellen Modell-Liste geprüft).
+# Hinweis: 3.1-pro und 3-flash sind PREVIEW-Modelle (String mit -preview) → benötigen i.d.R.
+# aktiviertes Billing und haben strengere Rate-Limits. gemini-2.0-flash wurde abgeschaltet → raus.
+GEMINI_FALLBACK_MODELS = ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]
 
 RETRY_DELAYS_SEC = [3, 10, 30]
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+# 429 (RESOURCE_EXHAUSTED) bewusst NICHT retrybar: Quota füllt sich nicht in Sekunden auf,
+# jeder Retry verbrennt nur weiteres Tageskontingent. Bei 429 sofort zum nächsten Modell bzw. abbrechen.
+# Nur echte transiente Serverfehler werden wiederholt.
+RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
 
 
 VISUAL_ANALYSIS_PROMPT = """
