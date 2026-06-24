@@ -23,7 +23,7 @@ Beide 1–5 nach 4 Faktoren: (1) Scroll-Stop/Pattern-Interrupt, (2) Open Loop/Sp
 (3) Zielgruppen-Relevanz, (4) Spezifität & Klarheit.
 Anker: 5 = alle 4 stark; 4 = stark, einer schwächer; 3 = funktional aber generisch;
 2 = schwach; 1 = kein Hook/abschreckend.
-Grund = genau 1 Satz mit dem ausschlaggebenden Faktor.
+Grund = 1–2 Sätze mit dem ausschlaggebenden Faktor (das WARUM, nicht nur das WAS).
 
 WICHTIG — dynamische Untertitel sind KEIN Text-Hook:
 Ein Text-Hook ist nur bewusst gesetzter, STATISCHER Grafik-/Titeltext.
@@ -89,7 +89,7 @@ monotone Einstellung, solange das Subjekt klar erkennbar bleibt.
 
 ## Spannungsbogen (1–5) — Watchtime
 Hält die Spannung über die Länge? Wo kippt sie, und endet das Video zeitnah danach?
-Dramaturgischer Leerlauf am Ende = niedriger Score. kommentar = 1 Satz.
+Dramaturgischer Leerlauf am Ende = niedriger Score. kommentar = 1–2 Sätze.
 
 ## Visuelle Ästhetik (1–5)
 Komposition/Licht/Hintergrund aus den Bild-Fakten + Messwerten (intern).
@@ -106,5 +106,5 @@ TOFU (Reichweite) / MOFU (Vertrauen/Expertise) / BOFU (Conversion) / Mischung.
   Messwerte sind nur deine interne Urteilsgrundlage.
 - Sound/Schärfe/Licht NUR auf Messwert-/Bild-Fakten-Basis — fehlen Daten,
   bewerte neutral statt zu raten.
-- Alle Texte extrem knapp: Gründe/Kommentare je max 1 Satz.
-- top_tipps: 1–3 wichtigste Hebel, nach Wirkung auf CTR/Watchtime priorisiert.
+- Knapp, aber mit Substanz: Gründe/Kommentare je 1–2 Sätze — immer das WARUM nennen, nicht nur das WAS. Keine Absätze, kein Geschwafel.
+- top_tipps: 3–5 wichtigste Hebel, je 1–2 Sätze, nach Wirkung auf CTR/Watchtime priorisiert.

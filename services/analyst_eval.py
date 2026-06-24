@@ -43,21 +43,21 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "funnel": "<TOFU | MOFU | BOFU | Mischung>",
   "hook": {
     "sprech_hook_score": <int 1-5>,
-    "sprech_hook_grund": "<max 1 Satz>",
+    "sprech_hook_grund": "<1-2 Sätze>",
     "text_hook_vorhanden": <true|false>,
     "text_hook_score": <int 1-5 oder null>,
-    "text_hook_grund": "<max 1 Satz oder null>"
+    "text_hook_grund": "<1-2 Sätze oder null>"
   },
   "struktur": {
     "score": <int 1-5>,
     "elemente": {"hook": <bool>, "bridge": <bool>, "mid": <bool>, "peak": <bool>, "cta": <bool>},
-    "kommentar": "<max 1 Satz>"
+    "kommentar": "<1-2 Sätze>"
   },
-  "sprechqualitaet": {"score": <int 1-5>, "probleme": ["<nur stark Auffälliges, sonst []>"]},
-  "schnitt_pacing": {"score": <int 1-5>, "kommentar": "<max 1 Satz, format-bewusst>"},
-  "spannungsbogen": {"score": <int 1-5>, "kommentar": "<max 1 Satz>"},
-  "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur Auffälliges, sonst []>"]},
-  "top_tipps": ["<1-3 wichtigste Hebel, je max 1 Satz>"]
+  "sprechqualitaet": {"score": <int 1-5>, "probleme": ["<nur stark Auffälliges, je 1-2 Sätze, sonst []>"]},
+  "schnitt_pacing": {"score": <int 1-5>, "kommentar": "<1-2 Sätze, format-bewusst>"},
+  "spannungsbogen": {"score": <int 1-5>, "kommentar": "<1-2 Sätze>"},
+  "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur Auffälliges, je 1-2 Sätze, sonst []>"]},
+  "top_tipps": ["<3-5 wichtigste Hebel, je 1-2 Sätze, nach Wirkung priorisiert>"]
 }"""
 
 
@@ -168,7 +168,7 @@ def evaluate(result: AnalystResult) -> AnalystEvaluationV2:
     # Hinweis: KEIN temperature-Parameter (bei Sonnet 4.6 deprecated → 400 Bad Request)
     msg = client.messages.create(
         model=settings.claude_model,
-        max_tokens=1500,
+        max_tokens=2200,
         system=build_system_prompt(),
         messages=[{"role": "user", "content": build_user_message(result)}],
     )
