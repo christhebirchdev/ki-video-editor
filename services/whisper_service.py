@@ -16,23 +16,29 @@ from pathlib import Path
 from typing import Optional
 from models.analysis import WhisperWord
 
-_model = None
-WHISPER_MODEL_SIZE = "small"
+# Mehrere Modelle parallel gecached (für A/B-Vergleich verschiedener Engines).
+_models: dict = {}
+DEFAULT_WHISPER_MODEL = "small"  # Default für v5.2 und ältere Engines
 
 
-def _get_model():
-    """Lädt das Modell beim ersten Aufruf (lazy)."""
-    global _model
-    if _model is None:
+def _get_model(model_name: str):
+    """Lädt ein Modell beim ersten Aufruf (lazy) und cached es pro Name.
+    model_name kann eine Größe ("small"/"large-v3") ODER eine HF-Repo-ID eines
+    CTranslate2-Modells sein (z.B. "nyrahealth/faster_CrisperWhisper")."""
+    m = _models.get(model_name)
+    if m is None:
         from faster_whisper import WhisperModel
-        print(f"  [WHISPER] Lade Modell '{WHISPER_MODEL_SIZE}' (erstes Mal kann 1-2 Min dauern, dann gecached)…")
+        print(f"  [WHISPER] Lade Modell '{model_name}' (erstes Mal: Download + 1-2 Min, dann gecached)…")
         # CPU-Modus, int8 quantisiert → schnell + RAM-arm. GPU würde compute_type="float16" nutzen.
-        _model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
-        print(f"  [WHISPER] Modell bereit")
-    return _model
+        m = WhisperModel(model_name, device="cpu", compute_type="int8")
+        _models[model_name] = m
+        print(f"  [WHISPER] Modell '{model_name}' bereit")
+    return m
 
 
-def transcribe_with_word_timestamps(video_path: Path, language: str = "de") -> tuple[list[WhisperWord], str]:
+def transcribe_with_word_timestamps(
+    video_path: Path, language: str = "de", model_name: Optional[str] = None,
+) -> tuple[list[WhisperWord], str]:
     """
     Transkribiert ein Video mit Wort-Timestamps.
 
@@ -43,7 +49,7 @@ def transcribe_with_word_timestamps(video_path: Path, language: str = "de") -> t
 
     faster-whisper akzeptiert Audio + Video direkt (nutzt ffmpeg intern).
     """
-    model = _get_model()
+    model = _get_model(model_name or DEFAULT_WHISPER_MODEL)
     print(f"  [WHISPER] Transkribiere {video_path.name} (Sprache: {language})…")
     t0 = time.time()
     segments_iter, info = model.transcribe(
