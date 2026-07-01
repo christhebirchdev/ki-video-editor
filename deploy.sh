@@ -59,7 +59,10 @@ Type=simple
 User=$USER
 WorkingDirectory=$APP_DIR
 Environment="PATH=$APP_DIR/venv/bin"
-ExecStart=$APP_DIR/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8001
+EnvironmentFile=$APP_DIR/.env
+# Nur lokal binden — der öffentliche Zugriff läuft über den Reverse-Proxy (Caddy)
+# mit HTTPS + Passwortschutz. 1 Worker, weil die Analyst-Warteschlange prozess-lokal ist.
+ExecStart=$APP_DIR/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8001 --workers 1
 Restart=on-failure
 RestartSec=5
 
@@ -76,5 +79,5 @@ STATUS=$(sudo systemctl is-active ${SERVICE_NAME})
 echo ""
 echo "============================================"
 echo "  KI Video Editor Status: $STATUS"
-echo "  URL: http://$(hostname -I | awk '{print $1}'):8001"
+echo "  Lokal: http://127.0.0.1:8001  (öffentlich nur über Caddy-Proxy + HTTPS)"
 echo "============================================"

@@ -37,6 +37,14 @@ Hook-Kalibrierung (aus echten Beobachtungen):
 - Leere Hype-Wörter ohne konkreten Inhalt sind SCHWACH (Score ~2). Negativ-Beispiel Sprech-Hook:
   „Das ist ein unfassbar spannender Glaubenssatz." → sagt statt zu zeigen, kein konkreter Open Loop,
   reines Adjektiv-Hype („unfassbar spannend") → niedrig bewerten.
+- REDUNDANZ Sprech-Hook = Text-Hook ist eine SCHWÄCHE, keine Stärke (Referenz S3). Sprech- und Text-Hook
+  sollen sich ERGÄNZEN (zwei Ebenen, z.B. Sprache stellt die Frage, Text liefert den überraschenden Fakt).
+  Ist der Text-Hook (nahezu) wortgleich mit dem Sprech-Hook, schließt er den Open Loop sofort doppelt und
+  der Overlay verschenkt seine zweite Ebene → text_hook_score NICHT höher als den Sprech-Hook ansetzen
+  (eher gleich oder niedriger), die Redundanz im text_hook_grund ausdrücklich benennen und als top_tipp
+  aufnehmen: „Text-Overlay für eine zweite Ebene/zusätzliche Spannung nutzen, statt den gesprochenen Satz
+  zu doppeln." Negativ-Beispiel: Sprech-Hook „Die Gesundheit eines Kindes beginnt vor der Schwangerschaft" +
+  fast identischer Text-Overlay „Die Gesundheit deines Kindes beginnt lange vor der Schwangerschaft".
 - Wortlaut-Quelle: Gemmas text_overlays kann OCR-Fehler enthalten (z.B. „Ich bin kein Geld" statt
   „Ich bin kein Geldmensch"). Für GESPROCHENEN Text gilt das TRANSKRIPT als verlässlicher Wortlaut.
 
@@ -102,9 +110,12 @@ Dramaturgischer Leerlauf am Ende = niedriger Score. kommentar = 1–2 Sätze.
 ## Visuelle Ästhetik (1–5)
 Komposition/Licht/Hintergrund aus den Bild-Fakten + Messwerten (intern).
 probleme nur bei Auffälligem, sonst leeres Array.
-AUFTRETEN/BLICKRICHTUNG zählt hier mit: Achte auf das BLICK-PROFIL und die „Person/Blick"-Angaben der
-Szenen. Dauerhafter Blick weg von der Kamera (nach unten/zur Seite = Skript ablesen) wirkt geskriptet
-und unsicher → MUSS als Problem benannt und als konkreter top_tipp aufgenommen werden (Blick in die Linse).
+AUFTRETEN/BLICKRICHTUNG zählt hier mit: Verlässliche Quelle ist der Block „BLICKKONTAKT (ganzes Video,
+dedizierter Gemini-Pass)" — NICHT die „Person/Blick"-Angaben einzelner Szenen (die sind aus Standbildern
+unzuverlässig). Meldet der Blick-Pass wiederholten/dauerhaften Blick nach unten oder zur Seite (Skript/
+Teleprompter ablesen), wirkt das geskriptet und unsicher → MUSS als Problem benannt und als konkreter
+top_tipp aufgenommen werden: die betroffenen Stellen (mit Zeitfenster, falls genannt) rausschneiden bzw.
+B-Roll drüberlegen und den Blick in die Linse richten. Liegt der Blick laut Pass in der Linse → kein Abzug.
 
 ## Zielgruppe
 Genau 1 Satz: wer sich angesprochen fühlt.

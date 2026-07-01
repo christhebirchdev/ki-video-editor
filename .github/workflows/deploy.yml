@@ -1,0 +1,31 @@
+name: Deploy to VPS
+
+# Auto-Deploy wie bei ai-content-team:
+# Push auf main → der Self-hosted Runner auf dem VPS zieht den Code, installiert
+# Abhängigkeiten und startet den Dienst neu.
+# Voraussetzung (einmalig): Self-hosted Runner für DIESES Repo registriert +
+# Repo-Secrets SSH_HOST / SSH_USER / SSH_PRIVATE_KEY gesetzt (dürfen dieselben
+# Werte wie bei ai-content-team sein, da gleicher VPS).
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/ki-video-editor
+            git pull origin main
+            source venv/bin/activate
+            pip install -r requirements.txt --quiet
+            systemctl restart ki-video-editor
+            echo "✅ Deploy erfolgreich: $(date)"

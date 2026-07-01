@@ -119,6 +119,7 @@ class AnalystResult(BaseModel):
     scene_count: int
     scenes: list[SceneDescription]
     audio_overview: str = ""           # dedizierter Gemini-Audio-Pass (Musik/SFX/Stimme, ganzes Video)
+    gaze_overview: str = ""            # dedizierter Gemini-Blick-Pass (Linse vs. Ablesen, ganzes Video)
     transcript: str = ""
     speech_stats: Optional[SpeechStats] = None
     quality_metrics: Optional[QualityMetrics] = None

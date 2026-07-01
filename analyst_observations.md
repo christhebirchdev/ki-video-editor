@@ -97,4 +97,27 @@ Chris' Beobachtungen am echten Material, um die KI-Bewertung zu schärfen. Start
   zu laute SFX als Mix-Schwäche.
 - **Status:** Gemini-Prompt ✅ (AUDIO_PROMPT), Claude-Referenz ✅ (A3/T2)
 
-<!-- Neue Beobachtungen hier anhängen: R11, R12, … -->
+## R8 — NACHTRAG (2026-06-30): Prompt-Fix reichte nicht → dedizierter Blick-Pass
+
+- **Befund:** Lauf a29f3c20 (73,5 s) — Gemini meldete in ALLEN Hook-Segmenten „blickt direkt in die Linse",
+  real schaut die Person wiederholt nach unten aufs Skript. Mit Zahlen: 120 Segmente, nur 4 verschiedene
+  „personen"-Texte, „nach unten/zur Seite/wechselnd" in 0 Segmenten. Bei 120 gebündelten Frames liest Gemini
+  den Blick faktisch nicht — es produziert Boilerplate. Der R8-Prompt-Satz war strukturell chancenlos.
+- **Konsequenz:** Blickrichtung kommt jetzt aus einem DEDIZIERTEN Whole-Video-Pass (`GAZE_PROMPT` in
+  analyst_vlm.py, gleicher Upload wie der Audio-Pass) → `AnalystResult.gaze_overview`. Claude nutzt diesen
+  Block als Primärquelle (Skill: „BLICKKONTAKT (ganzes Video, dedizierter Gemini-Pass)"); Per-Szene-`personen`
+  nur noch Fallback. Bei Ablesen → top_tipp inkl. Zeitfenster: Stellen rausschneiden / Blick in die Linse.
+- **Status:** Gemini dedizierter Blick-Pass ✅ · Eval-Primärquelle ✅ · Skill ✅ · Frontend-Block ✅
+  — Realtest offen (greift der Pass den Blick nach unten wirklich? Quotenkosten +1 Call/Lauf).
+
+## R11 — Text-Hook ≈ Sprech-Hook (Redundanz) wurde nicht bestraft  (2026-06-30)  [a29f3c20]
+
+- **Beobachtung:** Sprech-Hook „Die Gesundheit eines Kindes beginnt vor der Schwangerschaft" und Text-Overlay
+  „Die Gesundheit deines Kindes beginnt lange vor der Schwangerschaft" sind nahezu wortgleich. Claude bewertete
+  den Text-Hook trotzdem mit 3 (HÖHER als Sprech-Hook 2, „konkreter") und nannte die Redundanz nicht.
+- **Konsequenz:** Redundanter Sprech-=Text-Hook ist eine SCHWÄCHE (Referenz S3 — Open Loop sofort doppelt
+  geschlossen, Overlay verschenkt seine zweite Ebene). *Claude:* text_hook_score nicht höher als Sprech-Hook,
+  Redundanz im Grund benennen, top_tipp „Text-Overlay für eine zweite Ebene nutzen statt den Satz zu doppeln".
+- **Status:** Claude-Skill ✅ (Hook-Kalibrierung, mit Negativ-Beispiel)
+
+<!-- Neue Beobachtungen hier anhängen: R12, R13, … -->

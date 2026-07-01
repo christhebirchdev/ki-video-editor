@@ -40,6 +40,10 @@ async def create_project(data: ProjectCreate):
         platform=data.platform,
         created_at=datetime.now(),
         engine_version=data.engine_version,
+        subtitles_enabled=data.subtitles_enabled,
+        subtitle_style=data.subtitle_style,
+        mode=data.mode,
+        content_type=data.content_type,
     )
     _save_project(project)
     return ProjectResponse(**project.model_dump(), files=[])
@@ -62,6 +66,14 @@ async def upload_files(project_id: str, files: list[UploadFile] = File(...)):
         dest = raw_path / upload.filename
         content = await upload.read()
         dest.write_bytes(content)
+        # HDR (iPhone HLG) EINMAL nach SDR normalisieren → ganze Pipeline ist danach SDR,
+        # Untertitel überall korrekt + Vorschau == Export. SDR-Quellen bleiben unangetastet.
+        try:
+            from services.ingest import normalize_hdr_to_sdr
+            if normalize_hdr_to_sdr(dest):
+                print(f"  [INGEST] {upload.filename}: HDR→SDR normalisiert")
+        except Exception as e:
+            print(f"  [INGEST] WARN: Normalisierung fehlgeschlagen ({e}) — Original behalten")
         saved.append(upload.filename)
     return {"project_id": project_id, "uploaded": saved}
 

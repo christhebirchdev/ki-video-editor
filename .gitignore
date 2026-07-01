@@ -6,3 +6,6 @@ __pycache__/
 *.pyc
 .DS_Store
 pytest-cache*
+analyst_runs/
+.claude/
+*.log

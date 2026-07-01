@@ -123,6 +123,7 @@ def post_cut_cleanup(
     cut_plan: CutPlan,
     raw_dir: Path,
     output_dir: Path,
+    audio_fade_ms: int = 0,
 ) -> tuple[CutPlan, Path, dict]:
     """Iterative Whisper-Selbstkontrolle. Returns (neuer_plan, neuer_output, stats).
 
@@ -153,7 +154,7 @@ def post_cut_cleanup(
             confirmed_by_user=current_plan.confirmed_by_user,
         )
         print(f"  [POST-CLEANUP] Re-render mit {len(new_clips)} Clips ({removed} Filler entfernt)…")
-        current_output = execute_cut_plan(current_plan, raw_dir, output_dir)
+        current_output = execute_cut_plan(current_plan, raw_dir, output_dir, audio_fade_ms=audio_fade_ms)
 
         stats["iterations"] += 1
         stats["total_fillers_removed"] += removed

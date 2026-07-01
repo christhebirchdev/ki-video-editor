@@ -17,6 +17,21 @@ class Settings(BaseSettings):
     # Aktuelle Anthropic-Modelle: claude-sonnet-4-6, claude-opus-4-8, claude-haiku-4-5-20251001
     claude_model: str = "claude-sonnet-4-6"
 
+    # AI Video Analyst: Beschreibung läuft über Gemini (gemini_api_key oben), kein Ollama mehr.
+
+    # --- Server-/Deployment-Schalter (per .env steuerbar) ---
+    # ANALYST_ONLY=1 → nur der Video-Analyst ist erreichbar, Editor-Router werden
+    # nicht eingebunden (für öffentliches Server-Deployment). Lokal (Flag aus) = volle App.
+    analyst_only: bool = False
+
+    # Whisper-Modell für die Analyst-Transkription. Auf schwachem VPS auf "base"
+    # oder "tiny" absenken (per .env WHISPER_MODEL=base), ohne Code-Änderung.
+    whisper_model: str = "small"
+
+    # Wie viele Analysen gleichzeitig wirklich laufen dürfen. Default 1 = Jobs
+    # werden seriell abgearbeitet (Warteschlange), schützt den geteilten VPS.
+    analyst_max_concurrent: int = 1
+
     model_config = {"env_file": ".env"}
 
 

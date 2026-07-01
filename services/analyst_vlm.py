@@ -53,6 +53,20 @@ KEINE Bild-Beschreibung, KEINE Wertung. Wenn nichts Hörbares: schreibe "kein ne
 
 AUDIO_USER = "Beschreibe ausschließlich die Tonspur des Videos."
 
+GAZE_PROMPT = """Du bist ein objektives Beobachtungs-Tool für den BLICKKONTAKT in einem Sprecher-Video.
+Sieh dir das Video an (Bewegung, nicht Standbild) und achte AUSSCHLIESSLICH auf die Augen/Blickrichtung
+der sprechenden Person. Kernfrage: Schaut sie in die Kamera-LINSE, oder geht der Blick wiederholt/dauerhaft
+daneben — nach unten oder zur Seite (typisch, weil neben/unter der Linse ein Skript oder Teleprompter
+abgelesen wird)?
+Gib eine kurze deutsche Zeitleiste mit groben Zeitmarken (00:00–00:00):
+- Fenster, in denen der Blick in der Linse liegt.
+- Fenster, in denen der Blick wiederholt nach unten/zur Seite geht (Ablesen) — diese Stellen explizit nennen.
+- Wenn der Blick ständig hin- und herwechselt, sag das.
+Nur BEOBACHTEN, NICHT werten (nicht „unsicher"/„unprofessionell" schreiben). Keine sonstige Bildbeschreibung.
+Kein Gesicht/keine Person erkennbar → schreibe „kein Gesicht erkennbar"."""
+
+GAZE_USER = "Beschreibe ausschließlich die Blickrichtung der sprechenden Person über die Zeit."
+
 
 def is_available() -> tuple[bool, str]:
     if not settings.gemini_api_key:
@@ -149,20 +163,27 @@ def _generate(contents, cfg, label):
     raise RuntimeError(f"Gemini {label} fehlgeschlagen: {last_err}")
 
 
-def _audio_pass(video_path: Path) -> str:
-    """Dedizierter Audio-Call auf dem echten Video (Frames haben keinen Ton)."""
+def _media_passes(video_path: Path) -> tuple[str, str]:
+    """EIN Upload des echten Videos, zwei Calls darauf: Audio + Blickkontakt.
+    Frames haben keinen Ton, und Standbilder verraten die Blickrichtung nicht zuverlässig
+    (im Frame-Batch produziert Gemini Boilerplate) → beides braucht das bewegte Video.
+    Derselbe hochgeladene File-Handle wird wiederverwendet (kein zweiter Upload → quota-schonend)."""
     video_file = gemini_service._upload_video_to_gemini(video_path)
     acfg = types.GenerateContentConfig(system_instruction=AUDIO_PROMPT, temperature=0.0)
-    return (_generate([video_file, AUDIO_USER], acfg, "describe_audio").text or "").strip()
+    audio = (_generate([video_file, AUDIO_USER], acfg, "describe_audio").text or "").strip()
+    gcfg = types.GenerateContentConfig(system_instruction=GAZE_PROMPT, temperature=0.0)
+    gaze = (_generate([video_file, GAZE_USER], gcfg, "describe_gaze").text or "").strip()
+    return audio, gaze
 
 
-def describe_video(video_path: Path, frames_dir: Path) -> tuple[list[dict], float, str]:
-    """Deterministische Frames → 1 gebündelter Visual-Call + 1 Audio-Call.
-    Returns (segmente, gesamtdauer, audio_overview)."""
+def describe_video(video_path: Path, frames_dir: Path) -> tuple[list[dict], float, str, str]:
+    """Deterministische Frames → 1 gebündelter Visual-Call + Audio- & Blick-Call (1 Upload).
+    Returns (segmente, gesamtdauer, audio_overview, gaze_overview)."""
     duration = analyst_frames.probe_duration(video_path)
     distinct = analyst_frames.dedup(analyst_frames.extract_frames(video_path, frames_dir))
     if not distinct:
-        return [], duration, _audio_pass(video_path)
+        audio, gaze = _media_passes(video_path)
+        return [], duration, audio, gaze
 
     parts = [types.Part.from_bytes(data=p.read_bytes(), mime_type="image/jpeg") for _, p in distinct]
     ts_list = ", ".join(f"#{i + 1}={ts:.2f}s" for i, (ts, _) in enumerate(distinct))
@@ -184,4 +205,5 @@ def describe_video(video_path: Path, frames_dir: Path) -> tuple[list[dict], floa
         f["end"] = distinct[i + 1][0] if i + 1 < len(distinct) else duration
         segments.append(f)
 
-    return segments, duration, _audio_pass(video_path)
+    audio, gaze = _media_passes(video_path)
+    return segments, duration, audio, gaze

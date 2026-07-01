@@ -533,6 +533,13 @@ function VideoAnalystPage() {
             </div>
           )}
 
+          {result.gaze_overview && (
+            <div className="analyst-eval-block" style={{ marginBottom: 16 }}>
+              <div className="analyst-eval-title">👀 Blickkontakt (ganzes Video, Gemini)</div>
+              <div className="analyst-eval-text">{result.gaze_overview}</div>
+            </div>
+          )}
+
           <details className="analyst-rawdump" open>
             <summary>🔬 Gemini-Rohanalyse (1:1, {result.scenes.length} Segmente)</summary>
             <div className="analyst-scenes" style={{ marginTop: 12 }}>
@@ -1663,8 +1670,11 @@ const PAGE_META = {
   },
 };
 
+// Vom Server gesetzt (templates/index.html). True → nur Analyst, Editor versteckt.
+const ANALYST_ONLY = typeof window !== "undefined" && window.ANALYST_ONLY === true;
+
 function App() {
-  const [activePage, setActivePage] = useState("editor");
+  const [activePage, setActivePage] = useState(ANALYST_ONLY ? "analyst" : "editor");
   const meta = PAGE_META[activePage];
 
   return (
@@ -1688,19 +1698,21 @@ function App() {
         </div>
       </header>
 
-      {/* Navigation */}
-      <nav className="main-nav">
-        {PAGES.map((p) => (
-          <button
-            key={p.id}
-            className={"nav-tab" + (activePage === p.id ? " active" : "")}
-            onClick={() => setActivePage(p.id)}
-          >
-            <p.Icon width="15" height="15" />
-            {p.label}
-          </button>
-        ))}
-      </nav>
+      {/* Navigation — im Analyst-only-Deployment ausgeblendet */}
+      {!ANALYST_ONLY && (
+        <nav className="main-nav">
+          {PAGES.map((p) => (
+            <button
+              key={p.id}
+              className={"nav-tab" + (activePage === p.id ? " active" : "")}
+              onClick={() => setActivePage(p.id)}
+            >
+              <p.Icon width="15" height="15" />
+              {p.label}
+            </button>
+          ))}
+        </nav>
+      )}
 
       {/* Page Header */}
       <div className="page-head">
@@ -1708,8 +1720,11 @@ function App() {
         <p>{meta.desc}</p>
       </div>
 
-      {/* Seiten — immer gemountet, nur versteckt → State bleibt erhalten */}
-      <div className={activePage !== "editor"  ? "page-hidden" : ""}><VideoEditorPage /></div>
+      {/* Seiten — immer gemountet, nur versteckt → State bleibt erhalten.
+          Im Analyst-only-Deployment wird der Editor gar nicht gemountet (kein /api/projects-Call). */}
+      {!ANALYST_ONLY && (
+        <div className={activePage !== "editor" ? "page-hidden" : ""}><VideoEditorPage /></div>
+      )}
       <div className={activePage !== "analyst" ? "page-hidden" : ""}><VideoAnalystPage /></div>
     </div>
   );

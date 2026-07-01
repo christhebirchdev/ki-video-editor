@@ -24,21 +24,45 @@ def get_video_duration(video_path: Path) -> float:
     return float(json.loads(result.stdout)["format"]["duration"])
 
 
-def _build_filter_complex(clips: list[tuple[float, float]]) -> tuple[str, str, str]:
-    """trim+atrim pro Clip, dann concat. Sekunden mit 3 Nachkommastellen."""
+def _build_filter_complex(
+    clips: list[tuple[float, float]],
+    audio_fade_sec: float = 0.0,
+) -> tuple[str, str, str]:
+    """trim+atrim pro Clip, dann concat. Sekunden mit 3 Nachkommastellen.
+
+    audio_fade_sec > 0 (V4): Micro-Fade-In/Out pro Audio-Segment gegen
+    Klicks/Pegelsprünge an den Schnitt-Nahtstellen ("Schnittwunden").
+    Default 0.0 → Verhalten für V1-V3 byte-identisch zu vorher.
+    """
     parts = []
     concat_inputs = []
     for i, (start_s, end_s) in enumerate(clips):
         parts.append(f"[0:v]trim=start={start_s:.3f}:end={end_s:.3f},setpts=PTS-STARTPTS[v{i}]")
-        parts.append(f"[0:a]atrim=start={start_s:.3f}:end={end_s:.3f},asetpts=PTS-STARTPTS[a{i}]")
+        a_filter = f"[0:a]atrim=start={start_s:.3f}:end={end_s:.3f},asetpts=PTS-STARTPTS"
+        if audio_fade_sec > 0:
+            seg_dur = end_s - start_s
+            d = min(audio_fade_sec, seg_dur / 3.0)  # Mini-Clips: Fade auf 1/3 der Länge kappen
+            a_filter += (
+                f",afade=t=in:st=0:d={d:.3f}"
+                f",afade=t=out:st={max(0.0, seg_dur - d):.3f}:d={d:.3f}"
+            )
+        parts.append(a_filter + f"[a{i}]")
         concat_inputs.append(f"[v{i}][a{i}]")
     concat_str = "".join(concat_inputs) + f"concat=n={len(clips)}:v=1:a=1[outv][outa]"
     filter_expr = ";".join(parts) + ";" + concat_str
     return filter_expr, "[outv]", "[outa]"
 
 
-def execute_cut_plan(cut_plan: CutPlan, raw_dir: Path, output_dir: Path) -> Path:
-    """Führt den Schnittplan aus: alle Clips in einem ffmpeg-Call schneiden + zusammenfügen."""
+def execute_cut_plan(
+    cut_plan: CutPlan,
+    raw_dir: Path,
+    output_dir: Path,
+    audio_fade_ms: int = 0,
+) -> Path:
+    """Führt den Schnittplan aus: alle Clips in einem ffmpeg-Call schneiden + zusammenfügen.
+
+    audio_fade_ms > 0 (nur V4): Micro-Audio-Fades an den Clip-Rändern.
+    """
     clips = [(c.start, c.end) for c in cut_plan.clips if c.end > c.start]
     if not clips:
         raise ValueError("Kein Clip zum Schneiden im Cut-Plan.")
@@ -51,7 +75,7 @@ def execute_cut_plan(cut_plan: CutPlan, raw_dir: Path, output_dir: Path) -> Path
         raise ValueError(f"Keine Video-Datei in {raw_dir} gefunden.")
     input_path = video_files[0]
 
-    filter_expr, v_out, a_out = _build_filter_complex(clips)
+    filter_expr, v_out, a_out = _build_filter_complex(clips, audio_fade_sec=audio_fade_ms / 1000.0)
 
     final_out = output_dir / "rough_cut.mp4"
     output_dir.mkdir(parents=True, exist_ok=True)

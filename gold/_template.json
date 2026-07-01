@@ -1,0 +1,24 @@
+{
+  "video": "dateiname.mp4",
+  "format": "Talking-Head | B-Roll/Voiceover | Sketch | Tutorial | Vlog | Sonstiges",
+  "input": "HIER den Szenen+Transkript-Block aus dem Claude-Prompt / analysis.json einfügen (genau das, was Claude im Echtbetrieb sieht).",
+  "urteil": {
+    "zielgruppe": "",
+    "performance_score": 0,
+    "funnel": "TOFU | MOFU | BOFU | Mischung",
+    "hook": {
+      "sprech_hook_score": 0,
+      "sprech_hook_grund": "",
+      "text_hook_vorhanden": false,
+      "text_hook_score": null,
+      "text_hook_grund": null
+    },
+    "struktur": {"score": 0, "elemente": {"hook": false, "bridge": false, "mid": false, "peak": false, "cta": false}, "kommentar": ""},
+    "sprechqualitaet": {"score": 0, "probleme": []},
+    "schnitt_pacing": {"score": 0, "kommentar": ""},
+    "spannungsbogen": {"score": 0, "kommentar": ""},
+    "visuelle_aesthetik": {"score": 0, "probleme": []},
+    "top_tipps": []
+  },
+  "notizen": "WARUM der Experten je Kriterium + Streitpunkte (z.B. 'Hook 4 vs 2 — uneinig')."
+}
