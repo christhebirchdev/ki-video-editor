@@ -108,9 +108,18 @@ function playDoneChime() {
 }
 
 function Logo() {
-  // Echte Logo-Datei aus dem Screenshot. Chris legt sie als static/logo.svg ab
-  // (die Wortmarke „//MEINFLUSS" ist im Bild bereits enthalten → separater Text entfällt).
-  return <img className="mark" src="/static/logo.svg" alt="MEINFLUSS" style={{ height: 32, width: "auto", display: "block" }} />;
+  // Marken-Logo: drei goldene Schräg-Balken wie im MEINFLUSS-Screenshot.
+  // Die Wortmarke „MEINFLUSS" steht daneben als HTML-Textmarke (dunkel = auf der
+  // hellen Kopfleiste sichtbar; die helle Screenshot-Variante wäre creme-auf-creme unsichtbar).
+  return (
+    <svg className="mark" width="40" height="34" viewBox="0 0 40 34" fill="none" aria-hidden="true">
+      <g fill="#BD9F66">
+        <path d="M6 28 L14 6 L18 6 L10 28 Z"/>
+        <path d="M15 28 L23 6 L27 6 L19 28 Z"/>
+        <path d="M24 28 L32 6 L36 6 L28 28 Z"/>
+      </g>
+    </svg>
+  );
 }
 
 function Card({ num, icon, title, sub, action, children }) {
@@ -1599,6 +1608,7 @@ function App() {
       <header className="topbar">
         <div className="brand">
           <Logo />
+          <span className="wordmark">MEINFLUSS</span>
           <div className="brand-divider" />
           <div className="app-name">
             <span className="kicker">Studio</span>
