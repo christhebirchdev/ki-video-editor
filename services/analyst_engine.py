@@ -12,6 +12,7 @@ Status-Updates landen in status.json (Frontend pollt alle 2s).
 """
 import json
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -70,10 +71,63 @@ def run_analysis(run_id: str) -> None:
 
 
 def _run(run_id: str, run_dir: Path) -> None:
-    from services.whisper_service import transcribe_with_word_timestamps
-
-    video = _find_video(run_dir)
+    """Dispatcher: wählt die Engine (v1 = Claude, v2_pure/v2_hybrid = ein Gemini-Lauf),
+    misst die reine Verarbeitungszeit und schreibt analysis.json + Abschluss-Status."""
     meta = json.loads((run_dir / "meta.json").read_text())
+    engine = meta.get("engine", "v1")
+    if engine not in ("v1", "v2_pure", "v2_hybrid"):
+        engine = "v1"
+    video = _find_video(run_dir)
+
+    t0 = time.perf_counter()
+    if engine == "v2_pure":
+        result = _run_v2(run_dir, video, meta, mode="pure")
+    elif engine == "v2_hybrid":
+        result = _run_v2(run_dir, video, meta, mode="hybrid")
+    else:
+        result = _run_v1(run_dir, video, meta)
+    result.id = run_id
+    result.engine = engine
+    result.elapsed_sec = round(time.perf_counter() - t0, 1)
+
+    (run_dir / "analysis.json").write_text(result.model_dump_json(indent=2))
+    write_status(run_dir, "done", "Analyse abgeschlossen", done=True)
+
+
+def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str):
+    """Ein Gemini-Lauf bewertet das Video direkt (pure = nur Video; hybrid = Video + lokale Messwerte)."""
+    from services import analyst_frames, analyst_gemini_eval
+
+    filename = meta.get("filename", video.name)
+
+    if mode == "hybrid":
+        from services.whisper_service import transcribe_with_word_timestamps
+        write_status(run_dir, "transcribe", "Transkription läuft…")
+        words, transcript = transcribe_with_word_timestamps(video, model_name=settings.whisper_model)
+        speech_stats = compute_speech_stats(words)
+        write_status(run_dir, "quality", "Audio-Messwerte werden erhoben…")
+        try:
+            quality = analyst_quality.measure(video, [])
+        except Exception as e:
+            print(f"  [ANALYST] Qualitäts-Messung fehlgeschlagen: {e}")
+            quality = None
+        duration = analyst_frames.probe_duration(video)
+        result = AnalystResult(
+            id="", filename=filename, duration_sec=duration, scene_count=0, scenes=[],
+            transcript=transcript, speech_stats=speech_stats, quality_metrics=quality,
+        )
+    else:  # pure
+        duration = analyst_frames.probe_duration(video)
+        result = AnalystResult(id="", filename=filename, duration_sec=duration, scene_count=0, scenes=[])
+
+    write_status(run_dir, "evaluate", "Analyse & Bewertung laufen…")
+    evaluate = analyst_gemini_eval.evaluate_hybrid if mode == "hybrid" else analyst_gemini_eval.evaluate_pure
+    result.evaluation = evaluate(video, result)
+    return result
+
+
+def _run_v1(run_dir: Path, video: Path, meta: dict):
+    from services.whisper_service import transcribe_with_word_timestamps
 
     write_status(run_dir, "transcribe", "Transkription läuft…")
     words, transcript = transcribe_with_word_timestamps(video, model_name=settings.whisper_model)
@@ -98,7 +152,7 @@ def _run(run_id: str, run_dir: Path) -> None:
         quality = None
 
     result = AnalystResult(
-        id=run_id,
+        id="",
         filename=meta.get("filename", video.name),
         duration_sec=duration,
         scene_count=len(descriptions),
@@ -120,5 +174,4 @@ def _run(run_id: str, run_dir: Path) -> None:
         except Exception as e:
             print(f"  [ANALYST] Claude-Bewertung fehlgeschlagen: {e}")
 
-    (run_dir / "analysis.json").write_text(result.model_dump_json(indent=2))
-    write_status(run_dir, "done", "Analyse abgeschlossen", done=True)
+    return result

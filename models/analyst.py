@@ -124,3 +124,5 @@ class AnalystResult(BaseModel):
     speech_stats: Optional[SpeechStats] = None
     quality_metrics: Optional[QualityMetrics] = None
     evaluation: Optional[AnalystEvaluationV2] = None
+    engine: str = "v1"                 # v1 (Claude) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte)
+    elapsed_sec: float = 0.0           # reine Verarbeitungszeit (ohne Warteschlange), für Engine-Vergleich

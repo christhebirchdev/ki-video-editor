@@ -57,9 +57,17 @@ async def upload_video(file: UploadFile = File(...)):
     return {"id": run_id, "filename": safe_name}
 
 
+ENGINES = {"v1", "v2_pure", "v2_hybrid"}
+
+
 @router.post("/{run_id}/start")
-async def start_analysis(run_id: str, background: BackgroundTasks, skip_eval: bool = False):
-    """skip_eval=true → nur lokale Rohanalyse (Gemma/Whisper/Quality), KEIN Claude-Call."""
+async def start_analysis(
+    run_id: str, background: BackgroundTasks, skip_eval: bool = False, engine: str = "v1"
+):
+    """engine: v1 (Claude bewertet aus Text) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte).
+    skip_eval=true → nur lokale Rohanalyse (Whisper/Quality), KEIN Bewertungs-Call (nur v1 sinnvoll)."""
+    if engine not in ENGINES:
+        raise HTTPException(status_code=422, detail=f"Unbekannte Engine '{engine}'. Erlaubt: {', '.join(sorted(ENGINES))}")
     run_dir = _run_dir(run_id)
     status = json.loads((run_dir / "status.json").read_text())
     if status.get("phase") in RUNNING_PHASES:
@@ -67,14 +75,15 @@ async def start_analysis(run_id: str, background: BackgroundTasks, skip_eval: bo
     ok, msg = analyst_vlm.is_available()
     if not ok:
         raise HTTPException(status_code=503, detail=msg)
-    # skip_eval in meta.json persistieren, damit die Engine es liest
+    # engine + skip_eval in meta.json persistieren, damit die Engine sie liest
     meta_path = run_dir / "meta.json"
     meta = json.loads(meta_path.read_text())
     meta["skip_eval"] = skip_eval
+    meta["engine"] = engine
     meta_path.write_text(json.dumps(meta, ensure_ascii=False))
     write_status(run_dir, "starting", "Analyse startet…")
     background.add_task(run_analysis, run_id)
-    return {"id": run_id, "status": "started", "skip_eval": skip_eval}
+    return {"id": run_id, "status": "started", "skip_eval": skip_eval, "engine": engine}
 
 
 @router.get("/{run_id}")

@@ -167,6 +167,14 @@ const ANALYST_FEATURES = [
   { ico: "📊", title: "Performance-Score", desc: "Plattform-Potenzial & konkrete Optimierungstipps" },
 ];
 
+// Bewertungs-Engines zum Vergleich. Gleiches Ergebnis-Layout, gleicher Bewertungsprompt —
+// nur WER/WIE bewertet ändert sich.
+const ANALYST_ENGINES = [
+  { id: "v1",        label: "V1",        hint: "Mehrstufige Analyse: das Video wird erst beschrieben, dann bewertet. Gründlich, aber etwas langsamer." },
+  { id: "v2_hybrid", label: "V2 Hybrid", hint: "Analyse und Bewertung in einem Schritt, ergänzt um objektive Messwerte. Schneller." },
+];
+const ENGINE_LABEL = Object.fromEntries(ANALYST_ENGINES.map((e) => [e.id, e.label]));
+
 function fmtSec(s) {
   if (s == null) return "—";
   const mm = Math.floor(s / 60);
@@ -221,6 +229,7 @@ function problemeDetail(block) {
 
 function VideoAnalystPage() {
   const [analysisFile, setAnalysisFile] = useState(null);
+  const [engine, setEngine] = useState("v2_hybrid");    // Standard: V2 Hybrid. v1 (Claude) bleibt als Fallback anklickbar.
   const [phase, setPhase] = useState("idle");   // idle | running | done
   const [progress, setProgress] = useState("");
   const [queueInfo, setQueueInfo] = useState(null);  // {ahead,total} während "queued"
@@ -262,7 +271,7 @@ function VideoAnalystPage() {
       fd.append("file", analysisFile.file);
       const up = await api("POST", "/api/analyst/upload", fd);
       setProgress("Analyse startet …");
-      await api("POST", `/api/analyst/${up.id}/start`);
+      await api("POST", `/api/analyst/${up.id}/start?engine=${engine}`);
       const res = await pollUntilDone(up.id);
       if (res) {
         setResult(res);
@@ -339,6 +348,27 @@ function VideoAnalystPage() {
         </div>
 
         <div className="analyst-action">
+          {/* Analyse-Umschalter: V1 vs. V2 Hybrid — zum direkten Vergleich */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {ANALYST_ENGINES.map((e) => (
+                <button
+                  key={e.id}
+                  type="button"
+                  title={e.hint}
+                  className={"btn " + (engine === e.id ? "btn-primary" : "btn-ghost")}
+                  style={{ padding: "8px 14px", fontSize: 13 }}
+                  disabled={phase === "running"}
+                  onClick={() => setEngine(e.id)}
+                >
+                  {e.label}
+                </button>
+              ))}
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              {ANALYST_ENGINES.find((e) => e.id === engine)?.hint}
+            </div>
+          </div>
           <button
             className="btn btn-primary analyst-start-btn"
             disabled={!canStart || phase === "running"}
@@ -373,7 +403,13 @@ function VideoAnalystPage() {
         <Card
           icon={<Ico.check />}
           title="Analyse abgeschlossen"
-          sub={`${result.filename} · ${fmtSec(result.duration_sec)} · ${result.scene_count} Szenen`}
+          sub={[
+            result.filename,
+            fmtSec(result.duration_sec),
+            ENGINE_LABEL[result.engine] || result.engine,
+            result.elapsed_sec ? `⏱ ${result.elapsed_sec}s` : null,
+            result.scene_count ? `${result.scene_count} Szenen` : null,
+          ].filter(Boolean).join(" · ")}
           action={
             <button className="btn btn-ghost" style={{ padding: "9px 14px", fontSize: 13 }} onClick={reset}>
               <Ico.refresh width="15" height="15" /> Neue Analyse
