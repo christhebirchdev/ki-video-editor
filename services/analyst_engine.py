@@ -75,11 +75,11 @@ def _run(run_id: str, run_dir: Path) -> None:
     video = _find_video(run_dir)
     meta = json.loads((run_dir / "meta.json").read_text())
 
-    write_status(run_dir, "transcribe", "Transkription läuft (Whisper, lokal)…")
+    write_status(run_dir, "transcribe", "Transkription läuft…")
     words, transcript = transcribe_with_word_timestamps(video, model_name=settings.whisper_model)
     speech_stats = compute_speech_stats(words)
 
-    write_status(run_dir, "describe", "Frames werden beschrieben (Gemini: Bild + Audio + Blick)…")
+    write_status(run_dir, "describe", "Bild und Ton werden analysiert…")
     segments, duration, audio_overview, gaze_overview = analyst_vlm.describe_video(video, run_dir / "frames")
     descriptions = [
         SceneDescription(
@@ -113,7 +113,7 @@ def _run(run_id: str, run_dir: Path) -> None:
     if meta.get("skip_eval"):
         print("  [ANALYST] skip_eval=true → Claude-Bewertung übersprungen")
     else:
-        write_status(run_dir, "evaluate", "Bewertung läuft (Claude)…")
+        write_status(run_dir, "evaluate", "Bewertung wird erstellt…")
         try:
             from services import analyst_eval
             result.evaluation = analyst_eval.evaluate(result)

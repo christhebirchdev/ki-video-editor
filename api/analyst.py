@@ -21,6 +21,24 @@ def _run_dir(run_id: str):
     return d
 
 
+def _active_runs():
+    """Aktive Läufe (laufend + wartend), sortiert nach created_at → [(created_at, id), …].
+    ponytail: liest die Statusdateien bei jedem Poll — reicht für die paar parallelen Nutzer."""
+    active = []
+    for d in ANALYST_PATH.iterdir():
+        if not d.is_dir():
+            continue
+        try:
+            phase = json.loads((d / "status.json").read_text()).get("phase")
+            created = json.loads((d / "meta.json").read_text()).get("created_at", "")
+        except (OSError, json.JSONDecodeError):
+            continue
+        if phase in RUNNING_PHASES:
+            active.append((created, d.name))
+    active.sort()
+    return active
+
+
 @router.post("/upload")
 async def upload_video(file: UploadFile = File(...)):
     run_id = str(uuid.uuid4())[:8]
@@ -64,6 +82,11 @@ async def get_analysis(run_id: str):
     run_dir = _run_dir(run_id)
     status = json.loads((run_dir / "status.json").read_text())
     out = {"id": run_id, **status}
+    if status.get("phase") in RUNNING_PHASES:
+        ids = [name for _, name in _active_runs()]
+        total = len(ids)
+        ahead = ids.index(run_id) if run_id in ids else 0
+        out["queue"] = {"ahead": ahead, "total": total}
     analysis = run_dir / "analysis.json"
     if status.get("done") and analysis.exists():
         out["result"] = json.loads(analysis.read_text())

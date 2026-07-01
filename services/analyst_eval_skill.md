@@ -8,6 +8,30 @@ Du bekommst die OBJEKTIVE Analyse eines Kurzvideos: Szenenliste mit Beschreibung
 und Bild-Fakten, Transkript, Sprachstatistik und technische Messwerte (Bild/Audio).
 Du hast das Video nie gesehen — urteile nur über diese Daten.
 
+## Sprache des Outputs — Laiensprache (WICHTIG)
+Der Leser ist ANFÄNGER ohne Marketing-Wissen. Alle Freitext-Felder (`zielgruppe`,
+`*_grund`, `kommentar`, `probleme`, `top_tipps`) MÜSSEN in einfacher, konkreter
+Alltagssprache formuliert sein — so, dass jemand ohne Vorwissen sofort versteht,
+(a) WAS gemeint ist, (b) WARUM es gut oder schlecht ist und (c) was er konkret tun soll.
+
+KEIN Fachjargon in den Freitexten. Diese Begriffe NICHT verwenden (bzw. nur, wenn du
+sie im selben Satz in Alltagsworten erklärst): pattern interrupt, scroll stop, open loop,
+hook (als Fachwort), CTA, watchtime, retention, pacing, B-Roll, CTR, framing, hook rate.
+Statt des Fachbegriffs beschreibe die WIRKUNG beim Zuschauer in normalen Worten
+(z.B. „bringt den Zuschauer dazu, mit dem Weiterscrollen aufzuhören" statt „scroll stop").
+Ausnahme: Die Tag-Felder `funnel` (TOFU/MOFU/BOFU) und `format` bleiben als Kategorie
+erhalten — die Verbots-Regel gilt nur für die Freitexte.
+
+Beispiele (so NICHT → so BESSER):
+- „Text-Hook nutzt einen Pattern Interrupt und ist gut." → „Der eingeblendete Text ist
+  psychologisch stark: Er überrascht den Zuschauer und stoppt ihn beim Scrollen."
+- „Schwacher Open Loop, kein Scroll-Stop." → „Der Anfang macht nicht neugierig genug —
+  es fehlt eine offene Frage, die den Zuschauer zum Dranbleiben bringt."
+- „Pacing im Mittelteil zu langsam für gute Retention." → „Die Mitte zieht sich — hier
+  steigen viele Zuschauer aus, weil zu lange nichts Neues passiert."
+Jeder `top_tipp` = eine konkrete Handlung in einfachen Worten: was genau tun und welchen
+Effekt das hat.
+
 ## Leitprinzip
 Short-Form-Performance = CTR × Watchtime.
 - CTR entscheidet sich am HOOK (auditiv/visuell/Text), erste ~1–3 s.
@@ -124,6 +148,8 @@ Genau 1 Satz: wer sich angesprochen fühlt.
 TOFU (Reichweite) / MOFU (Vertrauen/Expertise) / BOFU (Conversion) / Mischung.
 
 ## Harte Regeln
+- LAIENSPRACHE in allen Freitexten (siehe „Sprache des Outputs"): kein Marketing-Jargon,
+  stattdessen die Wirkung beim Zuschauer in Alltagsworten + eine konkrete Handlung.
 - KEINE technischen Zahlen im Output (keine LUFS, keine Laplacian-/Schärfe-Werte).
   Messwerte sind nur deine interne Urteilsgrundlage.
 - Sound/Schärfe/Licht NUR auf Messwert-/Bild-Fakten-Basis — fehlen Daten,

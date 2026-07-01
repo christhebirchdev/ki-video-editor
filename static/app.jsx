@@ -108,15 +108,9 @@ function playDoneChime() {
 }
 
 function Logo() {
-  return (
-    <svg className="mark" width="40" height="34" viewBox="0 0 40 34" fill="none" aria-hidden="true">
-      <g>
-        <path d="M6 28 L14 6 L18 6 L10 28 Z" fill="#BD9F66"/>
-        <path d="M15 28 L23 6 L25 6 L17 28 Z" fill="#221E18"/>
-        <path d="M24 28 L32 6 L36 6 L28 28 Z" fill="#BD9F66"/>
-      </g>
-    </svg>
-  );
+  // Echte Logo-Datei aus dem Screenshot. Chris legt sie als static/logo.svg ab
+  // (die Wortmarke „//MEINFLUSS" ist im Bild bereits enthalten → separater Text entfällt).
+  return <img className="mark" src="/static/logo.svg" alt="MEINFLUSS" style={{ height: 32, width: "auto", display: "block" }} />;
 }
 
 function Card({ num, icon, title, sub, action, children }) {
@@ -157,25 +151,6 @@ function fmtMs(ms) {
 }
 
 /* ===== Video Analyst Seite ===== */
-const ANALYST_PLATFORMS = [
-  { name: "YouTube",    domains: ["youtube.com", "youtu.be"] },
-  { name: "Instagram",  domains: ["instagram.com"] },
-  { name: "TikTok",     domains: ["tiktok.com"] },
-  { name: "X / Twitter",domains: ["twitter.com", "x.com"] },
-  { name: "LinkedIn",   domains: ["linkedin.com"] },
-  { name: "Vimeo",      domains: ["vimeo.com"] },
-  { name: "Facebook",   domains: ["facebook.com", "fb.watch"] },
-];
-
-function detectPlatform(url) {
-  if (!url) return null;
-  const lower = url.toLowerCase();
-  for (const p of ANALYST_PLATFORMS) {
-    if (p.domains.some((d) => lower.includes(d))) return p.name;
-  }
-  return null;
-}
-
 const ANALYST_FEATURES = [
   { ico: "🎯", title: "Inhaltsanalyse",    desc: "Themen, Kernaussagen & Story-Struktur erkennen" },
   { ico: "🎙️", title: "Sprach-Qualität",   desc: "Füllwörter, Pausen, Sprechtempo & Verständlichkeit" },
@@ -236,14 +211,12 @@ function problemeDetail(block) {
 }
 
 function VideoAnalystPage() {
-  const [inputMode, setInputMode] = useState("url");
-  const [url, setUrl] = useState("");
   const [analysisFile, setAnalysisFile] = useState(null);
   const [phase, setPhase] = useState("idle");   // idle | running | done
   const [progress, setProgress] = useState("");
+  const [queueInfo, setQueueInfo] = useState(null);  // {ahead,total} während "queued"
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
-  const [skipEval, setSkipEval] = useState(true);   // vorerst: nur Rohanalyse, Claude aus
   const fileRef = useRef(null);
   const cancelledRef = useRef(false);
 
@@ -254,8 +227,7 @@ function VideoAnalystPage() {
     if (f) setAnalysisFile({ file: f, name: f.name, size: (f.size / 1024 / 1024).toFixed(1) + " MB" });
   }
 
-  const detected = detectPlatform(url);
-  const canStart = inputMode === "url" ? url.trim().length > 8 : !!analysisFile;
+  const canStart = !!analysisFile;
 
   async function pollUntilDone(runId) {
     while (!cancelledRef.current) {
@@ -263,6 +235,7 @@ function VideoAnalystPage() {
       const data = await api("GET", `/api/analyst/${runId}`);
       if (cancelledRef.current) return null;
       if (data.phase === "error") throw new Error(data.error || "Analyse fehlgeschlagen");
+      setQueueInfo(data.phase === "queued" ? (data.queue || null) : null);
       setProgress(data.detail || "Analyse läuft …");
       if (data.done && data.result) return data.result;
     }
@@ -272,10 +245,6 @@ function VideoAnalystPage() {
   async function startAnalysis() {
     if (!canStart || phase === "running") return;
     setError("");
-    if (inputMode === "url") {
-      setError("URL-Analyse folgt in einer späteren Version — bitte nutze vorerst eine lokale Datei (Tab „Lokale Datei“).");
-      return;
-    }
     setPhase("running");
     setResult(null);
     try {
@@ -284,7 +253,7 @@ function VideoAnalystPage() {
       fd.append("file", analysisFile.file);
       const up = await api("POST", "/api/analyst/upload", fd);
       setProgress("Analyse startet …");
-      await api("POST", `/api/analyst/${up.id}/start?skip_eval=${skipEval}`);
+      await api("POST", `/api/analyst/${up.id}/start`);
       const res = await pollUntilDone(up.id);
       if (res) {
         setResult(res);
@@ -298,10 +267,10 @@ function VideoAnalystPage() {
 
   function reset() {
     setPhase("idle");
-    setUrl("");
     setAnalysisFile(null);
     setResult(null);
     setProgress("");
+    setQueueInfo(null);
     setError("");
   }
 
@@ -315,82 +284,35 @@ function VideoAnalystPage() {
       )}
 
       {/* Eingabe */}
-      <Card icon={<Ico.link />} title="Video-Quelle" sub="Per Link oder lokale Datei — wähle dein Video">
-        <div className="analyst-toggle">
-          <button
-            className={"analyst-toggle-btn" + (inputMode === "url" ? " active" : "")}
-            onClick={() => setInputMode("url")}
+      <Card icon={<Ico.upload />} title="Video-Quelle" sub="Lade dein Video hoch">
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="video/*"
+            style={{ display: "none" }}
+            onChange={onPickFile}
+          />
+          <div
+            className={"dropzone" + (analysisFile ? " has" : "")}
+            onClick={() => fileRef.current?.click()}
           >
-            <Ico.link width="15" height="15" /> URL eingeben
-          </button>
-          <button
-            className={"analyst-toggle-btn" + (inputMode === "file" ? " active" : "")}
-            onClick={() => setInputMode("file")}
-          >
-            <Ico.upload width="15" height="15" /> Lokale Datei
-          </button>
+            <div className="dz-ico"><Ico.upload /></div>
+            <div className="dz-title">
+              {analysisFile ? analysisFile.name : "Video auswählen oder hierher ziehen"}
+            </div>
+            <div className="dz-sub">
+              {analysisFile ? analysisFile.size : "MP4, MOV, AVI, MKV · max. 4 GB"}
+            </div>
+          </div>
+          {analysisFile && (
+            <div>
+              <button className="btn btn-ghost" style={{ padding: "9px 16px", fontSize: 13 }} onClick={() => setAnalysisFile(null)}>
+                <Ico.x width="14" height="14" /> Datei entfernen
+              </button>
+            </div>
+          )}
         </div>
-
-        {inputMode === "url" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div className="field">
-              <label className="label">Video-URL</label>
-              <input
-                className="input"
-                type="url"
-                placeholder="https://youtube.com/watch?v=… oder TikTok · Instagram · X · LinkedIn"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && canStart && startAnalysis()}
-              />
-              {detected && (
-                <div className="analyst-detected">
-                  <Ico.check width="13" height="13" />
-                  {detected} erkannt
-                </div>
-              )}
-            </div>
-            <div className="analyst-platforms">
-              <span className="muted" style={{ fontSize: 12 }}>Unterstützt:</span>
-              {ANALYST_PLATFORMS.map((p) => (
-                <span key={p.name} className={"platform-tag" + (detected === p.name ? " active" : "")}>
-                  {p.name}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {inputMode === "file" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="video/*"
-              style={{ display: "none" }}
-              onChange={onPickFile}
-            />
-            <div
-              className={"dropzone" + (analysisFile ? " has" : "")}
-              onClick={() => fileRef.current?.click()}
-            >
-              <div className="dz-ico"><Ico.upload /></div>
-              <div className="dz-title">
-                {analysisFile ? analysisFile.name : "Video auswählen oder hierher ziehen"}
-              </div>
-              <div className="dz-sub">
-                {analysisFile ? analysisFile.size : "MP4, MOV, AVI, MKV · max. 4 GB"}
-              </div>
-            </div>
-            {analysisFile && (
-              <div>
-                <button className="btn btn-ghost" style={{ padding: "9px 16px", fontSize: 13 }} onClick={() => setAnalysisFile(null)}>
-                  <Ico.x width="14" height="14" /> Datei entfernen
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </Card>
 
       {/* Analyse-Umfang + Start-Button */}
@@ -408,15 +330,6 @@ function VideoAnalystPage() {
         </div>
 
         <div className="analyst-action">
-          <label className="analyst-skipeval">
-            <input
-              type="checkbox"
-              checked={skipEval}
-              onChange={(e) => setSkipEval(e.target.checked)}
-              disabled={phase === "running"}
-            />
-            <span>Nur Rohanalyse — Claude-Bewertung überspringen <span className="muted">(Arbeit am Ursprung)</span></span>
-          </label>
           <button
             className="btn btn-primary analyst-start-btn"
             disabled={!canStart || phase === "running"}
@@ -428,16 +341,19 @@ function VideoAnalystPage() {
               <><Ico.play /> Videoanalyse starten</>
             )}
           </button>
+          {phase === "running" && queueInfo && queueInfo.total > 1 && (
+            <div className="analyst-queue">
+              ⏳ In Warteschlange — Platz {queueInfo.ahead + 1} von {queueInfo.total}. Deine Analyse startet automatisch, sobald sie an der Reihe ist.
+            </div>
+          )}
           {phase === "running" && (
             <div className="muted" style={{ fontSize: 13 }}>
-              Transkription läuft lokal (Whisper), die Bild-Beschreibung über Gemini, die Bewertung über Claude. Je nach Videolänge kann das etwas dauern.
+              Dein Video wird transkribiert, Bild und Ton werden analysiert und anschließend bewertet. Je nach Videolänge kann das etwas dauern.
             </div>
           )}
           {!canStart && (
             <div className="muted" style={{ fontSize: 13 }}>
-              {inputMode === "url"
-                ? "Bitte gib zuerst eine gültige Video-URL ein."
-                : "Bitte wähle zuerst eine Videodatei aus."}
+              Bitte wähle zuerst eine Videodatei aus.
             </div>
           )}
         </div>
@@ -522,26 +438,26 @@ function VideoAnalystPage() {
 
           {!result.evaluation && (
             <div className="alert alert-info" style={{ marginBottom: 16 }}>
-              Nur Rohanalyse — Claude-Bewertung wurde übersprungen. Unten der 1:1-Output von Gemini.
+              Die Bewertung konnte nicht erstellt werden. Unten findest du die Detailanalyse des Videos.
             </div>
           )}
 
           {result.audio_overview && (
             <div className="analyst-eval-block" style={{ marginBottom: 16 }}>
-              <div className="analyst-eval-title">🔊 Audio (ganzes Video, Gemini)</div>
+              <div className="analyst-eval-title">🔊 Audio (ganzes Video)</div>
               <div className="analyst-eval-text">{result.audio_overview}</div>
             </div>
           )}
 
           {result.gaze_overview && (
             <div className="analyst-eval-block" style={{ marginBottom: 16 }}>
-              <div className="analyst-eval-title">👀 Blickkontakt (ganzes Video, Gemini)</div>
+              <div className="analyst-eval-title">👀 Blickkontakt (ganzes Video)</div>
               <div className="analyst-eval-text">{result.gaze_overview}</div>
             </div>
           )}
 
           <details className="analyst-rawdump" open>
-            <summary>🔬 Gemini-Rohanalyse (1:1, {result.scenes.length} Segmente)</summary>
+            <summary>🔬 Detailanalyse ({result.scenes.length} Segmente)</summary>
             <div className="analyst-scenes" style={{ marginTop: 12 }}>
               {result.scenes.map((s) => (
                 <div key={s.index} className="analyst-scene">
@@ -566,7 +482,7 @@ function VideoAnalystPage() {
                             📝 Text im Bild: {s.text_overlays ? <strong>„{s.text_overlays}"</strong> : "(keiner erkannt)"}
                           </div>
                         )}
-                        {s.gesprochener_text && <div className="analyst-scene-meta">🗣️ Gesprochen (Whisper): {s.gesprochener_text}</div>}
+                        {s.gesprochener_text && <div className="analyst-scene-meta">🗣️ Gesprochen: {s.gesprochener_text}</div>}
                         {s.kamera && <div className="analyst-scene-meta">🎥 {s.kamera}</div>}
                         {s.bild_fakten && (
                           <div className="analyst-scene-meta">
@@ -1665,7 +1581,7 @@ const PAGE_META = {
   },
   analyst: {
     title: "AI Video Analyst",
-    desc: "Analysiere jedes Video auf Inhalt, Sprach-Qualität, Schnitt-Pacing & Plattform-Potenzial — per YouTube-Link, Instagram, TikTok oder lokale Datei.",
+    desc: "Analysiere jedes Video auf Inhalt, Sprach-Qualität, Schnitt-Pacing & Plattform-Potenzial — lade einfach dein Video hoch.",
     appTitle: "AI Video Analyst",
   },
 };
@@ -1683,7 +1599,6 @@ function App() {
       <header className="topbar">
         <div className="brand">
           <Logo />
-          <span className="wordmark">MEINFLUSS</span>
           <div className="brand-divider" />
           <div className="app-name">
             <span className="kicker">Studio</span>
