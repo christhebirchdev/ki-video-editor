@@ -1,0 +1,16 @@
+# Nicht ins Image kopieren (klein halten + keine Secrets/Daten einbacken):
+.git/
+venv/
+.env
+.env.*
+analyst_runs/
+projects/
+memory/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.log
+.pytest_cache/
+pytest-cache*/
+uvicorn.pid
+gold/

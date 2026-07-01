@@ -1,0 +1,27 @@
+# AI Video Analyst — Deployment hinter dem vorhandenen Traefik (wie n8n).
+# Liegt auf dem VPS unter /docker/analyst (= git clone dieses Repos).
+# Secrets/Schalter kommen aus .env (siehe .env.example), NICHT ins Repo.
+services:
+  analyst:
+    build: .
+    container_name: analyst
+    restart: unless-stopped
+    env_file: .env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.analyst.rule=Host(`analyst.srv1691345.hstgr.cloud`)
+      - traefik.http.routers.analyst.entrypoints=websecure
+      - traefik.http.routers.analyst.tls.certresolver=letsencrypt
+      # Passwortschutz: Middleware liegt als Traefik-Dynamic-File (analyst-auth@file).
+      - traefik.http.routers.analyst.middlewares=analyst-auth@file
+      - traefik.http.services.analyst.loadbalancer.server.port=8001
+    volumes:
+      - analyst_runs:/app/analyst_runs   # Uploads + Ergebnisse überleben Redeploys
+      - analyst_models:/models           # Whisper-Modell-Cache (HF_HOME)
+    # Schutz für den geteilten VPS (2 vCPU / 8 GB, kein Swap). Knöpfe bei Bedarf anpassen:
+    mem_limit: 5g
+    cpus: 1.5
+
+volumes:
+  analyst_runs:
+  analyst_models:

@@ -23,9 +23,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd /opt/ki-video-editor
+            cd /docker/analyst
             git pull origin main
-            source venv/bin/activate
-            pip install -r requirements.txt --quiet
-            systemctl restart ki-video-editor
+            docker compose up -d --build
             echo "✅ Deploy erfolgreich: $(date)"

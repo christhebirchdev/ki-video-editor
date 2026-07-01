@@ -1,0 +1,17 @@
+# Traefik Dynamic-Config für den Passwortschutz des Analyst.
+# ZIEL auf dem VPS:  /docker/traefik/dynamic/analyst-auth.yml
+# (Traefik überwacht /dynamic automatisch – reload passiert von selbst.)
+#
+# Hash erzeugen (ein gemeinsames Passwort für alle 3 Nutzer):
+#   htpasswd -nB team
+#   -> Passwort eingeben, komplette Ausgabe "team:$2y$05$..." unten einsetzen.
+#   (Falls htpasswd fehlt:  sudo apt-get install -y apache2-utils)
+#
+# In der Dynamic-Datei (File-Provider) werden $-Zeichen NICHT interpretiert –
+# den Hash also 1:1 einfügen, KEIN Verdoppeln von $ nötig.
+http:
+  middlewares:
+    analyst-auth:
+      basicAuth:
+        users:
+          - "team:$2y$05$ERSETZEN_DURCH_ECHTEN_HASH"
