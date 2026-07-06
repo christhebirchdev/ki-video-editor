@@ -62,7 +62,8 @@ ENGINES = {"v1", "v2_pure", "v2_hybrid"}
 
 @router.post("/{run_id}/start")
 async def start_analysis(
-    run_id: str, background: BackgroundTasks, skip_eval: bool = False, engine: str = "v1"
+    run_id: str, background: BackgroundTasks, skip_eval: bool = False, engine: str = "v1",
+    planned_text_hook: str = "",
 ):
     """engine: v1 (Claude bewertet aus Text) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte).
     skip_eval=true → nur lokale Rohanalyse (Whisper/Quality), KEIN Bewertungs-Call (nur v1 sinnvoll)."""
@@ -80,6 +81,7 @@ async def start_analysis(
     meta = json.loads(meta_path.read_text())
     meta["skip_eval"] = skip_eval
     meta["engine"] = engine
+    meta["planned_text_hook"] = (planned_text_hook or "").strip()
     meta_path.write_text(json.dumps(meta, ensure_ascii=False))
     write_status(run_dir, "starting", "Analyse startet…")
     background.add_task(run_analysis, run_id)

@@ -57,8 +57,8 @@ def transcribe_with_word_timestamps(
         language=language,
         word_timestamps=True,         # ← essentiell, sonst nur Segment-Level
         vad_filter=True,              # Voice Activity Detection — überspringt lange Stille
-        beam_size=5,                  # höhere Genauigkeit
-    )
+        beam_size=1,                  # greedy statt 5 Pfade → ~1,5-2x schneller, kaum Qualitätsverlust bei klarer Sprache
+    )                                 # ponytail: bei viel Nuscheln/Dialekt ggf. wieder auf 5 hochsetzen
 
     words: list[WhisperWord] = []
     full_text_parts: list[str] = []

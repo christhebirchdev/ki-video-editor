@@ -96,6 +96,12 @@ class ScoreKommentar(BaseModel):
     kommentar: str = ""
 
 
+class ActionStep(BaseModel):
+    """Konkreter Umsetzungs-Schritt als To-do: Zeitpunkt + eine einfache Handlung."""
+    zeitpunkt: str = ""      # z.B. "0:03" oder "ca. Sek. 3" (Richtwert, ±1–2 s)
+    anweisung: str = ""      # EINE konkrete Handlung in super einfacher Sprache
+
+
 class AnalystEvaluationV2(BaseModel):
     """Schlanke Bewertung durch Claude — scannbar, ~80 % kürzer als V1."""
     zielgruppe: str = ""               # genau 1 Satz
@@ -108,7 +114,10 @@ class AnalystEvaluationV2(BaseModel):
     schnitt_pacing: ScoreKommentar = Field(default_factory=ScoreKommentar)
     spannungsbogen: ScoreKommentar = Field(default_factory=ScoreKommentar)
     visuelle_aesthetik: ScoreProbleme = Field(default_factory=ScoreProbleme)
-    top_tipps: list[str] = Field(default_factory=list)
+    staerken: list[str] = Field(default_factory=list)             # positives Feedback: was schon gut ist
+    top_tipps: list[str] = Field(default_factory=list)            # ausführliches Verbesserungs-Feedback
+    action_steps: list[ActionStep] = Field(default_factory=list)  # die 3 wichtigsten, schnell umsetzbaren Handlungsempfehlungen
+    weitere_empfehlungen: list[ActionStep] = Field(default_factory=list)  # zusätzliche, ausführlichere Empfehlungen (aufklappbar)
 
 
 class AnalystResult(BaseModel):
@@ -126,3 +135,4 @@ class AnalystResult(BaseModel):
     evaluation: Optional[AnalystEvaluationV2] = None
     engine: str = "v1"                 # v1 (Claude) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte)
     elapsed_sec: float = 0.0           # reine Verarbeitungszeit (ohne Warteschlange), für Engine-Vergleich
+    geplante_texthook: str = ""        # vom Nutzer vor der Analyse eingetragene, geplante Texthook (Freifeld)

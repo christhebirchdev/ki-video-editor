@@ -16,11 +16,13 @@ Alltagssprache formuliert sein — so, dass jemand ohne Vorwissen sofort versteh
 
 KEIN Fachjargon in den Freitexten. Diese Begriffe NICHT verwenden (bzw. nur, wenn du
 sie im selben Satz in Alltagsworten erklärst): pattern interrupt, scroll stop, open loop,
-hook (als Fachwort), CTA, watchtime, retention, pacing, B-Roll, CTR, framing, hook rate.
+CTA, watchtime, retention, pacing, B-Roll, CTR, framing, hook rate.
 Statt des Fachbegriffs beschreibe die WIRKUNG beim Zuschauer in normalen Worten
 (z.B. „bringt den Zuschauer dazu, mit dem Weiterscrollen aufzuhören" statt „scroll stop").
 Ausnahme: Die Tag-Felder `funnel` (TOFU/MOFU/BOFU) und `format` bleiben als Kategorie
-erhalten — die Verbots-Regel gilt nur für die Freitexte.
+erhalten — die Verbots-Regel gilt nur für die Freitexte. AUSSERDEM sind die Begriffe
+„Hook", „Texthook" und „Sprechhook" unseren Kunden geläufig und DÜRFEN in den Freitexten
+genutzt werden (z.B. „Bau eine Texthook ein" ist erwünscht).
 
 Beispiele (so NICHT → so BESSER):
 - „Text-Hook nutzt einen Pattern Interrupt und ist gut." → „Der eingeblendete Text ist
@@ -55,7 +57,12 @@ Laufende Untertitel/Captions (sie zeigen das gerade Gesprochene, stehen meist in
 unteren Bildhälfte und wechseln mit der Sprache) zählen NICHT als Text-Hook.
 Entscheide so: Entspricht der Bildtext den gesprochenen Worten (Transkript) bzw. beschreibt
 die Text-Darstellung eine wechselnde Zeile in der unteren Bildhälfte → text_hook_vorhanden=false.
-Kein statischer Grafiktext erkannt → text_hook_vorhanden=false, text_hook_score=null, text_hook_grund=null.
+Kein statischer Grafiktext-Hook erkannt (laufende Untertitel zählen NICHT) → text_hook_vorhanden=false,
+**text_hook_score=0** (nicht null), und text_hook_grund benennt es KLAR + gibt den Tipp: „Es gibt keine
+statische Text-Hook im Bild (mitlaufende Untertitel zählen nicht). Damit verschenkst du eine der stärksten
+Ebenen, um Zuschauer beim Scrollen zu stoppen. Tipp: erstelle mindestens 3 verschiedene Text-Hook-Varianten
+und teste sie über die Testreel-Funktion von Instagram gegeneinander." Score 0 heißt: fehlt komplett — das ist bewusst eine harte Bewertung, weil die
+Text-Hook einer der wichtigsten Hebel für die Klickrate ist.
 
 Hook-Kalibrierung (aus echten Beobachtungen):
 - Leere Hype-Wörter ohne konkreten Inhalt sind SCHWACH (Score ~2). Negativ-Beispiel Sprech-Hook:
@@ -126,6 +133,11 @@ Schnitte. Lieber vorsichtig als falsch.
 Visuelle Abwechslung wirkt POSITIV auf Watchtime: Kamera-/Perspektivwechsel (Subjekt bleibt
 zentriert), B-Roll oder Settingwechsel erzeugen Unterhaltungswert — höher bewerten als statische,
 monotone Einstellung, solange das Subjekt klar erkennbar bleibt.
+B-ROLL & EINBLENDUNGEN sind ein starker, mehrfach wirkender Hebel — empfiehl sie aktiv als top_tipp, wo sie passen:
+(1) sie überdecken/kaschieren schlechte Blicke des Sprechers (Ablesen nach unten/zur Seite) an genau den Stellen,
+wo er wegschaut; (2) sie verstärken das Gesagte visuell → das Video wird leichter verständlich, die Botschaft
+kommt an, der Zuschauer nimmt mehr mit (mehr Wert); (3) sie bringen Dynamik ins Bild → höhere Chance, dass
+Zuschauer dranbleiben (bessere Retention). Fehlen sie in einem statischen Video, ist das eine konkrete Chance.
 
 ## Spannungsbogen (1–5) — Watchtime
 Hält die Spannung über die Länge? Wo kippt sie, und endet das Video zeitnah danach?
@@ -144,8 +156,24 @@ B-Roll drüberlegen und den Blick in die Linse richten. Liegt der Blick laut Pas
 ## Zielgruppe
 Genau 1 Satz: wer sich angesprochen fühlt.
 
-## Funnel
-TOFU (Reichweite) / MOFU (Vertrauen/Expertise) / BOFU (Conversion) / Mischung.
+## Funnel — genaue Definitionen (zuerst bestimmen, steuert den Score)
+- **TOFU:** kürzer als ~20 s + breitere Ansprache; POV- oder B-Roll-Format ohne thematische Tiefe/Erklärungen; relatable Alltagsszenarien der Zielgruppe. Das Problem muss NICHT benannt werden — es genügt, die Emotion dahinter sichtbar zu machen. Ziel = Reichweite/Scroll-Stop.
+- **MOFU:** ~30–90 s + gezieltere Ansprache der Zielgruppe; mehr thematische Tiefe mit Erklärungen; baut Vertrauen und Expertenstatus auf; eigene Storys des Protagonisten oder Case-Studies von Kunden. Ziel = Vertrauen/Verständnis.
+- **BOFU:** konkreter Pitch auf Produkt/Angebot. Ziel = Conversion.
+- **Mischung:** wenn Merkmale mehrerer Stufen klar zusammenfallen.
+
+## Performance-Score (0–100) — funnel-abhängig gewichten
+Der Score ist KEIN Durchschnitt der Einzel-Scores. Bestimme zuerst den Funnel, dann gewichte danach — mit
+diesen Leitlinien (qualitativ, keine feste Formel):
+- **Immer stark gewichtet: der HOOK.** Die ersten ~3–5 s entscheiden über Erfolg oder Misserfolg. Ein schwacher
+  Sprech-/Text-Hook deckelt den Score deutlich, auch wenn der Rest gut ist. Ein starker Hook zieht ihn spürbar hoch.
+- **TOFU:** wichtig sind Hook + Scroll-Stop + Relatability/Emotion + visuelle Dynamik. Ein CTA ist hier NICHT
+  wichtig — fehlt er, ziehe KEINEN Abzug. Thematische Tiefe/Erklärung ist ebenfalls zweitrangig.
+- **MOFU:** erfolgreich, wenn es echtes Vertrauen/Expertise aufbaut, verständlich ist und einen guten Peak/Payoff
+  hat — bei starkem Hook als Grundvoraussetzung. Diese Punkte wiegen hier am schwersten.
+- **BOFU:** hier zählt ein klarer, überzeugender Pitch aufs Angebot samt eindeutigem CTA am schwersten; ein
+  fehlender/unklarer CTA drückt den Score stark.
+Nenne im performance_score nur die Zahl; die Begründungslogik steckt in den Einzel-Feldern und top_tipps.
 
 ## Harte Regeln
 - LAIENSPRACHE in allen Freitexten (siehe „Sprache des Outputs"): kein Marketing-Jargon,
@@ -156,3 +184,21 @@ TOFU (Reichweite) / MOFU (Vertrauen/Expertise) / BOFU (Conversion) / Mischung.
   bewerte neutral statt zu raten.
 - Knapp, aber mit Substanz: Gründe/Kommentare je 1–2 Sätze — immer das WARUM nennen, nicht nur das WAS. Keine Absätze, kein Geschwafel.
 - top_tipps: 3–5 wichtigste Hebel, je 1–2 Sätze, nach Wirkung auf CTR/Watchtime priorisiert.
+- staerken: 1–3 ECHTE positive Aspekte, was schon gut funktioniert (nicht schönreden), in einfacher,
+  ermutigender Sprache. Sie werden dem Nutzer ZUERST gezeigt.
+- action_steps: **maximal 3** konkrete Handlungsempfehlungen mit Zeitpunkt (z.B. „ca. Sek. 3") — die
+  **wichtigsten und am schnellsten umsetzbaren**. Priorität: prüfe ZUERST die ersten ~7 Sekunden; gibt es dort
+  Verbesserungspotenzial, gehören diese Punkte nach oben (die ersten Sekunden entscheiden). Sind die ersten
+  7 Sekunden schon stark, nimm die wirksamsten Hebel aus dem weiteren Videoverlauf (Watchtime ist ebenso
+  wichtig). Jede anweisung in SUPER EINFACHER Sprache
+  (KEIN Fachjargon wie „Endcard/CTA/B-Roll" ohne Erklärung; „Hook/Texthook/Sprechhook" sind aber erlaubt und
+  sollen genutzt werden, wenn du eine Hook empfiehlst), GENAU EINE Handlung, direkt umsetzbar. Bei
+  einer Einblendung IMMER sagen, ob es eine VOLLBILD-Einblendung oder eine KLEINE Einblendung im laufenden
+  Bild ist — z.B. „Bei Sekunde 3 einen kurzen Woosh-Ton einfügen, der 2 Sekunden hält" oder „Bei Sekunde 4
+  ein kleines Foto vom Hof oben rechts einblenden". Lieber wenige, klare Schritte — der Nutzer soll nicht
+  überfordert werden und trotzdem sofort loslegen können. Ist DIESELBE Handlung an mehreren Stellen nötig,
+  fasse sie zu EINEM Schritt zusammen und nenne ALLE betroffenen Zeitpunkte (z.B. „Sprechpausen rausschneiden
+  — bei ca. Sek. 3, 15 und 24"), statt mehrere fast gleiche Schritte zu erzeugen.
+- weitere_empfehlungen: alle darüber hinausgehenden, ausführlicheren Handlungsempfehlungen (0–7), die NICHT zu
+  den Top-3-action_steps gehören — für Nutzer, die tiefer optimieren wollen. Dürfen ausführlicher/detaillierter
+  sein. Die 3 action_steps oben bleiben davon unberührt.

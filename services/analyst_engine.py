@@ -121,6 +121,7 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str):
         result = AnalystResult(id="", filename=filename, duration_sec=duration, scene_count=0, scenes=[])
 
     write_status(run_dir, "evaluate", "Analyse & Bewertung laufen…")
+    result.geplante_texthook = meta.get("planned_text_hook", "")
     evaluate = analyst_gemini_eval.evaluate_hybrid if mode == "hybrid" else analyst_gemini_eval.evaluate_pure
     result.evaluation = evaluate(video, result)
     return result

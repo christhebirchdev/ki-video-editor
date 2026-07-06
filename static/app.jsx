@@ -175,6 +175,64 @@ const ANALYST_ENGINES = [
 ];
 const ENGINE_LABEL = Object.fromEntries(ANALYST_ENGINES.map((e) => [e.id, e.label]));
 
+// Stufen pro Engine für die Fortschrittsbalken. est = geschätzte Dauer in Sekunden (aus echten Läufen +
+// Architektur; die Gemini-Phase enthält den Video-Upload und ist mit Abstand am längsten).
+const STAGE_SETS = {
+  v2_hybrid: [
+    { key: "transcribe", label: "Transkription", est: 28 },
+    { key: "quality", label: "Audio-Messwerte", est: 6 },
+    { key: "evaluate", label: "Analyse & Bewertung", est: 85 },
+  ],
+  v2_pure: [
+    { key: "evaluate", label: "Analyse & Bewertung", est: 50 },
+  ],
+  v1: [
+    { key: "transcribe", label: "Transkription", est: 40 },
+    { key: "describe", label: "Bild & Ton", est: 300 },
+    { key: "quality", label: "Audio-Messwerte", est: 6 },
+    { key: "evaluate", label: "Bewertung", est: 40 },
+  ],
+};
+
+// Ein Stufen-Balken pro Bearbeitungsschritt: abgeschlossene Stufen 100 %, die aktive füllt sich zeitbasiert
+// (gedeckelt bei 96 %, bis die Stufe wirklich fertig ist). So gibt es pro Stufe ein „voll"-Erlebnis.
+function StageBars({ stages, activePhase, phaseStartMs, tick }) {
+  const activeIdx = stages.findIndex((s) => s.key === activePhase);
+  return (
+    <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+      {stages.map((s, i) => {
+        // Abgeschlossene Stufe → nur grüner Haken. Aktive Stufe → EIN Balken. Zukünftige → nicht anzeigen.
+        if (activeIdx >= 0 && i < activeIdx) {
+          return (
+            <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--ok-ink)" }}>
+              <span style={{ fontWeight: 700 }}>✓</span> {s.label}
+            </div>
+          );
+        }
+        if (i === activeIdx) {
+          const elapsed = phaseStartMs ? (Date.now() - phaseStartMs) / 1000 : 0;
+          const pct = Math.min(96, (elapsed / s.est) * 100);
+          return (
+            <div key={s.key}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+                <span style={{ fontWeight: 700, color: "var(--ink)" }}>{s.label}</span>
+                <span className="muted" style={{ fontSize: 11 }}>{Math.round(pct)} %</span>
+              </div>
+              <div style={{ height: 8, background: "var(--line)", borderRadius: 999, overflow: "hidden" }}>
+                <div style={{
+                  width: `${Math.round(pct)}%`, height: "100%",
+                  background: "var(--gold-deep)", borderRadius: 999, transition: "width 0.35s ease",
+                }} />
+              </div>
+            </div>
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
 function fmtSec(s) {
   if (s == null) return "—";
   const mm = Math.floor(s / 60);
@@ -207,10 +265,54 @@ function ScoreChip({ label, score, detail }) {
       </div>
       <div className="sc-row">
         <RatingDots value={score || 0} />
-        <span className="sc-num">{score ? `${score}/5` : "–"}</span>
+        <span className="sc-num">{score != null ? `${score}/5` : "–"}</span>
       </div>
     </div>
   );
+}
+
+// Handlungsempfehlungen: max 3, nach Priorität; die wichtigste hervorgehoben. Ruhige Liste, kein Häkchen-Zwang.
+function Handlungsempfehlungen({ steps }) {
+  const top = (steps || []).slice(0, 3);
+  return (
+    <div className="analyst-eval-block">
+      <div className="analyst-eval-title">💡 Handlungsempfehlungen</div>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+        Du musst nicht alles umsetzen — schon eine Änderung hilft.
+      </div>
+      {top.map((s, i) => (
+        <div
+          key={i}
+          style={{
+            display: "flex", gap: 10, alignItems: "flex-start",
+            padding: i === 0 ? "12px 14px" : "8px 14px",
+            marginBottom: 8, borderRadius: 12,
+            background: i === 0 ? "var(--gold-tint-2)" : "transparent",
+            border: i === 0 ? "1px solid var(--line-strong)" : "1px solid var(--line)",
+          }}
+        >
+          <span style={{
+            flex: "0 0 auto", fontSize: 12, fontWeight: 700, marginTop: 2, whiteSpace: "nowrap",
+            color: i === 0 ? "var(--gold-deep)" : "var(--taupe)",
+          }}>
+            {i === 0 ? "★ Wichtigste" : `#${i + 1}`}
+          </span>
+          <span style={{ fontSize: i === 0 ? 15 : 14 }}>
+            {s.zeitpunkt ? <b>{s.zeitpunkt} — </b> : null}{s.anweisung}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Ordnet den Performance-Score ermutigend ein (Label + Farbe) statt nackter Zahl.
+function scoreEinordnung(score) {
+  if (score == null) return { label: "", color: "var(--taupe)" };
+  if (score >= 75) return { label: "Stark — weiter so", color: "var(--ok-ink)" };
+  if (score >= 55) return { label: "Gute Basis — mit 1–2 Änderungen richtig stark", color: "var(--gold-deep)" };
+  if (score >= 35) return { label: "Solide Basis — ein paar Hebel bringen viel", color: "var(--gold-deep)" };
+  return { label: "Guter Anfang — die Empfehlungen unten helfen am meisten", color: "var(--err-ink)" };
 }
 
 // Detail-Text für die Struktur: Kommentar + erkannte Bausteine.
@@ -229,16 +331,28 @@ function problemeDetail(block) {
 
 function VideoAnalystPage() {
   const [analysisFile, setAnalysisFile] = useState(null);
-  const [engine, setEngine] = useState("v2_hybrid");    // Standard: V2 Hybrid. v1 (Claude) bleibt als Fallback anklickbar.
+  const engine = "v2_hybrid";    // nur noch V2 Hybrid im Frontend (V1 entfernt; Backend kann v1/v2_pure weiter via API)
+  const [plannedTextHook, setPlannedTextHook] = useState("");  // Freifeld: geplante Texthook (falls noch nicht im Video)
   const [phase, setPhase] = useState("idle");   // idle | running | done
   const [progress, setProgress] = useState("");
   const [queueInfo, setQueueInfo] = useState(null);  // {ahead,total} während "queued"
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [activePhase, setActivePhase] = useState("");   // aktuelle Bearbeitungsstufe (transcribe/quality/evaluate)
+  const [phaseStartMs, setPhaseStartMs] = useState(0);  // Startzeitpunkt der aktuellen Stufe
+  const [tick, setTick] = useState(0);                  // erzwingt zeitbasierte Neuberechnung der Balken
   const fileRef = useRef(null);
   const cancelledRef = useRef(false);
+  const activePhaseRef = useRef("");                    // stale-freier Vergleich im Poll-Loop
 
   useEffect(() => () => { cancelledRef.current = true; }, []);
+
+  // Solange die Analyse läuft: regelmäßig neu rendern, damit die aktive Stufe weiterfüllt.
+  useEffect(() => {
+    if (phase !== "running") return;
+    const id = setInterval(() => setTick((t) => t + 1), 300);
+    return () => clearInterval(id);
+  }, [phase]);
 
   function onPickFile(e) {
     const f = e.target.files?.[0];
@@ -255,6 +369,11 @@ function VideoAnalystPage() {
       if (data.phase === "error") throw new Error(data.error || "Analyse fehlgeschlagen");
       setQueueInfo(data.phase === "queued" ? (data.queue || null) : null);
       setProgress(data.detail || "Analyse läuft …");
+      if (data.phase && data.phase !== activePhaseRef.current) {
+        activePhaseRef.current = data.phase;
+        setActivePhase(data.phase);
+        setPhaseStartMs(Date.now());
+      }
       if (data.done && data.result) return data.result;
     }
     return null;
@@ -265,13 +384,16 @@ function VideoAnalystPage() {
     setError("");
     setPhase("running");
     setResult(null);
+    setActivePhase("");
+    activePhaseRef.current = "";
+    setPhaseStartMs(0);
     try {
       setProgress("Video wird hochgeladen …");
       const fd = new FormData();
       fd.append("file", analysisFile.file);
       const up = await api("POST", "/api/analyst/upload", fd);
       setProgress("Analyse startet …");
-      await api("POST", `/api/analyst/${up.id}/start?engine=${engine}`);
+      await api("POST", `/api/analyst/${up.id}/start?engine=${engine}&planned_text_hook=${encodeURIComponent(plannedTextHook)}`);
       const res = await pollUntilDone(up.id);
       if (res) {
         setResult(res);
@@ -290,6 +412,10 @@ function VideoAnalystPage() {
     setProgress("");
     setQueueInfo(null);
     setError("");
+    setPlannedTextHook("");
+    setActivePhase("");
+    activePhaseRef.current = "";
+    setPhaseStartMs(0);
   }
 
   return (
@@ -348,27 +474,25 @@ function VideoAnalystPage() {
         </div>
 
         <div className="analyst-action">
-          {/* Analyse-Umschalter: V1 vs. V2 Hybrid — zum direkten Vergleich */}
+          {/* Freifeld: geplante Texthook (falls sie erst nach dem Upload ins Video kommt) */}
           <div style={{ marginBottom: 12 }}>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {ANALYST_ENGINES.map((e) => (
-                <button
-                  key={e.id}
-                  type="button"
-                  title={e.hint}
-                  className={"btn " + (engine === e.id ? "btn-primary" : "btn-ghost")}
-                  style={{ padding: "8px 14px", fontSize: 13 }}
-                  disabled={phase === "running"}
-                  onClick={() => setEngine(e.id)}
-                >
-                  {e.label}
-                </button>
-              ))}
-            </div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-              {ANALYST_ENGINES.find((e) => e.id === engine)?.hint}
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+              Geplante Texthook (optional)
+            </label>
+            <input
+              type="text"
+              value={plannedTextHook}
+              onChange={(e) => setPlannedTextHook(e.target.value)}
+              placeholder="z. B. Mit über 46 nochmal Mutter"
+              disabled={phase === "running"}
+              style={{ width: "100%", padding: "8px 10px", fontSize: 14, border: "1px solid var(--line-strong)", borderRadius: 8 }}
+            />
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Kommt die Texthook erst nach dem Upload ins Video? Trag sie hier ein — dann wird sie bewertet.
+              Leer lassen, wenn die Texthook schon im Video zu sehen ist.
             </div>
           </div>
+
           <button
             className="btn btn-primary analyst-start-btn"
             disabled={!canStart || phase === "running"}
@@ -380,14 +504,17 @@ function VideoAnalystPage() {
               <><Ico.play /> Videoanalyse starten</>
             )}
           </button>
+          {phase === "running" && (
+            <StageBars
+              stages={STAGE_SETS[engine] || STAGE_SETS.v2_hybrid}
+              activePhase={activePhase}
+              phaseStartMs={phaseStartMs}
+              tick={tick}
+            />
+          )}
           {phase === "running" && queueInfo && queueInfo.total > 1 && (
             <div className="analyst-queue">
               ⏳ In Warteschlange — Platz {queueInfo.ahead + 1} von {queueInfo.total}. Deine Analyse startet automatisch, sobald sie an der Reihe ist.
-            </div>
-          )}
-          {phase === "running" && (
-            <div className="muted" style={{ fontSize: 13 }}>
-              Dein Video wird transkribiert, Bild und Ton werden analysiert und anschließend bewertet. Je nach Videolänge kann das etwas dauern.
             </div>
           )}
           {!canStart && (
@@ -416,70 +543,84 @@ function VideoAnalystPage() {
             </button>
           }
         >
-          {result.evaluation && (
+          {result.evaluation && (() => {
+            const ev = result.evaluation;
+            const ez = scoreEinordnung(ev.performance_score);
+            return (
             <div className="analyst-eval">
+              {/* 1. Score + Einordnung */}
               <div className="analyst-score">
-                <div className="analyst-score-num">{result.evaluation.performance_score}</div>
+                <div className="analyst-score-num" style={{ color: ez.color }}>{ev.performance_score}</div>
                 <div className="analyst-score-label">Performance-Score von 100</div>
-                {result.evaluation.funnel && (
-                  <span className="analyst-funnel">{result.evaluation.funnel}</span>
+                {ez.label && (
+                  <div style={{ fontSize: 13, fontWeight: 600, color: ez.color, marginTop: 4 }}>{ez.label}</div>
                 )}
+                {ev.funnel && <span className="analyst-funnel">{ev.funnel}</span>}
               </div>
 
-              {result.evaluation.zielgruppe && (
-                <div className="analyst-zielgruppe">🎯 {result.evaluation.zielgruppe}</div>
+              {ev.zielgruppe && (
+                <div className="analyst-zielgruppe">🎯 {ev.zielgruppe}</div>
               )}
 
-              <div className="sc-grid">
-                <ScoreChip
-                  label="🎤 Sprech-Hook"
-                  score={result.evaluation.hook?.sprech_hook_score}
-                  detail={result.evaluation.hook?.sprech_hook_grund}
-                />
-                {result.evaluation.hook?.text_hook_vorhanden && (
-                  <ScoreChip
-                    label="📝 Text-Hook"
-                    score={result.evaluation.hook?.text_hook_score}
-                    detail={result.evaluation.hook?.text_hook_grund}
-                  />
-                )}
-                <ScoreChip
-                  label="📖 Struktur"
-                  score={result.evaluation.struktur?.score}
-                  detail={strukturDetail(result.evaluation.struktur)}
-                />
-                <ScoreChip
-                  label="🎙️ Sprechqualität"
-                  score={result.evaluation.sprechqualitaet?.score}
-                  detail={problemeDetail(result.evaluation.sprechqualitaet)}
-                />
-                <ScoreChip
-                  label="✂️ Schnitt & Pacing"
-                  score={result.evaluation.schnitt_pacing?.score}
-                  detail={result.evaluation.schnitt_pacing?.kommentar}
-                />
-                <ScoreChip
-                  label="📈 Spannungsbogen"
-                  score={result.evaluation.spannungsbogen?.score}
-                  detail={result.evaluation.spannungsbogen?.kommentar}
-                />
-                <ScoreChip
-                  label="🎨 Visuelle Ästhetik"
-                  score={result.evaluation.visuelle_aesthetik?.score}
-                  detail={problemeDetail(result.evaluation.visuelle_aesthetik)}
-                />
-              </div>
-
-              {result.evaluation.top_tipps?.length > 0 && (
-                <div className="analyst-eval-block analyst-tipps">
-                  <div className="analyst-eval-title">🚀 Top-Tipps</div>
+              {/* 2. Positiv zuerst */}
+              {ev.staerken?.length > 0 && (
+                <div className="analyst-eval-block" style={{ background: "var(--ok-bg)", border: "1px solid var(--ok-line)", borderRadius: 12, padding: "12px 14px" }}>
+                  <div className="analyst-eval-title" style={{ color: "var(--ok-ink)" }}>✅ Das läuft schon gut</div>
                   <ul className="analyst-list">
-                    {result.evaluation.top_tipps.map((t, i) => <li key={i}>{t}</li>)}
+                    {ev.staerken.map((s, i) => <li key={i}>{s}</li>)}
                   </ul>
                 </div>
               )}
+
+              {/* 3. Handlungsempfehlungen (max 3, wichtigste groß) */}
+              {ev.action_steps?.length > 0 && (
+                <Handlungsempfehlungen steps={ev.action_steps} />
+              )}
+
+              {/* 3b. Erweiterte Handlungsempfehlungen (aufklappbar) */}
+              {ev.weitere_empfehlungen?.length > 0 && (
+                <details className="analyst-eval-block" style={{ marginTop: 4 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: 14, padding: "6px 0" }}>
+                    Erweiterte Handlungsempfehlungen ({ev.weitere_empfehlungen.length})
+                  </summary>
+                  <ul className="analyst-list" style={{ marginTop: 8 }}>
+                    {ev.weitere_empfehlungen.map((s, i) => (
+                      <li key={i} style={{ marginBottom: 6 }}>
+                        {s.zeitpunkt ? <b>{s.zeitpunkt} — </b> : null}{s.anweisung}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
+              {/* 4. Details-Aufklapper: ausführliches Feedback + alle Score-Dimensionen */}
+              <details className="analyst-details" style={{ marginTop: 8 }}>
+                <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: 14, padding: "6px 0" }}>
+                  Detaillierte Analyse und Feedback
+                </summary>
+
+                {ev.top_tipps?.length > 0 && (
+                  <div className="analyst-eval-block analyst-tipps" style={{ marginTop: 10 }}>
+                    <div className="analyst-eval-title">💬 Feedback (ausführlich)</div>
+                    <ul className="analyst-list">
+                      {ev.top_tipps.map((t, i) => <li key={i}>{t}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="sc-grid" style={{ marginTop: 10 }}>
+                  <ScoreChip label="🎤 Sprech-Hook" score={ev.hook?.sprech_hook_score} detail={ev.hook?.sprech_hook_grund} />
+                  <ScoreChip label={ev.hook?.text_hook_vorhanden ? "📝 Text-Hook" : "📝 Text-Hook (fehlt)"} score={ev.hook?.text_hook_score} detail={ev.hook?.text_hook_grund} />
+                  <ScoreChip label="📖 Struktur" score={ev.struktur?.score} detail={strukturDetail(ev.struktur)} />
+                  <ScoreChip label="🎙️ Sprechqualität" score={ev.sprechqualitaet?.score} detail={problemeDetail(ev.sprechqualitaet)} />
+                  <ScoreChip label="✂️ Schnitt & Pacing" score={ev.schnitt_pacing?.score} detail={ev.schnitt_pacing?.kommentar} />
+                  <ScoreChip label="📈 Spannungsbogen" score={ev.spannungsbogen?.score} detail={ev.spannungsbogen?.kommentar} />
+                  <ScoreChip label="🎨 Visuelle Ästhetik" score={ev.visuelle_aesthetik?.score} detail={problemeDetail(ev.visuelle_aesthetik)} />
+                </div>
+              </details>
             </div>
-          )}
+            );
+          })()}
 
           {!result.evaluation && (
             <div className="alert alert-info" style={{ marginBottom: 16 }}>
@@ -501,7 +642,8 @@ function VideoAnalystPage() {
             </div>
           )}
 
-          <details className="analyst-rawdump" open>
+          {result.scenes.length > 0 && (
+          <details className="analyst-rawdump">
             <summary>🔬 Detailanalyse ({result.scenes.length} Segmente)</summary>
             <div className="analyst-scenes" style={{ marginTop: 12 }}>
               {result.scenes.map((s) => (
@@ -548,12 +690,6 @@ function VideoAnalystPage() {
               ))}
             </div>
           </details>
-
-          {result.transcript && (
-            <details className="analyst-transcript">
-              <summary>Transkript anzeigen</summary>
-              <p>{result.transcript}</p>
-            </details>
           )}
         </Card>
       )}

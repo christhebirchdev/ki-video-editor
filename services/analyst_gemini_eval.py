@@ -50,6 +50,24 @@ def _metrics_txt(result: AnalystResult) -> str:
     )
 
 
+def _texthook_instruction(result: AnalystResult) -> str:
+    """Texthook-Logik je nach Freifeld: ausgefüllt = geplante Texthook bewerten; leer = im Video erwartet."""
+    gth = (getattr(result, "geplante_texthook", "") or "").strip()
+    if gth:
+        return (
+            f"GEPLANTE TEXTHOOK (vom Nutzer VOR der Analyse eingetragen): „{gth}“. "
+            "Diese Texthook ist geplant und wird evtl. erst nachträglich ins Video eingefügt — sie ist im Video "
+            "vielleicht noch NICHT zu sehen. Behandle sie TROTZDEM als die vorhandene Texthook: setze "
+            "text_hook_vorhanden=true und bewerte GENAU DIESEN eingetragenen Text als Texthook (Länge, Neugier, "
+            "Zielgruppe). Geh NICHT davon aus, dass keine Texthook existiert.\n"
+        )
+    return (
+        "Es wurde KEINE geplante Texthook eingetragen → die Texthook soll bereits IM VIDEO sichtbar sein. Ist "
+        "im Video keine statische Texthook zu sehen (mitlaufende Untertitel zählen NICHT), ist das ein Fehler: "
+        "text_hook_vorhanden=false, text_hook_score=0, und weise klar darauf hin, dass eine Texthook nötig ist.\n"
+    )
+
+
 def _user_message(result: AnalystResult, mode: str) -> str:
     head = f"Video: {result.filename}, Länge {result.duration_sec:.1f}s."
     if mode == "hybrid":
@@ -64,6 +82,42 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "NUTZE aktiv deinen visuellen Vorteil (das ist der Mehrwert): beurteile Blickrichtung (in die "
             "Linse vs. Ablesen nach unten/zur Seite), statische Text-Overlays vs. mitlaufende Untertitel, "
             "Schnitt/Pacing, Effekte/Zooms und Mimik aus dem bewegten Bild selbst.\n"
+            "PFLICHT Blickkontakt: Beurteile den Blick IMMER. Geht er auffällig oft nach unten/zur Seite "
+            "(Ablesen/Teleprompter), MUSS das (a) in visuelle_aesthetik.probleme stehen UND (b) als konkreter "
+            "top_tipp: die betroffenen Stellen mit B-Roll/Einblendung überdecken und den Blick in die Linse "
+            "richten. Liegt der Blick überwiegend in der Linse, sag das positiv und zieh keinen Abzug.\n"
+            "HOOK-REDUNDANZ-CHECK (Pflicht): Vergleiche die ERSTEN gesprochenen Worte (Sprech-Hook, siehe "
+            "Transkript unten) mit dem Text-Overlay der Eröffnung (Text-Hook). Sind sie wörtlich gleich oder "
+            "fast gleich, ist das eine SCHWÄCHE — die Text-Hook doppelt nur das Gesprochene und verschenkt eine "
+            "zweite Ebene. Dann: text_hook_score deutlich niedriger (NICHT höher als der Sprech-Hook, eher 1–2 "
+            "Punkte darunter), die Doppelung in text_hook_grund klar benennen, UND als PRIO-1-Handlungsempfehlung "
+            "aufnehmen: das Text-Overlay am Anfang für eine zweite, überraschende Ebene nutzen (offene Frage oder "
+            "konkreter Fakt) statt den gesprochenen Satz zu wiederholen.\n"
+            "HOOK-VERBESSERUNG (nutze dieses Framework, wenn Sprech- oder Text-Hook schwach ist, fehlt oder "
+            "redundant): Eine Hook wirkt auf 3 Ebenen — (1) TEXT-HOOK (Bildschirmtext, 3–9 Wörter, max. 2 "
+            "Zeilen, für einen 13-Jährigen SOFORT verständlich, kein Fachwort — greift die, die ohne Ton "
+            "scrollen); (2) SPRECH-HOOK (erster gesprochener Satz — muss Neugier wecken ODER einen Pain Point "
+            "treffen); (3) REGIE (Energie in der Stimme + ein visueller Bruch der Erwartung, markenkonform). "
+            "Eine starke Hook hat: ein krasses/kontroverses Statement, wirkt „wie ein Unfall“ (zwingt zum "
+            "Hinsehen) und triggert GENAU die Zielgruppe (sortiert andere bewusst aus — eine Hook für alle "
+            "stoppt niemanden). Die Zielgruppe muss NICHT in beiden Ebenen genannt sein. Wenn du eine Hook "
+            "empfiehlst, liefere KONKRET bis zu 3 Text-Hook-Varianten mit JE UNTERSCHIEDLICHER Mechanik "
+            "(z. B. Provokation / Neugierlücke / konkrete Zahl oder Pain Point / Erwartungsbruch / POV), "
+            "passend zum echten Thema DIESES Videos (nicht generisch), damit der Nutzer sie per Instagram-"
+            "Testreel gegeneinander testen kann. Formuliere die Empfehlung ausdrücklich mit dem Wort "
+            "„Texthook“ (bzw. „Sprechhook“) — diese Begriffe sind unseren Kunden bekannt und sollen genutzt werden.\n"
+            "HARTE REGEL Texthook-Länge: JEDE vorgeschlagene Texthook-Variante hat MAXIMAL 9 Wörter (ideal 3–6), "
+            "höchstens 2 Zeilen. Zähle die Wörter jeder Variante; ist eine länger als 9 Wörter, kürze sie. "
+            "Ganze Sätze oder Erklärungen sind KEINE Texthooks.\n"
+            + _texthook_instruction(result) +
+            "AUDIO-QUALITÄT (Pflicht, gut hinhören): Die Messwerte (LUFS) sagen NICHTS über Störgeräusche — das "
+            "musst du HÖREN. Achte gezielt auf Hintergrundrauschen, Brummen, Hall oder Übersteuerung. Ist der "
+            "Ton verrauscht/unsauber, ist das eine SCHWÄCHE (in sprechqualitaet.probleme benennen) und darf "
+            "NICHT als Stärke gelobt werden. Nur wirklich sauberer Ton ist ein Pluspunkt.\n"
+            "SPRECHPAUSEN (einfacher, starker Hebel): Nutze die Sprachstatistik (Anzahl/Länge der Pausen) UND "
+            "dein Gehör. Sind es viele oder lange Sprechpausen/Stockungen, kostet das Retention → nimm als "
+            "konkrete Handlungsempfehlung auf, die Pausen im Schnitt herauszuschneiden, damit das Tempo steigt "
+            "und die Zuschauer dranbleiben.\n"
             "Zusätzlich liegen deterministisch gemessene Werte vor; NUTZE sie für die quantitativen Urteile "
             "(Sprechtempo, Füllwörter, Lautheit) — bei diesen Zahlen sind sie verlässlicher als dein Seheindruck.\n\n"
             "TIEFE & KONKRETHEIT (Pflicht für top_tipps und alle Begründungen):\n"
@@ -75,6 +129,22 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "KONKRETES Beispiel in Anführungszeichen, das zum tatsächlichen Thema DIESES Videos passt — "
             "keine generischen Platzhalter wie „Wie ich es geschafft habe\".\n"
             "- Jede Begründung und jeder Tipp nennt das WARUM (die Wirkung beim Zuschauer), nicht nur das WAS.\n\n"
+            "ACTION-STEPS (Pflicht): Fülle action_steps mit MAXIMAL 3 konkreten Handlungsempfehlungen an "
+            "ECHTEN Zeitpunkten aus dem Video — du SIEHST es, nenne die Sekunde (z. B. „ca. Sek. 3\"). "
+            "Wähle die 3 WICHTIGSTEN und am schnellsten umsetzbaren: prüfe ZUERST die ersten ~7 Sekunden — "
+            "gibt es dort Verbesserungspotenzial, gehören diese Punkte nach oben (die ersten Sekunden "
+            "entscheiden); sind die ersten 7 s schon stark, nimm die wirksamsten Hebel aus dem weiteren "
+            "Videoverlauf (Watchtime ist ebenso wichtig). Jede Anweisung in super einfacher Sprache, KEIN Fachjargon "
+            "(nicht „Endcard/CTA/B-Roll“ ohne Erklärung; „Hook/Texthook/Sprechhook“ sind aber erlaubt und "
+            "sollen genutzt werden, wenn du eine Hook empfiehlst), genau EINE Handlung. Bei einer Einblendung sag "
+            "IMMER, ob VOLLBILD oder KLEINE Einblendung im laufenden Bild. Lieber wenige klare Schritte — "
+            "der Nutzer soll nicht überfordert werden. Zeitangaben sind Richtwerte (±1–2 s). Ist DIESELBE "
+            "Handlung an mehreren Stellen nötig (z. B. mehrere Sprechpausen), fasse sie zu EINEM Schritt "
+            "zusammen und nenne ALLE Zeitpunkte (z. B. „Sprechpausen rausschneiden — bei ca. Sek. 3, 15 und "
+            "24“), statt mehrere fast gleiche Schritte zu erzeugen.\n"
+            "WEITERE EMPFEHLUNGEN: Fülle zusätzlich weitere_empfehlungen mit allen darüber hinausgehenden, "
+            "ausführlicheren Handlungsempfehlungen (0–7), die NICHT zu den Top 3 gehören — für Nutzer, die tiefer "
+            "optimieren wollen. Die 3 action_steps oben bleiben unberührt.\n\n"
             f"{head}\n\n"
             f"TRANSKRIPT (Whisper, verlässlicher Wortlaut):\n{result.transcript or '(leer)'}\n\n"
             f"SPRACHSTATISTIK: {_stats_txt(result)}\n\n"

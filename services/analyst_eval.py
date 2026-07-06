@@ -45,8 +45,8 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
     "sprech_hook_score": <int 1-5>,
     "sprech_hook_grund": "<1-2 Sätze>",
     "text_hook_vorhanden": <true|false>,
-    "text_hook_score": <int 1-5 oder null>,
-    "text_hook_grund": "<1-2 Sätze oder null>"
+    "text_hook_score": <int 0-5; 0 wenn keine statische Text-Hook vorhanden (nur Untertitel zählen nicht)>,
+    "text_hook_grund": "<1-2 Sätze; bei score 0 die Ansage + Tipp (3 Varianten über Instagram-Testreel testen)>"
   },
   "struktur": {
     "score": <int 1-5>,
@@ -57,8 +57,20 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "schnitt_pacing": {"score": <int 1-5>, "kommentar": "<1-2 Sätze, format-bewusst>"},
   "spannungsbogen": {"score": <int 1-5>, "kommentar": "<1-2 Sätze>"},
   "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur Auffälliges, je 1-2 Sätze, sonst []>"]},
-  "top_tipps": ["<3-5 wichtigste Hebel, je 1-2 Sätze, nach Wirkung priorisiert>"]
-}"""
+  "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],
+  "top_tipps": ["<3-5 wichtigste Hebel, je 1-2 Sätze, nach Wirkung priorisiert>"],
+  "action_steps": [{"zeitpunkt": "<z.B. 0:03 oder 'ca. Sek. 3'>", "anweisung": "<EINE konkrete Handlung in SUPER EINFACHER Sprache, kein Fachjargon; wenn eine Einblendung: sag ob VOLLBILD oder KLEINE Einblendung im laufenden Bild, z.B. Woosh-Sound für 2s einfügen / kleine Einblendung mit Foto vom Hof / hier schneiden>"}],
+  "weitere_empfehlungen": [{"zeitpunkt": "<z.B. 0:20>", "anweisung": "<zusätzliche, ausführlichere Handlungsempfehlung für Nutzer, die tiefer optimieren wollen>"}]
+}
+
+REGELN action_steps: GENAU MAXIMAL 3 Stück — die WICHTIGSTEN und am SCHNELLSTEN umsetzbaren. Priorität:
+Prüfe ZUERST die ersten ~7 Sekunden — gibt es dort Verbesserungspotenzial, gehören diese Punkte nach oben
+(die ersten Sekunden entscheiden). Sind die ersten 7 Sekunden schon stark, nimm die wirksamsten Hebel aus dem
+weiteren Videoverlauf (Watchtime ist ebenso wichtig). Lieber wenige, klare Schritte; der Nutzer soll NICHT
+überfordert werden.
+REGELN weitere_empfehlungen: alle darüber hinausgehenden, ausführlicheren Handlungsempfehlungen (0–7 Stück),
+die NICHT zu den Top 3 gehören — für Nutzer, die tiefer optimieren wollen. Dürfen ausführlicher sein.
+staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Ergebnis zuerst."""
 
 
 def load_skill_body() -> str:
@@ -96,10 +108,24 @@ def build_system_prompt() -> str:
 
 
 def _extract_json(text: str) -> dict:
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        raise ValueError(f"Kein JSON in Claude-Antwort: {text[:200]}")
-    return json.loads(m.group(0))
+    """Holt das erste vollständige JSON-Objekt aus der Antwort.
+
+    Nutzt raw_decode ab der ersten '{' → dekodiert genau EIN Objekt und ignoriert alles
+    danach. Das ist robust gegen „Extra data" (LLM hängt nach dem JSON noch Text/ein zweites
+    Objekt/Markdown-Fences an — kommt bei Gemini trotz JSON-Modus und bei Fallback-Modellen vor).
+    """
+    start = text.find("{")
+    if start == -1:
+        raise ValueError(f"Kein JSON in Antwort: {text[:200]}")
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text, start)
+        return obj
+    except json.JSONDecodeError:
+        # Fallback: gieriger Match (falls vor der ersten '{' Störzeichen den Offset verschieben).
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if not m:
+            raise
+        return json.loads(m.group(0))
 
 
 def build_user_message(result: AnalystResult) -> str:
