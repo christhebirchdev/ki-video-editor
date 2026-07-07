@@ -63,13 +63,14 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "weitere_empfehlungen": [{"zeitpunkt": "<z.B. 0:20>", "anweisung": "<zusätzliche, ausführlichere Handlungsempfehlung für Nutzer, die tiefer optimieren wollen>"}]
 }
 
-REGELN action_steps: GENAU MAXIMAL 3 Stück — die WICHTIGSTEN und am SCHNELLSTEN umsetzbaren. Priorität:
-Prüfe ZUERST die ersten ~7 Sekunden — gibt es dort Verbesserungspotenzial, gehören diese Punkte nach oben
-(die ersten Sekunden entscheiden). Sind die ersten 7 Sekunden schon stark, nimm die wirksamsten Hebel aus dem
-weiteren Videoverlauf (Watchtime ist ebenso wichtig). Lieber wenige, klare Schritte; der Nutzer soll NICHT
-überfordert werden.
-REGELN weitere_empfehlungen: alle darüber hinausgehenden, ausführlicheren Handlungsempfehlungen (0–7 Stück),
-die NICHT zu den Top 3 gehören — für Nutzer, die tiefer optimieren wollen. Dürfen ausführlicher sein.
+REGELN action_steps: GENAU MAXIMAL 3 Stück — die Empfehlungen, die am WEITESTEN VORNE im Video ansetzen.
+Sortiere ALLE gefundenen Empfehlungen nach ihrem Zeitpunkt (kleinste Sekunde zuerst) und nimm die 3 FRÜHESTEN.
+Der Anfang (Texthook/Sprechhook/erste Sekunden, erstes Drittel) hat IMMER Vorrang. Eine Empfehlung, die einen
+SPÄTEREN Teil des Videos betrifft (Mitte oder hintere Hälfte), gehört NICHT in die Top 3, sondern in
+weitere_empfehlungen — auch wenn sie wirkungsvoll ist. Beispiel: eine Texthook-Verbesserung (Sek. 0) MUSS in
+die Top 3; eine Sprechpause bei Sek. 30 gehört in weitere_empfehlungen. Lieber wenige, klare Schritte.
+REGELN weitere_empfehlungen: alle übrigen Empfehlungen — VOR ALLEM die, die SPÄTER im Video ansetzen (Mitte/
+hintere Hälfte) —, ausführlicher (0–7 Stück), für Nutzer, die tiefer optimieren wollen.
 staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Ergebnis zuerst."""
 
 

@@ -186,11 +186,12 @@ Nenne im performance_score nur die Zahl; die Begründungslogik steckt in den Ein
 - top_tipps: 3–5 wichtigste Hebel, je 1–2 Sätze, nach Wirkung auf CTR/Watchtime priorisiert.
 - staerken: 1–3 ECHTE positive Aspekte, was schon gut funktioniert (nicht schönreden), in einfacher,
   ermutigender Sprache. Sie werden dem Nutzer ZUERST gezeigt.
-- action_steps: **maximal 3** konkrete Handlungsempfehlungen mit Zeitpunkt (z.B. „ca. Sek. 3") — die
-  **wichtigsten und am schnellsten umsetzbaren**. Priorität: prüfe ZUERST die ersten ~7 Sekunden; gibt es dort
-  Verbesserungspotenzial, gehören diese Punkte nach oben (die ersten Sekunden entscheiden). Sind die ersten
-  7 Sekunden schon stark, nimm die wirksamsten Hebel aus dem weiteren Videoverlauf (Watchtime ist ebenso
-  wichtig). Jede anweisung in SUPER EINFACHER Sprache
+- action_steps: **maximal 3** konkrete Handlungsempfehlungen mit Zeitpunkt (z.B. „ca. Sek. 3") — die, die am
+  **weitesten VORNE im Video** ansetzen. Sortiere ALLE Empfehlungen nach ihrem Zeitpunkt (kleinste Sekunde
+  zuerst) und nimm die 3 FRÜHESTEN. Der Anfang (Texthook/Sprechhook/erste Sekunden, erstes Drittel) hat IMMER
+  Vorrang. Empfehlungen für SPÄTERE Videoteile (Mitte/hintere Hälfte) gehören NICHT in die Top 3, sondern in
+  weitere_empfehlungen — auch wenn sie wirkungsvoll sind (Beispiel: Texthook Sek. 0 → Top 3; Sprechpause
+  Sek. 30 → weitere_empfehlungen). Jede anweisung in SUPER EINFACHER Sprache
   (KEIN Fachjargon wie „Endcard/CTA/B-Roll" ohne Erklärung; „Hook/Texthook/Sprechhook" sind aber erlaubt und
   sollen genutzt werden, wenn du eine Hook empfiehlst), GENAU EINE Handlung, direkt umsetzbar. Bei
   einer Einblendung IMMER sagen, ob es eine VOLLBILD-Einblendung oder eine KLEINE Einblendung im laufenden
@@ -199,6 +200,6 @@ Nenne im performance_score nur die Zahl; die Begründungslogik steckt in den Ein
   überfordert werden und trotzdem sofort loslegen können. Ist DIESELBE Handlung an mehreren Stellen nötig,
   fasse sie zu EINEM Schritt zusammen und nenne ALLE betroffenen Zeitpunkte (z.B. „Sprechpausen rausschneiden
   — bei ca. Sek. 3, 15 und 24"), statt mehrere fast gleiche Schritte zu erzeugen.
-- weitere_empfehlungen: alle darüber hinausgehenden, ausführlicheren Handlungsempfehlungen (0–7), die NICHT zu
-  den Top-3-action_steps gehören — für Nutzer, die tiefer optimieren wollen. Dürfen ausführlicher/detaillierter
-  sein. Die 3 action_steps oben bleiben davon unberührt.
+- weitere_empfehlungen: alle übrigen Empfehlungen — VOR ALLEM die, die SPÄTER im Video ansetzen (Mitte/hintere
+  Hälfte) —, ausführlicher (0–7), für Nutzer, die tiefer optimieren wollen. Die 3 action_steps oben bleiben
+  davon unberührt.
