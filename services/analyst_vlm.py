@@ -14,7 +14,7 @@ from pathlib import Path
 from google.genai import types
 
 from config import settings
-from services import analyst_frames, gemini_service
+from services import analyst_frames, analyst_prompt_log, gemini_service
 from services.gemini_service import client, _call_with_retry, GEMINI_MODEL, GEMINI_FALLBACK_MODELS
 
 SYSTEM_PROMPT = """Du bist ein präzises, objektives Beschreibungs-Tool für Kurzvideos.
@@ -163,7 +163,7 @@ def _generate(contents, cfg, label):
     raise RuntimeError(f"Gemini {label} fehlgeschlagen: {last_err}")
 
 
-def _media_passes(video_path: Path) -> tuple[str, str]:
+def _media_passes(video_path: Path, run_dir=None) -> tuple[str, str]:
     """EIN Upload des echten Videos, zwei Calls darauf: Audio + Blickkontakt.
     Frames haben keinen Ton, und Standbilder verraten die Blickrichtung nicht zuverlässig
     (im Frame-Batch produziert Gemini Boilerplate) → beides braucht das bewegte Video.
@@ -171,18 +171,31 @@ def _media_passes(video_path: Path) -> tuple[str, str]:
     video_file = gemini_service._upload_video_to_gemini(video_path)
     acfg = types.GenerateContentConfig(system_instruction=AUDIO_PROMPT, temperature=0.0)
     audio = (_generate([video_file, AUDIO_USER], acfg, "describe_audio").text or "").strip()
+    analyst_prompt_log.log_call(
+        run_dir, call="describe_audio", recipient="Gemini", model=GEMINI_MODEL,
+        system_prompt=AUDIO_PROMPT, user_message=AUDIO_USER, output_raw=audio,
+        attachments=[f"Video: {video_path.name}"],
+        inputs={"engine": "v1 (Beschreibung)", "video": video_path.name},
+    )
     gcfg = types.GenerateContentConfig(system_instruction=GAZE_PROMPT, temperature=0.0)
     gaze = (_generate([video_file, GAZE_USER], gcfg, "describe_gaze").text or "").strip()
+    analyst_prompt_log.log_call(
+        run_dir, call="describe_gaze", recipient="Gemini", model=GEMINI_MODEL,
+        system_prompt=GAZE_PROMPT, user_message=GAZE_USER, output_raw=gaze,
+        attachments=[f"Video: {video_path.name}"],
+        inputs={"engine": "v1 (Beschreibung)", "video": video_path.name},
+    )
     return audio, gaze
 
 
 def describe_video(video_path: Path, frames_dir: Path) -> tuple[list[dict], float, str, str]:
     """Deterministische Frames → 1 gebündelter Visual-Call + Audio- & Blick-Call (1 Upload).
     Returns (segmente, gesamtdauer, audio_overview, gaze_overview)."""
+    run_dir = frames_dir.parent  # analyst_runs/<id>/frames → analyst_runs/<id>
     duration = analyst_frames.probe_duration(video_path)
     distinct = analyst_frames.dedup(analyst_frames.extract_frames(video_path, frames_dir))
     if not distinct:
-        audio, gaze = _media_passes(video_path)
+        audio, gaze = _media_passes(video_path, run_dir)
         return [], duration, audio, gaze
 
     parts = [types.Part.from_bytes(data=p.read_bytes(), mime_type="image/jpeg") for _, p in distinct]
@@ -195,7 +208,15 @@ def describe_video(video_path: Path, frames_dir: Path) -> tuple[list[dict], floa
     vcfg = types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT, response_mime_type="application/json", temperature=0.0,
     )
-    objs = _parse_array(_generate([instr, *parts], vcfg, "describe_frames").text or "")
+    raw_frames = _generate([instr, *parts], vcfg, "describe_frames").text or ""
+    analyst_prompt_log.log_call(
+        run_dir, call="describe_frames", recipient="Gemini", model=GEMINI_MODEL,
+        system_prompt=SYSTEM_PROMPT, user_message=instr, output_raw=raw_frames,
+        attachments=[f"{len(distinct)} Frames (JPEG)"],
+        inputs={"engine": "v1 (Beschreibung)", "video": video_path.name,
+                "frames": len(distinct), "duration_sec": round(duration, 1)},
+    )
+    objs = _parse_array(raw_frames)
 
     segments = []
     for i, (ts, _p) in enumerate(distinct):
@@ -205,5 +226,5 @@ def describe_video(video_path: Path, frames_dir: Path) -> tuple[list[dict], floa
         f["end"] = distinct[i + 1][0] if i + 1 < len(distinct) else duration
         segments.append(f)
 
-    audio, gaze = _media_passes(video_path)
+    audio, gaze = _media_passes(video_path, run_dir)
     return segments, duration, audio, gaze

@@ -123,7 +123,7 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str):
     write_status(run_dir, "evaluate", "Analyse & Bewertung laufen…")
     result.geplante_texthook = meta.get("planned_text_hook", "")
     evaluate = analyst_gemini_eval.evaluate_hybrid if mode == "hybrid" else analyst_gemini_eval.evaluate_pure
-    result.evaluation = evaluate(video, result)
+    result.evaluation = evaluate(video, result, run_dir)
     return result
 
 
@@ -171,7 +171,7 @@ def _run_v1(run_dir: Path, video: Path, meta: dict):
         write_status(run_dir, "evaluate", "Bewertung wird erstellt…")
         try:
             from services import analyst_eval
-            result.evaluation = analyst_eval.evaluate(result)
+            result.evaluation = analyst_eval.evaluate(result, run_dir)
         except Exception as e:
             print(f"  [ANALYST] Claude-Bewertung fehlgeschlagen: {e}")
 

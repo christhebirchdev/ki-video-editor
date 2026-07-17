@@ -19,7 +19,7 @@ from pathlib import Path
 from google.genai import types
 
 from models.analyst import AnalystEvaluationV2, AnalystResult
-from services import analyst_eval, gemini_service
+from services import analyst_eval, analyst_prompt_log, gemini_service
 from services.analyst_vlm import _generate  # generate_content mit Modell-Fallback
 
 
@@ -163,20 +163,34 @@ def _user_message(result: AnalystResult, mode: str) -> str:
     )
 
 
-def _evaluate(video_path: Path, result: AnalystResult, mode: str) -> AnalystEvaluationV2:
+def _evaluate(video_path: Path, result: AnalystResult, mode: str, run_dir=None) -> AnalystEvaluationV2:
     video_file = gemini_service._upload_video_to_gemini(video_path)
+    system = analyst_eval.build_system_prompt()  # exakt der Claude-Bewertungsprompt
+    user = _user_message(result, mode)
     cfg = types.GenerateContentConfig(
-        system_instruction=analyst_eval.build_system_prompt(),  # exakt der Claude-Bewertungsprompt
+        system_instruction=system,
         response_mime_type="application/json",
         temperature=0.0,
     )
-    raw = (_generate([video_file, _user_message(result, mode)], cfg, f"analyst_eval_{mode}").text or "")
-    return AnalystEvaluationV2(**analyst_eval._extract_json(raw))
+    raw = (_generate([video_file, user], cfg, f"analyst_eval_{mode}").text or "")
+    parsed = AnalystEvaluationV2(**analyst_eval._extract_json(raw))
+    analyst_prompt_log.log_call(
+        run_dir, call=f"eval_{mode}", recipient="Gemini",
+        model=f"{gemini_service.GEMINI_MODEL} (Primärmodell; ggf. Fallback)",
+        system_prompt=system, user_message=user, output_raw=raw, output_parsed=parsed,
+        attachments=[f"Video: {result.filename}"],
+        inputs={
+            "engine": f"v2_{mode}", "filename": result.filename,
+            "duration_sec": result.duration_sec, "mode": mode,
+            "geplante_texthook": getattr(result, "geplante_texthook", ""),
+        },
+    )
+    return parsed
 
 
-def evaluate_pure(video_path: Path, result: AnalystResult) -> AnalystEvaluationV2:
-    return _evaluate(video_path, result, "pure")
+def evaluate_pure(video_path: Path, result: AnalystResult, run_dir=None) -> AnalystEvaluationV2:
+    return _evaluate(video_path, result, "pure", run_dir)
 
 
-def evaluate_hybrid(video_path: Path, result: AnalystResult) -> AnalystEvaluationV2:
-    return _evaluate(video_path, result, "hybrid")
+def evaluate_hybrid(video_path: Path, result: AnalystResult, run_dir=None) -> AnalystEvaluationV2:
+    return _evaluate(video_path, result, "hybrid", run_dir)

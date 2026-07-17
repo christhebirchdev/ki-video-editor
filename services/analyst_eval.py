@@ -19,6 +19,7 @@ import anthropic
 
 from config import settings
 from models.analyst import AnalystEvaluationV2, AnalystResult
+from services import analyst_prompt_log
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -207,14 +208,30 @@ def build_user_message(result: AnalystResult) -> str:
     )
 
 
-def evaluate(result: AnalystResult) -> AnalystEvaluationV2:
-    """Schlanke V2-Bewertung. Bekommt nur Text — das Video bleibt lokal."""
+def evaluate(result: AnalystResult, run_dir=None) -> AnalystEvaluationV2:
+    """Schlanke V2-Bewertung. Bekommt nur Text — das Video bleibt lokal.
+
+    run_dir (optional): Ordner des Laufs; wenn gesetzt, wird der komplette Call
+    (Input/Prompt/Output) nach prompt_log.md geschrieben.
+    """
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    system = build_system_prompt()
+    user = build_user_message(result)
     # Hinweis: KEIN temperature-Parameter (bei Sonnet 4.6 deprecated → 400 Bad Request)
     msg = client.messages.create(
         model=settings.claude_model,
         max_tokens=2200,
-        system=build_system_prompt(),
-        messages=[{"role": "user", "content": build_user_message(result)}],
+        system=system,
+        messages=[{"role": "user", "content": user}],
     )
-    return AnalystEvaluationV2(**_extract_json(msg.content[0].text))
+    raw = msg.content[0].text
+    parsed = AnalystEvaluationV2(**_extract_json(raw))
+    analyst_prompt_log.log_call(
+        run_dir, call="eval_v1", recipient="Claude", model=settings.claude_model,
+        system_prompt=system, user_message=user, output_raw=raw, output_parsed=parsed,
+        inputs={
+            "engine": "v1", "filename": result.filename,
+            "duration_sec": result.duration_sec, "scene_count": result.scene_count,
+        },
+    )
+    return parsed
