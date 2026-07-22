@@ -2,10 +2,13 @@
 """AI Video Analyst: Upload → Start (BackgroundTask) → Status/Ergebnis pollen."""
 import json
 import re
+import secrets
 import shutil
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from pydantic import BaseModel
+from config import settings
 from models.analyst import FORMATE
 from services import analyst_vlm
 from services.analyst_engine import ANALYST_PATH, run_analysis, write_status
@@ -114,3 +117,73 @@ async def get_analysis(run_id: str):
     if status.get("done") and analysis.exists():
         out["result"] = json.loads(analysis.read_text())
     return out
+
+
+# ---------- Admin-/Feedback-Ansicht (Experten-Feedback sammeln) ----------
+# Bewusst NUR sammeln: kein Auto-Fix, kein Auto-Commit. Die Auswertung passiert später
+# auf Befehl, mit dem Menschen am Merge-Knopf.
+
+class FeedbackIn(BaseModel):
+    password: str = ""
+    field_id: str = ""            # z.B. "hook.sprech", "action_steps", "performance_score"
+    verdict: str = ""             # "up" | "down" | "" (nur Text, ohne Daumen)
+    text: str = ""                # was genau / warum / wie besser
+
+
+def _admin_ok(pw: str) -> bool:
+    """Konstant-Zeit-Vergleich, damit das Passwort nicht über Antwortzeiten erratbar ist."""
+    return bool(pw) and secrets.compare_digest(pw, settings.admin_password)
+
+
+@router.post("/admin/verify")
+async def admin_verify(body: FeedbackIn):
+    """Prüft das Admin-Passwort. Das Frontend schaltet die Feedback-Felder erst nach OK frei —
+    die Prüfung liegt hier auf dem Server, nicht im JavaScript."""
+    if not _admin_ok(body.password):
+        raise HTTPException(status_code=401, detail="Falsches Passwort")
+    return {"ok": True}
+
+
+@router.post("/{run_id}/feedback")
+async def save_feedback(run_id: str, body: FeedbackIn):
+    """Hängt einen Feedback-Eintrag an analyst_runs/<id>/feedback.jsonl an.
+
+    Angehängt statt überschrieben: So bleibt sichtbar, wie sich ein Urteil über die Zeit ändert.
+    Für die Auswertung gilt der JEWEILS LETZTE Eintrag pro (run_id, field_id).
+    """
+    if not _admin_ok(body.password):
+        raise HTTPException(status_code=401, detail="Falsches Passwort")
+    if not body.field_id.strip():
+        raise HTTPException(status_code=422, detail="field_id fehlt")
+    from services.analyst_eval import PROMPT_VERSION
+
+    run_dir = _run_dir(run_id)
+    meta = json.loads((run_dir / "meta.json").read_text()) if (run_dir / "meta.json").exists() else {}
+    eintrag = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "run_id": run_id,
+        "filename": meta.get("filename", ""),
+        "format": meta.get("format", ""),
+        "prompt_version": PROMPT_VERSION,   # Feedback ohne Versionsbezug wird später irreführend
+        "field_id": body.field_id.strip(),
+        "verdict": body.verdict.strip(),
+        "text": body.text.strip(),
+    }
+    with (run_dir / "feedback.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(eintrag, ensure_ascii=False) + "\n")
+    return {"ok": True, "gespeichert": eintrag["ts"]}
+
+
+@router.get("/{run_id}/feedback")
+async def load_feedback(run_id: str):
+    """Bereits gegebenes Feedback dieses Runs (letzter Eintrag pro Feld) — damit die Admin-Ansicht
+    beim erneuten Öffnen zeigt, was schon bewertet wurde."""
+    pfad = _run_dir(run_id) / "feedback.jsonl"
+    if not pfad.exists():
+        return {}
+    letzte: dict[str, dict] = {}
+    for zeile in pfad.read_text(encoding="utf-8").splitlines():
+        if zeile.strip():
+            e = json.loads(zeile)
+            letzte[e["field_id"]] = {"verdict": e.get("verdict", ""), "text": e.get("text", "")}
+    return letzte

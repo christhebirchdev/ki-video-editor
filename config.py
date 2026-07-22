@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     # werden seriell abgearbeitet (Warteschlange), schützt den geteilten VPS.
     analyst_max_concurrent: int = 1
 
+    # Passwort für die Admin-/Feedback-Ansicht (Kunden-Ansicht bleibt unberührt).
+    # NUR über .env setzen (ADMIN_PASSWORD=...) — dieses Repo ist ÖFFENTLICH, ein Default hier
+    # wäre auf GitHub für jeden lesbar. Leer = Admin-Ansicht komplett gesperrt (fail closed),
+    # damit ein vergessenes .env nicht versehentlich alles freischaltet.
+    admin_password: str = ""
+
     model_config = {"env_file": ".env"}
 
 

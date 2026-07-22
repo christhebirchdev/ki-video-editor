@@ -63,6 +63,113 @@ async function api(method, path, body) {
   return res.json();
 }
 
+/* ===== Admin-/Feedback-Ansicht =====
+   Zwei Ansichten aus EINER Codebasis: Kunden-Ansicht (Standard, ohne Feedback-Felder) und
+   Admin-Ansicht mit Feedback pro Output-Feld. Das Passwort wird SERVER-seitig geprüft
+   (/api/analyst/admin/verify) — im Frontend steht es nie, sonst wäre es bei öffentlich
+   erreichbarem Server wirkungslos. Gesammelt wird nur; kein Auto-Fix, kein Auto-Commit. */
+const AdminCtx = React.createContext({ admin: false, password: "", runId: "" });
+
+function AdminToggle({ admin, password, onLogin, onLogout }) {
+  const [offen, setOffen] = useState(false);
+  const [pw, setPw] = useState("");
+  const [fehler, setFehler] = useState("");
+  const [pruefe, setPruefe] = useState(false);
+
+  async function submit(e) {
+    e?.preventDefault();
+    setPruefe(true); setFehler("");
+    try {
+      await api("POST", "/api/analyst/admin/verify", { password: pw });
+      onLogin(pw); setOffen(false); setPw("");
+    } catch (err) {
+      setFehler(err.message || "Falsches Passwort");
+    } finally { setPruefe(false); }
+  }
+
+  if (admin) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "#c0392b",
+                       padding: "3px 9px", borderRadius: 999 }}>ADMIN</span>
+        <button className="btn btn-ghost" style={{ padding: "5px 10px", fontSize: 12 }}
+                onClick={onLogout}>Verlassen</button>
+      </div>
+    );
+  }
+  return (
+    <div style={{ position: "relative", marginRight: 10 }}>
+      <button className="btn btn-ghost" style={{ padding: "5px 10px", fontSize: 12 }}
+              onClick={() => setOffen((o) => !o)}>Admin</button>
+      {offen && (
+        <form onSubmit={submit}
+              style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 50,
+                       background: "#fff", border: "1px solid var(--line-strong)", borderRadius: 8,
+                       padding: 10, boxShadow: "0 6px 20px rgba(0,0,0,.12)", width: 220 }}>
+          <input type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)}
+                 placeholder="Passwort"
+                 style={{ width: "100%", padding: "7px 9px", fontSize: 13,
+                          border: "1px solid var(--line-strong)", borderRadius: 6 }} />
+          {fehler && <div style={{ color: "#c0392b", fontSize: 12, marginTop: 5 }}>{fehler}</div>}
+          <button className="btn btn-primary" type="submit" disabled={pruefe || !pw}
+                  style={{ width: "100%", marginTop: 8, padding: "7px", fontSize: 13 }}>
+            {pruefe ? "Prüfe …" : "Feedback-Ansicht öffnen"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+/* Ein Feedback-Block pro Output-Feld. In der Kunden-Ansicht rendert er nichts. */
+function Feedback({ field }) {
+  const { admin, password, runId } = React.useContext(AdminCtx);
+  const [verdict, setVerdict] = useState("");
+  const [text, setText] = useState("");
+  const [status, setStatus] = useState("");   // "", "gespeichert", Fehlertext
+
+  if (!admin || !runId) return null;
+
+  async function speichern(v, t) {
+    try {
+      await api("POST", `/api/analyst/${runId}/feedback`,
+                { password, field_id: field, verdict: v, text: t });
+      setStatus("gespeichert ✓");
+      setTimeout(() => setStatus(""), 1800);
+    } catch (e) { setStatus(e.message || "Fehler"); }
+  }
+
+  const daumen = (wert, symbol) => (
+    <button type="button" onClick={() => { setVerdict(wert); speichern(wert, text); }}
+            title={wert === "up" ? "gut" : "schlecht"}
+            style={{ padding: "2px 8px", fontSize: 14, cursor: "pointer", borderRadius: 6,
+                     border: "1px solid " + (verdict === wert ? "transparent" : "var(--line-strong)"),
+                     background: verdict === wert ? (wert === "up" ? "#1e8e5a" : "#c0392b") : "transparent",
+                     filter: verdict === wert ? "grayscale(1) brightness(3)" : "none" }}>
+      {symbol}
+    </button>
+  );
+
+  return (
+    <div style={{ marginTop: 6, padding: "8px 10px", background: "#fffdf5",
+                  border: "1px dashed #e0c98a", borderRadius: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+        {daumen("up", "👍")}{daumen("down", "👎")}
+        <span style={{ fontSize: 11, color: "var(--muted, #777)" }}>{field}</span>
+        <span style={{ fontSize: 11, color: "#1e8e5a", marginLeft: "auto" }}>{status}</span>
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => { if (text.trim() || verdict) speichern(verdict, text); }}
+        placeholder="Was genau ist gut/schlecht, warum — und wie wäre es besser?"
+        rows={2}
+        style={{ width: "100%", padding: "6px 8px", fontSize: 12.5, resize: "vertical",
+                 border: "1px solid var(--line-strong)", borderRadius: 6 }} />
+    </div>
+  );
+}
+
 /* ===== Icons ===== */
 const Ico = {
   refresh: (p) => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
@@ -332,7 +439,8 @@ function problemeDetail(block) {
   return p.length ? p.join(" · ") : "Keine Auffälligkeiten";
 }
 
-function VideoAnalystPage() {
+function VideoAnalystPage({ adminPw = "" }) {
+  const [runId, setRunId] = useState("");   // für die Feedback-Zuordnung in der Admin-Ansicht
   const [analysisFile, setAnalysisFile] = useState(null);
   const engine = "v2_hybrid";    // nur noch V2 Hybrid im Frontend (V1 entfernt; Backend kann v1/v2_pure weiter via API)
   const [plannedTextHook, setPlannedTextHook] = useState("");  // Freifeld: geplante Texthook (falls noch nicht im Video)
@@ -397,6 +505,7 @@ function VideoAnalystPage() {
       const fd = new FormData();
       fd.append("file", analysisFile.file);
       const up = await api("POST", "/api/analyst/upload", fd);
+      setRunId(up.id);
       setProgress("Analyse startet …");
       await api("POST", `/api/analyst/${up.id}/start?engine=${engine}&planned_text_hook=${encodeURIComponent(plannedTextHook)}&format=${encodeURIComponent(format)}`);
       const res = await pollUntilDone(up.id);
@@ -419,13 +528,14 @@ function VideoAnalystPage() {
     setError("");
     setPlannedTextHook("");
     setFormat("");
+    setRunId("");
     setActivePhase("");
     activePhaseRef.current = "";
     setPhaseStartMs(0);
   }
 
   return (
-    <>
+    <AdminCtx.Provider value={{ admin: !!adminPw, password: adminPw, runId }}>
       {error && (
         <div className="alert alert-err">
           <Ico.x style={{ marginTop: 1, flex: "0 0 auto" }} />
@@ -598,10 +708,14 @@ function VideoAnalystPage() {
                   <div style={{ fontSize: 13, fontWeight: 600, color: ez.color, marginTop: 4 }}>{ez.label}</div>
                 )}
                 {ev.funnel && <span className="analyst-funnel">{ev.funnel}</span>}
+                <Feedback field="performance_score" />
               </div>
 
               {ev.zielgruppe && (
-                <div className="analyst-zielgruppe">🎯 {ev.zielgruppe}</div>
+                <>
+                  <div className="analyst-zielgruppe">🎯 {ev.zielgruppe}</div>
+                  <Feedback field="zielgruppe" />
+                </>
               )}
 
               {/* 2. Positiv zuerst */}
@@ -611,12 +725,13 @@ function VideoAnalystPage() {
                   <ul className="analyst-list">
                     {ev.staerken.map((s, i) => <li key={i}>{s}</li>)}
                   </ul>
+                  <Feedback field="staerken" />
                 </div>
               )}
 
               {/* 3. Handlungsempfehlungen (max 3, wichtigste groß) */}
               {ev.action_steps?.length > 0 && (
-                <Handlungsempfehlungen steps={ev.action_steps} />
+                <><Handlungsempfehlungen steps={ev.action_steps} /><Feedback field="action_steps" /></>
               )}
 
               {/* 3b. Erweiterte Handlungsempfehlungen (aufklappbar) */}
@@ -632,6 +747,7 @@ function VideoAnalystPage() {
                       </li>
                     ))}
                   </ul>
+                  <Feedback field="weitere_empfehlungen" />
                 </details>
               )}
 
@@ -647,17 +763,25 @@ function VideoAnalystPage() {
                     <ul className="analyst-list">
                       {ev.top_tipps.map((t, i) => <li key={i}>{t}</li>)}
                     </ul>
+                    <Feedback field="top_tipps" />
                   </div>
                 )}
 
                 <div className="sc-grid" style={{ marginTop: 10 }}>
                   <ScoreChip label="🎤 Sprech-Hook" score={ev.hook?.sprech_hook_score} detail={ev.hook?.sprech_hook_grund} />
+                  <Feedback field="hook.sprech" />
                   <ScoreChip label={ev.hook?.text_hook_vorhanden ? "📝 Text-Hook" : "📝 Text-Hook (fehlt)"} score={ev.hook?.text_hook_score} detail={ev.hook?.text_hook_grund} />
+                  <Feedback field="hook.text" />
                   <ScoreChip label="📖 Struktur" score={ev.struktur?.score} detail={strukturDetail(ev.struktur)} />
+                  <Feedback field="struktur" />
                   <ScoreChip label="🎙️ Sprechqualität" score={ev.sprechqualitaet?.score} detail={problemeDetail(ev.sprechqualitaet)} />
+                  <Feedback field="sprechqualitaet" />
                   <ScoreChip label="✂️ Schnitt & Pacing" score={ev.schnitt_pacing?.score} detail={ev.schnitt_pacing?.kommentar} />
+                  <Feedback field="schnitt_pacing" />
                   <ScoreChip label="📈 Spannungsbogen" score={ev.spannungsbogen?.score} detail={ev.spannungsbogen?.kommentar} />
+                  <Feedback field="spannungsbogen" />
                   <ScoreChip label="🎨 Visuelle Ästhetik" score={ev.visuelle_aesthetik?.score} detail={problemeDetail(ev.visuelle_aesthetik)} />
+                  <Feedback field="visuelle_aesthetik" />
                 </div>
               </details>
             </div>
@@ -735,7 +859,7 @@ function VideoAnalystPage() {
           )}
         </Card>
       )}
-    </>
+    </AdminCtx.Provider>
   );
 }
 
@@ -1815,6 +1939,9 @@ const ANALYST_ONLY = typeof window !== "undefined" && window.ANALYST_ONLY === tr
 function App() {
   const [activePage, setActivePage] = useState(ANALYST_ONLY ? "analyst" : "editor");
   const meta = PAGE_META[activePage];
+  // Admin-Ansicht: Passwort wurde server-seitig geprüft; es bleibt nur im State (nicht persistiert),
+  // damit ein Reload zurück in die Kunden-Ansicht fällt.
+  const [adminPw, setAdminPw] = useState("");
 
   return (
     <div className="app">
@@ -1829,7 +1956,13 @@ function App() {
             <span className="title">{meta.appTitle}</span>
           </div>
         </div>
-        <div className="topbar-right">
+        <div className="topbar-right" style={{ display: "flex", alignItems: "center" }}>
+          <AdminToggle
+            admin={!!adminPw}
+            password={adminPw}
+            onLogin={setAdminPw}
+            onLogout={() => setAdminPw("")}
+          />
           <div className="userchip">
             <span className="avatar">C</span>
             <span className="who">chris@meinfluss.de</span>
@@ -1864,7 +1997,9 @@ function App() {
       {!ANALYST_ONLY && (
         <div className={activePage !== "editor" ? "page-hidden" : ""}><VideoEditorPage /></div>
       )}
-      <div className={activePage !== "analyst" ? "page-hidden" : ""}><VideoAnalystPage /></div>
+      <div className={activePage !== "analyst" ? "page-hidden" : ""}>
+        <VideoAnalystPage adminPw={adminPw} />
+      </div>
     </div>
   );
 }

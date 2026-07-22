@@ -436,3 +436,66 @@ def test_start_ohne_format_wird_abgelehnt(client, monkeypatch):
 
 def test_get_unknown_run_404(client):
     assert client.get("/api/analyst/gibtsnicht").status_code == 404
+
+
+# ---------- Admin-/Feedback-Ansicht ----------
+
+def test_admin_verify_prueft_passwort_serverseitig(client, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "admin_password", "geheim123")
+    assert client.post("/api/analyst/admin/verify", json={"password": "falsch"}).status_code == 401
+    assert client.post("/api/analyst/admin/verify", json={"password": ""}).status_code == 401
+    r = client.post("/api/analyst/admin/verify", json={"password": "geheim123"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+
+def test_ohne_gesetztes_passwort_ist_admin_gesperrt(client, monkeypatch):
+    """Fail closed: leeres ADMIN_PASSWORD (z.B. .env vergessen) darf NICHTS freischalten —
+    das Repo ist oeffentlich, ein Default im Code waere fuer jeden lesbar."""
+    from config import settings
+    monkeypatch.setattr(settings, "admin_password", "")
+    assert client.post("/api/analyst/admin/verify", json={"password": ""}).status_code == 401
+    assert client.post("/api/analyst/admin/verify", json={"password": "feedback"}).status_code == 401
+
+
+def test_feedback_nur_mit_passwort_und_landet_in_jsonl(client, tmp_path, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "admin_password", "geheim123")
+    run_id = client.post(
+        "/api/analyst/upload", files={"file": ("v.mp4", b"\x00", "video/mp4")}
+    ).json()["id"]
+
+    # ohne/mit falschem Passwort: abgelehnt — sonst könnte jeder den Datensatz vollmüllen
+    r = client.post(f"/api/analyst/{run_id}/feedback",
+                    json={"password": "falsch", "field_id": "hook.sprech", "verdict": "down"})
+    assert r.status_code == 401
+
+    ok = {"password": settings.admin_password, "field_id": "hook.sprech",
+          "verdict": "down", "text": "zu generisch"}
+    assert client.post(f"/api/analyst/{run_id}/feedback", json=ok).status_code == 200
+
+    # zweiter Eintrag zum selben Feld wird ANGEHÄNGT (Urteilsänderung bleibt sichtbar),
+    # beim Auslesen gewinnt der letzte
+    ok2 = {**ok, "verdict": "up", "text": "doch gut"}
+    assert client.post(f"/api/analyst/{run_id}/feedback", json=ok2).status_code == 200
+
+    zeilen = (tmp_path / run_id / "feedback.jsonl").read_text().strip().split("\n")
+    assert len(zeilen) == 2
+    erster = json.loads(zeilen[0])
+    assert erster["field_id"] == "hook.sprech" and erster["verdict"] == "down"
+    assert erster["prompt_version"]      # Versionsstempel muss dran sein
+    assert erster["run_id"] == run_id
+
+    gelesen = client.get(f"/api/analyst/{run_id}/feedback").json()
+    assert gelesen["hook.sprech"] == {"verdict": "up", "text": "doch gut"}
+
+
+def test_feedback_ohne_field_id_abgelehnt(client, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "admin_password", "geheim123")
+    run_id = client.post(
+        "/api/analyst/upload", files={"file": ("v.mp4", b"\x00", "video/mp4")}
+    ).json()["id"]
+    r = client.post(f"/api/analyst/{run_id}/feedback",
+                    json={"password": settings.admin_password, "field_id": "  "})
+    assert r.status_code == 422

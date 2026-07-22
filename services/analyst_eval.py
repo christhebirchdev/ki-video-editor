@@ -21,6 +21,11 @@ from config import settings
 from models.analyst import ActionStep, AnalystEvaluationV2, AnalystResult, Empfehlung
 from services import analyst_prompt_log
 
+# Version der Bewertungslogik (Skill + Schema + Nachbearbeitung). Wird an jedes gespeicherte
+# Feedback gestempelt: Feedback zu einer alten Prompt-Version ist für spätere Auswertungen sonst
+# irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
+PROMPT_VERSION = "2026-07-22"
+
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
 # Skill referenziert und hier zur Laufzeit an den System-Prompt angehängt (das Pipeline-Claude hat
