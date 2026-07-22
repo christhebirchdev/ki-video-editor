@@ -11,6 +11,7 @@ Modell-Wahl:
 - "medium" → ~1.5 GB, langsamer, deutlich präziser bei Akzenten/leiser Stimme
 - "large-v3" → ~3 GB, beste Qualität, ~5× langsamer
 """
+import hashlib
 import time
 from pathlib import Path
 from typing import Optional
@@ -57,8 +58,27 @@ def transcribe_with_word_timestamps(
         language=language,
         word_timestamps=True,         # ← essentiell, sonst nur Segment-Level
         vad_filter=True,              # Voice Activity Detection — überspringt lange Stille
-        beam_size=1,                  # greedy statt 5 Pfade → ~1,5-2x schneller, kaum Qualitätsverlust bei klarer Sprache
-    )                                 # ponytail: bei viel Nuscheln/Dialekt ggf. wieder auf 5 hochsetzen
+        # --- Determinismus: dasselbe Video MUSS dasselbe Transkript liefern -------------------
+        # Ohne diese drei Zeilen schwankt der Wortlaut zwischen Läufen (real beobachtet:
+        # 99 vs. 111 Wörter bei byte-identischer Datei). Das ist nicht kosmetisch: nicht erkannte
+        # Wörter sehen in `w2.start - w1.end` exakt wie Sprechpausen aus — die Bewertung feuert
+        # dann auf Phantompausen.
+        temperature=0.0,              # Default wäre [0.0, 0.2 … 1.0]: reißt ein Segment die
+                                      # compression_ratio/log_prob-Schwelle, dekodiert Whisper mit
+                                      # steigender Temperatur NEU — und Sampling bei t>0 ist
+                                      # stochastisch UND ungeseedet. Ein Float statt der Liste
+                                      # schaltet die Fallback-Leiter komplett ab.
+        condition_on_previous_text=False,  # Default True konditioniert jedes Segment auf den Text
+                                      # davor → EINE Abweichung früh im Video kaskadiert durch den
+                                      # Rest. Aus = Fehler bleiben lokal. Dämpft zusätzlich die
+                                      # Repetitions-Schleifen, gegen die die Fallback-Leiter oben
+                                      # eigentlich half — deshalb gehören die beiden Zeilen zusammen.
+        beam_size=5,                  # zurück auf den faster-whisper-Default (war 1/greedy).
+                                      # Beam-Search ist ebenfalls deterministisch, liefert aber
+                                      # höhere Konfidenz → die Schwellen reißen seltener und es
+                                      # werden weniger Wörter verschluckt. Kostet ~1,5-2× Laufzeit;
+                                      # bei Short-Form-Videos sind das Sekunden.
+    )
 
     words: list[WhisperWord] = []
     full_text_parts: list[str] = []
@@ -79,5 +99,12 @@ def transcribe_with_word_timestamps(
     full_transcript = " ".join(full_text_parts).strip()
     elapsed = time.time() - t0
     print(f"  [WHISPER] ✓ {len(words)} Wörter transkribiert in {elapsed:.1f}s "
-          f"(Video-Dauer: {info.duration:.1f}s, Sprache: {info.language})")
+          f"(Video-Dauer: {info.duration:.1f}s, Sprache: {info.language}, "
+          f"Modell: {model_name or DEFAULT_WHISPER_MODEL}, Hash: {transkript_hash(full_transcript)})")
     return words, full_transcript
+
+
+def transkript_hash(transcript: str) -> str:
+    """Kurzer Fingerabdruck des Transkripts. Steht in meta.json und im prompt_log.md, damit
+    Drift zwischen zwei Läufen desselben Videos sofort auffällt — gleicher Hash = gleicher Input."""
+    return hashlib.sha256(transcript.encode("utf-8")).hexdigest()[:12]

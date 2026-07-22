@@ -148,18 +148,32 @@ def _parse_array(raw: str) -> list[dict]:
     return out
 
 
+# Welches Modell den letzten _generate()-Call tatsächlich beantwortet hat. Ohne das loggt der
+# Lauf nur „Primärmodell; ggf. Fallback" — und ein abweichender Lauf lässt sich nicht von einem
+# Fallback-Lauf unterscheiden, was jeden A/B-Vergleich angreifbar macht.
+# ponytail: Modul-global statt Signaturänderung an 4 Call-Sites. Trägt, weil der Analyst mit
+# --workers 1 läuft und die Calls je Lauf sequenziell sind. Bei parallelen Läufen → _generate
+# auf Rückgabe (response, modell) umstellen.
+letztes_modell: str = ""
+
+
 def _generate(contents, cfg, label):
-    """generate_content mit Modell-Fallback (2.5-flash → 2.0-flash)."""
+    """generate_content mit Modell-Fallback (2.5-flash → 2.0-flash).
+    Setzt `letztes_modell` auf das Modell, das tatsächlich geantwortet hat."""
+    global letztes_modell
     last_err = None
     for model_name in [GEMINI_MODEL] + GEMINI_FALLBACK_MODELS:
         try:
-            return _call_with_retry(
+            antwort = _call_with_retry(
                 f"{label}[{model_name}]",
                 lambda m=model_name: client.models.generate_content(model=m, contents=contents, config=cfg),
             )
+            letztes_modell = model_name
+            return antwort
         except Exception as e:
             last_err = e
             continue
+    letztes_modell = ""
     raise RuntimeError(f"Gemini {label} fehlgeschlagen: {last_err}")
 
 

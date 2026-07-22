@@ -6,6 +6,7 @@ import shutil
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from models.analyst import FORMATE
 from services import analyst_vlm
 from services.analyst_engine import ANALYST_PATH, run_analysis, write_status
 
@@ -63,12 +64,22 @@ ENGINES = {"v1", "v2_pure", "v2_hybrid"}
 @router.post("/{run_id}/start")
 async def start_analysis(
     run_id: str, background: BackgroundTasks, skip_eval: bool = False, engine: str = "v1",
-    planned_text_hook: str = "",
+    planned_text_hook: str = "", format: str = "",
 ):
     """engine: v1 (Claude bewertet aus Text) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte).
-    skip_eval=true → nur lokale Rohanalyse (Whisper/Quality), KEIN Bewertungs-Call (nur v1 sinnvoll)."""
+    skip_eval=true → nur lokale Rohanalyse (Whisper/Quality), KEIN Bewertungs-Call (nur v1 sinnvoll).
+    format: Pflicht, genau EIN Wert aus models.analyst.FORMATE. Die Auswahl ist BINDEND —
+    das Modell klassifiziert das Format nicht mehr selbst (der Nutzer kennt sein Video)."""
     if engine not in ENGINES:
         raise HTTPException(status_code=422, detail=f"Unbekannte Engine '{engine}'. Erlaubt: {', '.join(sorted(ENGINES))}")
+    gewaehlt = (format or "").strip()
+    if not gewaehlt:
+        raise HTTPException(status_code=422, detail=f"Bitte ein Format wählen. Erlaubt: {', '.join(FORMATE)}")
+    if gewaehlt not in FORMATE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unbekanntes Format: {gewaehlt}. Erlaubt: {', '.join(FORMATE)}",
+        )
     run_dir = _run_dir(run_id)
     status = json.loads((run_dir / "status.json").read_text())
     if status.get("phase") in RUNNING_PHASES:
@@ -82,10 +93,11 @@ async def start_analysis(
     meta["skip_eval"] = skip_eval
     meta["engine"] = engine
     meta["planned_text_hook"] = (planned_text_hook or "").strip()
+    meta["format"] = gewaehlt
     meta_path.write_text(json.dumps(meta, ensure_ascii=False))
     write_status(run_dir, "starting", "Analyse startet…")
     background.add_task(run_analysis, run_id)
-    return {"id": run_id, "status": "started", "skip_eval": skip_eval, "engine": engine}
+    return {"id": run_id, "status": "started", "skip_eval": skip_eval, "engine": engine, "format": gewaehlt}
 
 
 @router.get("/{run_id}")

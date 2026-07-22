@@ -160,6 +160,9 @@ function fmtMs(ms) {
 }
 
 /* ===== Video Analyst Seite ===== */
+// Muss mit models.analyst.FORMATE übereinstimmen — die API validiert die Auswahl dagegen (422).
+const FORMATE = ["Talking Head", "Reaction", "Sketch", "Tutorial", "Vlog", "Andere"];
+
 const ANALYST_FEATURES = [
   { ico: "🎯", title: "Inhaltsanalyse",    desc: "Themen, Kernaussagen & Story-Struktur erkennen" },
   { ico: "🎙️", title: "Sprach-Qualität",   desc: "Füllwörter, Pausen, Sprechtempo & Verständlichkeit" },
@@ -333,6 +336,8 @@ function VideoAnalystPage() {
   const [analysisFile, setAnalysisFile] = useState(null);
   const engine = "v2_hybrid";    // nur noch V2 Hybrid im Frontend (V1 entfernt; Backend kann v1/v2_pure weiter via API)
   const [plannedTextHook, setPlannedTextHook] = useState("");  // Freifeld: geplante Texthook (falls noch nicht im Video)
+  // Format-Auswahl (Pflicht, genau eines). Muss zu models.analyst.FORMATE passen — die API validiert dagegen.
+  const [format, setFormat] = useState("");
   const [phase, setPhase] = useState("idle");   // idle | running | done
   const [progress, setProgress] = useState("");
   const [queueInfo, setQueueInfo] = useState(null);  // {ahead,total} während "queued"
@@ -359,7 +364,7 @@ function VideoAnalystPage() {
     if (f) setAnalysisFile({ file: f, name: f.name, size: (f.size / 1024 / 1024).toFixed(1) + " MB" });
   }
 
-  const canStart = !!analysisFile;
+  const canStart = !!analysisFile && !!format;
 
   async function pollUntilDone(runId) {
     while (!cancelledRef.current) {
@@ -393,7 +398,7 @@ function VideoAnalystPage() {
       fd.append("file", analysisFile.file);
       const up = await api("POST", "/api/analyst/upload", fd);
       setProgress("Analyse startet …");
-      await api("POST", `/api/analyst/${up.id}/start?engine=${engine}&planned_text_hook=${encodeURIComponent(plannedTextHook)}`);
+      await api("POST", `/api/analyst/${up.id}/start?engine=${engine}&planned_text_hook=${encodeURIComponent(plannedTextHook)}&format=${encodeURIComponent(format)}`);
       const res = await pollUntilDone(up.id);
       if (res) {
         setResult(res);
@@ -413,6 +418,7 @@ function VideoAnalystPage() {
     setQueueInfo(null);
     setError("");
     setPlannedTextHook("");
+    setFormat("");
     setActivePhase("");
     activePhaseRef.current = "";
     setPhaseStartMs(0);
@@ -474,6 +480,42 @@ function VideoAnalystPage() {
         </div>
 
         <div className="analyst-action">
+          {/* Format-Auswahl (Pflicht, genau eines). Der Nutzer kennt sein Video — seine Angabe ist für die
+              Bewertung bindend und verhindert, dass die KI z.B. ein Reaction-Video als Talking Head liest. */}
+          <div style={{ marginBottom: 12 }} role="radiogroup" aria-label="Format">
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+              Format <span style={{ color: "var(--danger, #c0392b)" }}>*</span>
+            </label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {FORMATE.map((f) => {
+                const on = format === f;
+                return (
+                  <button
+                    key={f}
+                    type="button"
+                    role="radio"
+                    disabled={phase === "running"}
+                    onClick={() => setFormat(f)}
+                    aria-checked={on}
+                    style={{
+                      padding: "6px 12px", fontSize: 13, borderRadius: 999, cursor: "pointer",
+                      border: `1px solid ${on ? "var(--accent, #2d6cdf)" : "var(--line-strong)"}`,
+                      background: on ? "var(--accent, #2d6cdf)" : "transparent",
+                      color: on ? "#fff" : "inherit",
+                      fontWeight: on ? 600 : 400,
+                    }}
+                  >
+                    {f}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Wähl das Format, das am besten passt — es steuert, wie streng Schnitt und Sprechpausen
+              bewertet werden. Passt nichts genau? Dann „Andere“.
+            </div>
+          </div>
+
           {/* Freifeld: geplante Texthook (falls sie erst nach dem Upload ins Video kommt) */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>

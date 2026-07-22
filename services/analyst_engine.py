@@ -101,7 +101,7 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str):
     filename = meta.get("filename", video.name)
 
     if mode == "hybrid":
-        from services.whisper_service import transcribe_with_word_timestamps
+        from services.whisper_service import transcribe_with_word_timestamps, transkript_hash
         write_status(run_dir, "transcribe", "Transkription läuft…")
         words, transcript = transcribe_with_word_timestamps(video, model_name=settings.whisper_model)
         speech_stats = compute_speech_stats(words)
@@ -114,7 +114,8 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str):
         duration = analyst_frames.probe_duration(video)
         result = AnalystResult(
             id="", filename=filename, duration_sec=duration, scene_count=0, scenes=[],
-            transcript=transcript, speech_stats=speech_stats, quality_metrics=quality,
+            transcript=transcript, transkript_hash=transkript_hash(transcript),
+            speech_stats=speech_stats, quality_metrics=quality,
         )
     else:  # pure
         duration = analyst_frames.probe_duration(video)
@@ -122,13 +123,14 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str):
 
     write_status(run_dir, "evaluate", "Analyse & Bewertung laufen…")
     result.geplante_texthook = meta.get("planned_text_hook", "")
+    result.gewaehltes_format = meta.get("format", "")  # leer nur bei Altläufen vor der Pflicht-Auswahl
     evaluate = analyst_gemini_eval.evaluate_hybrid if mode == "hybrid" else analyst_gemini_eval.evaluate_pure
     result.evaluation = evaluate(video, result, run_dir)
     return result
 
 
 def _run_v1(run_dir: Path, video: Path, meta: dict):
-    from services.whisper_service import transcribe_with_word_timestamps
+    from services.whisper_service import transcribe_with_word_timestamps, transkript_hash
 
     write_status(run_dir, "transcribe", "Transkription läuft…")
     words, transcript = transcribe_with_word_timestamps(video, model_name=settings.whisper_model)
@@ -161,6 +163,7 @@ def _run_v1(run_dir: Path, video: Path, meta: dict):
         audio_overview=audio_overview,
         gaze_overview=gaze_overview,
         transcript=transcript,
+        transkript_hash=transkript_hash(transcript),
         speech_stats=speech_stats,
         quality_metrics=quality,
     )

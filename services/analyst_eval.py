@@ -18,7 +18,7 @@ from pathlib import Path
 import anthropic
 
 from config import settings
-from models.analyst import AnalystEvaluationV2, AnalystResult
+from models.analyst import ActionStep, AnalystEvaluationV2, AnalystResult, Empfehlung
 from services import analyst_prompt_log
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
@@ -30,16 +30,122 @@ REFERENCE_PATH = SKILL_PATH.with_name("analyst_video_reference.md")
 
 # Heuristische Richtwerte zur internen Messwert-Interpretation (nur Urteilsgrundlage,
 # Zahlen dürfen laut Skill NICHT im Output erscheinen).
+from services.analyst_quality import (
+    LOUDNESS_OPTIMAL_HIGH, LOUDNESS_OPTIMAL_LOW, LOUDNESS_TOO_QUIET,
+)
+
 METRICS_GUIDE = (
     "Richtwerte (intern, Frames max 640px): Schärfe (Laplacian-Varianz) <50 unscharf, "
     "50–150 mäßig, >300 knackig. Helligkeit (0–255) Ziel ~90–160. Kontrast (Std) <30 flau. "
-    "Lautheit Reels-Richtwert ~ -14 LUFS; unter -20 LUFS zu leise. True Peak > -1 dBFS = Clipping-Gefahr."
+    f"Lautheit: optimaler Bereich {LOUDNESS_OPTIMAL_LOW} bis {LOUDNESS_OPTIMAL_HIGH} LUFS "
+    f"(empirisch festgelegt). Innerhalb DIESES Bereichs ODER lauter (höherer LUFS-Wert, also näher an 0) "
+    f"ist der Ton NICHT zu leise — dann keinen „zu leise\"-Hinweis geben und keinen Abzug. Erst deutlich "
+    f"unter {LOUDNESS_TOO_QUIET} LUFS ist der Ton wirklich zu leise. True Peak > -1 dBFS = Clipping-Gefahr."
 )
+
+
+TOP_ACTION_STEPS = 3
+
+
+def _normtext(s: str) -> str:
+    """Anweisung auf Kern normalisieren, damit „Sprechpause rausschneiden" an drei Stellen als
+    dieselbe Handlung erkannt wird, „Gehirn-Symbol" und „Telefon-Symbol" aber nicht."""
+    return " ".join((s or "").lower().split())
+
+
+def _zeit_label(sekunden: list[float]) -> str:
+    """„ca. Sek. 3" bzw. „ca. Sek. 3, 15 und 24" — Zeitangaben sind Richtwerte (±1–2 s)."""
+    s = [str(int(round(x))) for x in sekunden]
+    return f"ca. Sek. {s[0]}" if len(s) == 1 else f"ca. Sek. {', '.join(s[:-1])} und {s[-1]}"
+
+
+def verteile_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Bündeln → sortieren → Top-3 abtrennen. Deterministisch im Code statt per Prompt-Regel.
+
+    Das Modell liefert eine flache `empfehlungen`-Liste und entscheidet nur, WELCHE Einträge
+    dieselbe Handlung sind (Feld `gruppe`) — das ist Urteil. Der Rest ist Arithmetik und stand
+    vorher 3× fast wortgleich im Prompt, ohne sicher zu greifen (Befund 3):
+    „sortiere nach Zeitpunkt, nimm die 3 frühesten, der Rest nach weitere_empfehlungen".
+
+    Liefert das Modell `empfehlungen` nicht (Altlauf/altes Schema), bleiben die geparsten
+    action_steps unverändert stehen.
+    """
+    if not parsed.empfehlungen:
+        return parsed
+    gruppen: dict[str, list[Empfehlung]] = {}
+    for i, e in enumerate(parsed.empfehlungen):
+        # Gebündelt wird nur, wenn Label UND Anweisung übereinstimmen. Das Label allein reicht NICHT:
+        # das Modell nutzt `gruppe` sonst als KATEGORIE ("alles Einblendungen") und wirft verschiedene
+        # Handlungen zusammen — real passiert (Lauf 702f9c11): Gehirn-Symbol @18s, Telefon @28s und
+        # Folgen-Knopf @41s wurden zu „Gehirn-Symbol @18,28,41" verschmolzen. Untermerge ist harmlos
+        # (zwei ähnliche Schritte), Fehlmerge zeigt dem Nutzer aktiv die falsche Handlung.
+        label = (e.gruppe or "").strip().lower()
+        key = f"{label}\x00{_normtext(e.anweisung)}" if label else f"\x00einzeln{i}"
+        gruppen.setdefault(key, []).append(e)
+
+    schritte: list[tuple[float, ActionStep]] = []
+    for eintraege in gruppen.values():
+        eintraege.sort(key=lambda e: e.zeitpunkt_sek)
+        schritte.append((
+            eintraege[0].zeitpunkt_sek,  # eine Gruppe zählt ab ihrem FRÜHESTEN Vorkommen
+            ActionStep(
+                zeitpunkt=_zeit_label([e.zeitpunkt_sek for e in eintraege]),
+                anweisung=eintraege[0].anweisung,
+            ),
+        ))
+    schritte.sort(key=lambda t: t[0])
+    parsed.action_steps = [s for _, s in schritte[:TOP_ACTION_STEPS]]
+    parsed.weitere_empfehlungen = [s for _, s in schritte[TOP_ACTION_STEPS:]]
+    return parsed
+
+
+FREMD_TEXTHOOK_HINWEIS = (
+    "Der sichtbare Bildschirmtext gehört zum reagierten Fremdvideo, nicht zu dir — er zählt nicht als "
+    "deine Texthook. Dir fehlt eine EIGENE statische Texthook. Erstelle mindestens 3 Varianten und teste "
+    "sie über die Testreel-Funktion von Instagram gegeneinander."
+)
+
+
+def bereinige_fremd_texthook(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
+    """Reaction + leeres „Geplante Texthook"-Feld → der sichtbare Bildschirmtext gehört zum reagierten
+    Fremdvideo, nicht zum Protagonisten → Score hart auf 0.
+
+    Warum im Code und an DIESER Bedingung: Gemini unterscheidet einen in den reagierten Clip
+    eingebrannten Text visuell NICHT von einem eigenen Overlay — es bewertete ihn über 5 Läufe stabil
+    als eigene Texthook (Score 3), auch mit explizitem Prompt-Hinweis und Urteilsfeld. Der Nutzer weiß
+    es dagegen sicher: hat er eine eigene Texthook, trägt er sie ins Feld ein; ist das Feld bei einer
+    Reaction leer, ist der einzige Text der des Fremdvideos.
+    Fällt das Feld aus (eigene Texthook eingetragen), greift die normale Bewertung dieses Textes."""
+    ist_reaction = (getattr(result, "gewaehltes_format", "") or "").strip().lower() == "reaction"
+    hat_eigene = bool((getattr(result, "geplante_texthook", "") or "").strip())
+    if ist_reaction and not hat_eigene:
+        parsed.hook.text_hook_vorhanden = False
+        parsed.hook.text_hook_score = 0
+        parsed.hook.text_hook_grund = FREMD_TEXTHOOK_HINWEIS
+    return parsed
+
+
+def erzwinge_nutzer_format(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
+    """Die Format-Auswahl des Nutzers ist bindend — der Prompt bittet darum, hier wird es garantiert.
+    Ohne Auswahl (Altlauf) bleibt das Modell-Urteil stehen."""
+    if gewaehlt := (getattr(result, "gewaehltes_format", "") or "").strip():
+        parsed.format = gewaehlt
+    return parsed
+
+
+def pausen_txt(stats) -> str:
+    """Pausen MIT Position rendern. Ohne Position kann das Modell eine gemessene Dauer
+    keiner Stelle zuordnen — es fusioniert dann Zahl und Ort zu einer erfundenen Behauptung."""
+    pausen = getattr(stats, "pausen", None) or []
+    if not pausen:
+        return "keine Pausen >0.5s gemessen"
+    return " | ".join(f"{p.dauer_sec}s @ {p.start_sec}–{p.end_sec}s" for p in pausen)
 
 OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese Felder, nichts davor/danach:
 {
   "zielgruppe": "<genau 1 Satz: wer angesprochen wird>",
-  "format": "<Talking-Head | B-Roll/Voiceover | Sketch | Tutorial | Vlog | Sonstiges>",
+  "format": "<übernimm das vorgegebene Format aus der Aufgabe unverändert>",
+  "protagonist_ab_sek": <float: ab welcher Sekunde der Protagonist seinen ersten INHALTLICHEN Satz beginnt — den, mit dem er anfängt zu ERKLÄREN/zu reden. NICHT seine erste Lautäußerung: mitreagierende Rufe („Ja!", „BÄM!"), Lacher oder das Mitsprechen zum Fremdvideo zählen NICHT. Spricht er von Beginn an inhaltlich: sein erstes Wort. Bei Reaction: erst wenn das Fremdvideo endet UND er zu reden anfängt (die Übergangspause davor gehört noch NICHT zu ihm).>,
   "performance_score": <int 0-100>,
   "funnel": "<TOFU | MOFU | BOFU | Mischung>",
   "hook": {
@@ -60,18 +166,13 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur Auffälliges, je 1-2 Sätze, sonst []>"]},
   "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],
   "top_tipps": ["<3-5 wichtigste Hebel, je 1-2 Sätze, nach Wirkung priorisiert>"],
-  "action_steps": [{"zeitpunkt": "<z.B. 0:03 oder 'ca. Sek. 3'>", "anweisung": "<EINE konkrete Handlung in SUPER EINFACHER Sprache, kein Fachjargon; wenn eine Einblendung: sag ob VOLLBILD oder KLEINE Einblendung im laufenden Bild, z.B. Woosh-Sound für 2s einfügen / kleine Einblendung mit Foto vom Hof / hier schneiden>"}],
-  "weitere_empfehlungen": [{"zeitpunkt": "<z.B. 0:20>", "anweisung": "<zusätzliche, ausführlichere Handlungsempfehlung für Nutzer, die tiefer optimieren wollen>"}]
+  "empfehlungen": [{"zeitpunkt_sek": <float: die Sekunde im Video, auf die sich die Handlung bezieht — Richtwert, ±1–2 s>, "anweisung": "<EINE konkrete Handlung in SUPER EINFACHER Sprache, kein Fachjargon; wenn eine Einblendung: sag ob VOLLBILD oder KLEINE Einblendung im laufenden Bild, z.B. Woosh-Sound für 2s einfügen / kleine Einblendung mit Foto vom Hof / hier schneiden>", "gruppe": "<Label NUR für die WÖRTLICH GLEICHE Handlung an mehreren Stellen — z.B. dieselbe Sprechpause bei Sek. 3, 15, 24. Dann allen Einträgen dasselbe Label UND denselben anweisung-Text geben; sie werden zu EINEM Schritt. KEINE Kategorie: verschiedene Einblendungen (Gehirn-Symbol vs. Telefon vs. Folgen-Knopf) sind NICHT dieselbe Handlung → jeweils EIGENES Label, auch wenn alle 'Einblendung' sind. Im Zweifel eigenes Label.>"}]
 }
 
-REGELN action_steps: GENAU MAXIMAL 3 Stück — die Empfehlungen, die am WEITESTEN VORNE im Video ansetzen.
-Sortiere ALLE gefundenen Empfehlungen nach ihrem Zeitpunkt (kleinste Sekunde zuerst) und nimm die 3 FRÜHESTEN.
-Der Anfang (Texthook/Sprechhook/erste Sekunden, erstes Drittel) hat IMMER Vorrang. Eine Empfehlung, die einen
-SPÄTEREN Teil des Videos betrifft (Mitte oder hintere Hälfte), gehört NICHT in die Top 3, sondern in
-weitere_empfehlungen — auch wenn sie wirkungsvoll ist. Beispiel: eine Texthook-Verbesserung (Sek. 0) MUSS in
-die Top 3; eine Sprechpause bei Sek. 30 gehört in weitere_empfehlungen. Lieber wenige, klare Schritte.
-REGELN weitere_empfehlungen: alle übrigen Empfehlungen — VOR ALLEM die, die SPÄTER im Video ansetzen (Mitte/
-hintere Hälfte) —, ausführlicher (0–7 Stück), für Nutzer, die tiefer optimieren wollen.
+REGELN empfehlungen: EINE flache Liste mit ALLEN Empfehlungen (3–10), in beliebiger Reihenfolge.
+Sortieren, Auswählen und Zusammenfassen übernimmt das System — mach das NICHT selbst und teile die
+Liste nicht auf. Deine einzige Aufgabe dabei: `zeitpunkt_sek` als Zahl setzen und über `gruppe` sagen,
+welche Einträge dieselbe Handlung an verschiedenen Stellen sind.
 staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Ergebnis zuerst."""
 
 
@@ -175,8 +276,8 @@ def build_user_message(result: AnalystResult) -> str:
     stats = result.speech_stats
     stats_txt = (
         f"{stats.wort_anzahl} Wörter, {stats.wpm} WPM, {stats.filler_count} Füllwörter, "
-        f"{stats.pausen_count} Pausen >0.5s (längste {stats.laengste_pause_sec}s), "
-        f"Sprechbeginn bei {getattr(stats, 'sprechbeginn_sec', 0.0)}s"
+        f"{stats.pausen_count} Pausen >0.5s, Sprechbeginn bei {getattr(stats, 'sprechbeginn_sec', 0.0)}s\n"
+        f"PAUSEN (Position im Video): {pausen_txt(stats)}"
         if stats else "Keine Sprache erkannt."
     )
 
@@ -225,7 +326,11 @@ def evaluate(result: AnalystResult, run_dir=None) -> AnalystEvaluationV2:
         messages=[{"role": "user", "content": user}],
     )
     raw = msg.content[0].text
-    parsed = AnalystEvaluationV2(**_extract_json(raw))
+    parsed = verteile_empfehlungen(
+        bereinige_fremd_texthook(
+            erzwinge_nutzer_format(AnalystEvaluationV2(**_extract_json(raw)), result), result
+        )
+    )
     analyst_prompt_log.log_call(
         run_dir, call="eval_v1", recipient="Claude", model=settings.claude_model,
         system_prompt=system, user_message=user, output_raw=raw, output_parsed=parsed,

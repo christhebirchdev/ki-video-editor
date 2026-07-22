@@ -18,8 +18,9 @@ from pathlib import Path
 
 from google.genai import types
 
+from config import settings
 from models.analyst import AnalystEvaluationV2, AnalystResult
-from services import analyst_eval, analyst_prompt_log, gemini_service
+from services import analyst_eval, analyst_prompt_log, analyst_vlm, gemini_service
 from services.analyst_vlm import _generate  # generate_content mit Modell-Fallback
 
 
@@ -29,8 +30,8 @@ def _stats_txt(result: AnalystResult) -> str:
         return "Keine Sprache erkannt."
     return (
         f"{s.wort_anzahl} Wörter, {s.wpm} WPM, {s.filler_count} Füllwörter, "
-        f"{s.pausen_count} Pausen >0.5s (längste {s.laengste_pause_sec}s), "
-        f"Sprechbeginn bei {getattr(s, 'sprechbeginn_sec', 0.0)}s"
+        f"{s.pausen_count} Pausen >0.5s, Sprechbeginn bei {getattr(s, 'sprechbeginn_sec', 0.0)}s\n"
+        f"PAUSEN (Position im Video): {analyst_eval.pausen_txt(s)}"
     )
 
 
@@ -48,6 +49,66 @@ def _metrics_txt(result: AnalystResult) -> str:
         f"Helligkeit avg {qm.helligkeit_avg}, Kontrast avg {qm.kontrast_avg}. "
         f"Audio: {audio}.\n{analyst_eval.METRICS_GUIDE}"
     )
+
+
+def _format_instruction(result: AnalystResult) -> str:
+    """Format = Nutzerangabe (bindend). Protagonist-Erkennung = Modellaufgabe.
+
+    Klare Arbeitsteilung: Der Nutzer weiß, was für ein Video er gedreht hat — seine Angabe ist
+    verlässlicher als jede Modell-Klassifikation. WO im Video der Protagonist einsetzt, weiß er
+    nicht auf die Sekunde — das Modell sieht und hört das Video und kann es bestimmen.
+
+    Hintergrund (Run a2808a62): Ohne Format-Angabe hat das Modell ein Reaction-Video als
+    „Talking-Head" klassifiziert und das Audio des eingeblendeten Fremdvideos als Sprech-Hook des
+    Protagonisten bewertet. Die gesamte Bewertung hing an diesem einen Fehler.
+    """
+    gewaehlt = (getattr(result, "gewaehltes_format", "") or "").strip()
+    if not gewaehlt:
+        # Altlauf vor der Pflicht-Auswahl: Modell klassifiziert selbst (wie vor Option C).
+        return (
+            "FORMAT: Es liegt keine Nutzerangabe vor — bestimme das Format selbst aus dem Video "
+            "und trag es in das Feld format ein.\n"
+            "PROTAGONIST: Prüfe, ob das Audio am Anfang wirklich vom Protagonisten stammt oder aus "
+            "einem eingeblendeten Fremdvideo/Einspieler. Trag den Zeitpunkt, ab dem er selbst "
+            "spricht, in protagonist_ab_sek ein.\n"
+        )
+    txt = (
+        f"FORMAT (vom Nutzer vor der Analyse angegeben — das ist ein FAKT, nicht deine Einschätzung): "
+        f"„{gewaehlt}“. Übernimm es unverändert in das Feld format und bewerte Schnitt, Pacing, Struktur "
+        f"und Spannungsbogen gegen GENAU dieses Format. Widersprich der Angabe nicht — der Nutzer kennt "
+        f"sein Video.\n"
+        "PROTAGONIST (deine Aufgabe — du siehst und hörst das Video): Bestimme, ab welcher Sekunde der "
+        "Protagonist SELBST spricht, und trag sie in protagonist_ab_sek ein.\n"
+    )
+    if gewaehlt == "Reaction":
+        txt += (
+            "ACHTUNG Reaction — das ist der wichtigste Punkt dieser Analyse: Ein Teil des Tons stammt "
+            "aus dem eingeblendeten FREMDVIDEO, nicht vom Protagonisten. Das Transkript unten mischt "
+            "beide Quellen zu einem Text und markiert NICHT, wer spricht — verlass dich hier auf Bild "
+            "und Ton, nicht auf das Transkript.\n"
+            "Daraus folgt zwingend:\n"
+            "- Der Sprech-Hook ist der erste Satz, den der PROTAGONIST sagt — NICHT der erste Satz im "
+            "Transkript. Bewerte niemals fremde Worte als seinen Hook.\n"
+            "- Text-Overlays im reagierten FREMDVIDEO sind NICHT die Texthook des Protagonisten. Als seine "
+            "Texthook gilt nur statischer Text, den er selbst über sein eigenes Bild legt. (Ob eine eigene "
+            "Texthook existiert, steuert der Nutzer separat — bewerte den Fremdvideo-Text hier nicht als "
+            "seinen.)\n"
+            "- „Sprechbeginn“ in der Sprachstatistik misst das Fremdvideo, wenn es zuerst läuft. Leite "
+            "daraus KEINEN verzögerten Hook und keinen „Anlauf wegschneiden“-Tipp ab.\n"
+            "- Sprechtempo/WPM mischt beide Sprecher und ist damit für die Sprechqualität des "
+            "Protagonisten unbrauchbar — urteile hier nach Gehör.\n"
+            "- Dass der Protagonist am Anfang schweigt, während das Fremdvideo läuft, ist FORMATTYPISCH "
+            "und KEIN Fehler.\n"
+            "- Die ÜBERGANGSPAUSE — der Moment, in dem das Fremdvideo endet und der Protagonist zu seinem "
+            "ersten inhaltlichen Satz ansetzt — gehört zum Format und bleibt DRIN. Empfiehl sie NICHT zum "
+            "Rausschneiden und behandle sie NICHT als „Anlauf“, „Durchatmen vor dem ersten Wort“ oder "
+            "„verzögerten Hook“. Genau diese Pause trägt den Wechsel; sie wegzuschneiden zerstört den "
+            "Reaction-Rhythmus. Das gilt für JEDE Pause um protagonist_ab_sek herum (±2 s).\n"
+            "- Ist der Einstieg des Fremdvideos laut, schrill oder lustig, ist das eine Eigenschaft des "
+            "ZITIERTEN Materials. Es darf in staerken/probleme auftauchen, aber nicht als Leistung oder "
+            "Schwäche des Protagonisten.\n"
+        )
+    return txt
 
 
 def _texthook_instruction(result: AnalystResult) -> str:
@@ -82,12 +143,14 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "NUTZE aktiv deinen visuellen Vorteil (das ist der Mehrwert): beurteile Blickrichtung (in die "
             "Linse vs. Ablesen nach unten/zur Seite), statische Text-Overlays vs. mitlaufende Untertitel, "
             "Schnitt/Pacing, Effekte/Zooms und Mimik aus dem bewegten Bild selbst.\n"
+            + _format_instruction(result) +
             "PFLICHT Blickkontakt: Beurteile den Blick IMMER. Geht er auffällig oft nach unten/zur Seite "
             "(Ablesen/Teleprompter), MUSS das (a) in visuelle_aesthetik.probleme stehen UND (b) als konkreter "
             "top_tipp: die betroffenen Stellen mit B-Roll/Einblendung überdecken und den Blick in die Linse "
             "richten. Liegt der Blick überwiegend in der Linse, sag das positiv und zieh keinen Abzug.\n"
-            "HOOK-REDUNDANZ-CHECK (Pflicht): Vergleiche die ERSTEN gesprochenen Worte (Sprech-Hook, siehe "
-            "Transkript unten) mit dem Text-Overlay der Eröffnung (Text-Hook). Sind sie wörtlich gleich oder "
+            "HOOK-REDUNDANZ-CHECK (Pflicht): Vergleiche den Sprech-Hook — die ersten Worte des PROTAGONISTEN "
+            "ab protagonist_ab_sek, nicht zwingend der Anfang des Transkripts — mit dem Text-Overlay der "
+            "Eröffnung (Text-Hook). Sind sie wörtlich gleich oder "
             "fast gleich, ist das eine SCHWÄCHE — die Text-Hook doppelt nur das Gesprochene und verschenkt eine "
             "zweite Ebene. Dann: text_hook_score deutlich niedriger (NICHT höher als der Sprech-Hook, eher 1–2 "
             "Punkte darunter), die Doppelung in text_hook_grund klar benennen, UND als PRIO-1-Handlungsempfehlung "
@@ -114,10 +177,10 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "musst du HÖREN. Achte gezielt auf Hintergrundrauschen, Brummen, Hall oder Übersteuerung. Ist der "
             "Ton verrauscht/unsauber, ist das eine SCHWÄCHE (in sprechqualitaet.probleme benennen) und darf "
             "NICHT als Stärke gelobt werden. Nur wirklich sauberer Ton ist ein Pluspunkt.\n"
-            "SPRECHPAUSEN (einfacher, starker Hebel): Nutze die Sprachstatistik (Anzahl/Länge der Pausen) UND "
-            "dein Gehör. Sind es viele oder lange Sprechpausen/Stockungen, kostet das Retention → nimm als "
-            "konkrete Handlungsempfehlung auf, die Pausen im Schnitt herauszuschneiden, damit das Tempo steigt "
-            "und die Zuschauer dranbleiben.\n"
+            "SPRECHPAUSEN: Die Sprachstatistik unten listet jede Pause MIT Position. Geh sie nach der Regel "
+            "„Sprechpausen — nach FUNKTION beurteilen\" im System-Prompt durch: schau dir jede Stelle im Video "
+            "an und bestimme, ob die Pause eine Stockung/ein Anlauf ist (rausschneiden) oder dramaturgisch "
+            "bzw. ein Übergang (lassen). Kannst du die Funktion nicht sicher bestimmen, sag NICHTS dazu.\n"
             "Zusätzlich liegen deterministisch gemessene Werte vor; NUTZE sie für die quantitativen Urteile "
             "(Sprechtempo, Füllwörter, Lautheit) — bei diesen Zahlen sind sie verlässlicher als dein Seheindruck.\n\n"
             "TIEFE & KONKRETHEIT (Pflicht für top_tipps und alle Begründungen):\n"
@@ -129,24 +192,19 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "KONKRETES Beispiel in Anführungszeichen, das zum tatsächlichen Thema DIESES Videos passt — "
             "keine generischen Platzhalter wie „Wie ich es geschafft habe\".\n"
             "- Jede Begründung und jeder Tipp nennt das WARUM (die Wirkung beim Zuschauer), nicht nur das WAS.\n\n"
-            "ACTION-STEPS (Pflicht): Fülle action_steps mit MAXIMAL 3 konkreten Handlungsempfehlungen an "
-            "ECHTEN Zeitpunkten aus dem Video — du SIEHST es, nenne die Sekunde (z. B. „ca. Sek. 3\"). "
-            "Wähle die Empfehlungen, die am WEITESTEN VORNE im Video ansetzen: sortiere ALLE gefundenen "
-            "Empfehlungen nach ihrem Zeitpunkt (kleinste Sekunde zuerst) und nimm die 3 FRÜHESTEN. Der Anfang "
-            "(Texthook/Sprechhook/erste Sekunden, erstes Drittel) hat IMMER Vorrang. Eine Empfehlung, die einen "
-            "SPÄTEREN Teil des Videos betrifft (Mitte/hintere Hälfte), gehört NICHT in die Top 3, sondern in "
-            "weitere_empfehlungen — auch wenn sie wirkungsvoll ist (Beispiel: Texthook Sek. 0 → Top 3; "
-            "Sprechpause Sek. 30 → weitere_empfehlungen). Jede Anweisung in super einfacher Sprache, KEIN Fachjargon "
+            "EMPFEHLUNGEN (Pflicht): Fülle `empfehlungen` mit ALLEN konkreten Handlungsempfehlungen (3–10) an "
+            "ECHTEN Zeitpunkten aus dem Video — du SIEHST es, setz `zeitpunkt_sek` auf die Sekunde als Zahl "
+            "(z. B. 3.0; Richtwert, ±1–2 s). Jede Anweisung in super einfacher Sprache, KEIN Fachjargon "
             "(nicht „Endcard/CTA/B-Roll“ ohne Erklärung; „Hook/Texthook/Sprechhook“ sind aber erlaubt und "
             "sollen genutzt werden, wenn du eine Hook empfiehlst), genau EINE Handlung. Bei einer Einblendung sag "
             "IMMER, ob VOLLBILD oder KLEINE Einblendung im laufenden Bild. Lieber wenige klare Schritte — "
-            "der Nutzer soll nicht überfordert werden. Zeitangaben sind Richtwerte (±1–2 s). Ist DIESELBE "
-            "Handlung an mehreren Stellen nötig (z. B. mehrere Sprechpausen), fasse sie zu EINEM Schritt "
-            "zusammen und nenne ALLE Zeitpunkte (z. B. „Sprechpausen rausschneiden — bei ca. Sek. 3, 15 und "
-            "24“), statt mehrere fast gleiche Schritte zu erzeugen.\n"
-            "WEITERE EMPFEHLUNGEN: Fülle zusätzlich weitere_empfehlungen mit allen übrigen Empfehlungen — VOR "
-            "ALLEM denen, die SPÄTER im Video ansetzen (Mitte/hintere Hälfte) —, ausführlicher (0–7), für "
-            "Nutzer, die tiefer optimieren wollen. Die 3 action_steps oben bleiben unberührt.\n\n"
+            "der Nutzer soll nicht überfordert werden. Ist die WÖRTLICH GLEICHE Handlung an mehreren Stellen "
+            "nötig (z. B. dieselbe Sprechpause bei Sek. 3, 15, 24), gib diesen Einträgen dasselbe `gruppe`-Label "
+            "UND denselben anweisung-Text — sie werden zu EINEM Schritt zusammengefasst. `gruppe` ist KEINE "
+            "Kategorie: verschiedene Einblendungen (Gehirn, Telefon, Folgen-Knopf) = verschiedene Handlungen → "
+            "jeweils EIGENES Label. Im Zweifel eigenes Label.\n"
+            "Sortieren, Priorisieren und Aufteilen macht das System. Gib EINE flache Liste ab, in beliebiger "
+            "Reihenfolge — wähle nicht selbst aus und teile nichts auf.\n\n"
             f"{head}\n\n"
             f"TRANSKRIPT (Whisper, verlässlicher Wortlaut):\n{result.transcript or '(leer)'}\n\n"
             f"SPRACHSTATISTIK: {_stats_txt(result)}\n\n"
@@ -173,16 +231,28 @@ def _evaluate(video_path: Path, result: AnalystResult, mode: str, run_dir=None) 
         temperature=0.0,
     )
     raw = (_generate([video_file, user], cfg, f"analyst_eval_{mode}").text or "")
-    parsed = AnalystEvaluationV2(**analyst_eval._extract_json(raw))
+    parsed = analyst_eval.verteile_empfehlungen(
+        analyst_eval.bereinige_fremd_texthook(
+            analyst_eval.erzwinge_nutzer_format(
+                AnalystEvaluationV2(**analyst_eval._extract_json(raw)), result
+            ),
+            result,
+        )
+    )
     analyst_prompt_log.log_call(
         run_dir, call=f"eval_{mode}", recipient="Gemini",
-        model=f"{gemini_service.GEMINI_MODEL} (Primärmodell; ggf. Fallback)",
+        # Das Modell, das TATSÄCHLICH geantwortet hat — nicht „ggf. Fallback". Sonst lässt sich ein
+        # abweichender Lauf nicht von einem Fallback-Lauf unterscheiden.
+        model=analyst_vlm.letztes_modell or gemini_service.GEMINI_MODEL,
         system_prompt=system, user_message=user, output_raw=raw, output_parsed=parsed,
         attachments=[f"Video: {result.filename}"],
         inputs={
             "engine": f"v2_{mode}", "filename": result.filename,
             "duration_sec": result.duration_sec, "mode": mode,
             "geplante_texthook": getattr(result, "geplante_texthook", ""),
+            "gewaehltes_format": getattr(result, "gewaehltes_format", ""),
+            "whisper_modell": settings.whisper_model,
+            "transkript_hash": getattr(result, "transkript_hash", ""),
         },
     )
     return parsed

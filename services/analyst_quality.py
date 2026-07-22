@@ -21,6 +21,18 @@ from pathlib import Path
 from typing import Optional
 from models.analyst import QualityMetrics
 
+# Optimaler Lautheits-Bereich (LUFS) — EMPIRISCH aus Chris' zwei Referenzvideos (2026-07-18),
+# nicht der geratene Streaming-Richtwert (-14). Single Source of Truth: der Prompt-Text (METRICS_GUIDE)
+# baut die Schwelle aus diesen Konstanten. Neue Referenzen? Nur diese zwei Zahlen anfassen.
+#   unten  = gerade so laut genug
+#   oben   = kurz vor „zu laut" (aktuell nur Info, KEIN Fehler — sonst würde normal-lautes Material
+#            wie LeopoldSchultz mit -18.8 fälschlich als „zu laut" markiert)
+LOUDNESS_OPTIMAL_LOW = -33.8
+LOUDNESS_OPTIMAL_HIGH = -28.2
+# Erst DEUTLICH unter der Untergrenze ist der Ton wirklich zu leise (Puffer, damit die Grenze nicht
+# auf 0.1 LUFS genau entscheidet). 3 LU ≈ knapp hörbarer Lautheitsunterschied.
+LOUDNESS_TOO_QUIET = round(LOUDNESS_OPTIMAL_LOW - 3.0, 1)
+
 
 def frame_metrics(frame_paths: list[Path]) -> dict:
     """Schärfe/Helligkeit/Kontrast über alle Keyframes (cv2 lazy importiert)."""
