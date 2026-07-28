@@ -108,6 +108,8 @@ function AdminToggle({ admin, password, onLogin, onLogout }) {
                        padding: 10, boxShadow: "0 6px 20px rgba(0,0,0,.12)", width: 220 }}>
           <input type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)}
                  placeholder="Passwort"
+                 name="admin-feedback-code" autoComplete="off"
+                 data-1p-ignore="true" data-lpignore="true" data-form-type="other"
                  style={{ width: "100%", padding: "7px 9px", fontSize: 13,
                           border: "1px solid var(--line-strong)", borderRadius: 6 }} />
           {fehler && <div style={{ color: "#c0392b", fontSize: 12, marginTop: 5 }}>{fehler}</div>}
