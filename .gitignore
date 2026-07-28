@@ -9,3 +9,7 @@ pytest-cache*
 analyst_runs/
 .claude/
 *.log
+
+# Laufzeit-Artefakte
+uvicorn.pid
+backup.log
