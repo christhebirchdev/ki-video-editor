@@ -120,7 +120,13 @@ uvicorn main:app --host 127.0.0.1 --port 8001 --workers 1     # ohne --reload
 Ein Worker, weil die Analyst-Warteschlange ein prozess-lokaler Semaphore ist
 (`analyst_engine._SLOTS`). Mehrere Worker heben die Begrenzung faktisch auf.
 
-Tests: `venv/bin/python -m pytest -q`
+Tests für den Analyst: `venv/bin/python -m pytest tests/test_analyst.py -q` → 43 Tests.
+
+**`pytest` ohne Argument läuft derzeit nicht.** Es bricht schon beim Einsammeln ab (`Interrupted:
+1 error during collection`) und führt dann *keinen einzigen* Test aus — `tests/test_models.py` und
+`tests/test_services.py` importieren `TakeAnalysis` und `CutDecision`, die es seit Commit `a44ae5c`
+(2026-06-10) nicht mehr in `models/analysis.py` gibt. Reine Editor-Altlast, der Analyst ist nicht
+betroffen. Wichtig zu wissen, weil ein grünes „43/43" **nicht** heißt, dass die Suite läuft.
 
 ---
 
@@ -168,6 +174,8 @@ im Code, angeblich tote `cut_engine_v2`). Doku altert, Code nicht.
 - Gemini-Analysedauer schwankt stark (35–177 s bei ~gleichem Video), Ursache vermutlich
   Rate-Limiting. Ungeklärt: Free- oder Paid-Tier des API-Keys.
 - Block B (Login pro Kunde, Kundenprofile, Verlaufs-Kontext) — nicht begonnen.
+- `tests/test_models.py` und `tests/test_services.py` reparieren oder entfernen (siehe „Lokal
+  starten"). Editor-Thema, blockiert aber die gesamte Testsuite.
 
 **Verworfen (2026-07-28):** Analyst in ein eigenes Repo trennen. Der Aufwand (neuer Runner,
 Umhängen von `/docker/analyst`, Volume-Migration) steht in keinem Verhältnis zum Nutzen, solange
