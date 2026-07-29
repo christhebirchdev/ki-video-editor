@@ -80,8 +80,43 @@ Zwei Instanzen = zwei getrennte Zustände; das ist gewollt.
   umgeht diese Kette und erzeugt eine zweite, stillschweigend abweichende Bewertungslogik.
   Wenn Revision kommt, dann **über** `nachbearbeiten()` — mit Versionierung, Rollback und
   Bestätigungs-Gate. Plan: `docs/superpowers/plans/2026-07-29-analyst-chat-v11.md`.
-- Tests: `tests/test_analyst_chat.py` (26). Bewusst eigene Datei, `tests/test_analyst.py`
+- Tests: `tests/test_analyst_chat.py` (43). Bewusst eigene Datei, `tests/test_analyst.py`
   bleibt unberührt.
+
+**Ausschnitts-Analyse (`POST /{id}/chat/ausschnitt`).** Schaut das Video für ein Zeitfenster
+erneut an und beurteilt diese Stelle; das Ergebnis landet als normale Nachricht im Chat.
+
+Die Regeln bleiben erhalten, weil `segment_system_prompt()` **dieselbe Quelle** lädt wie der
+reguläre Lauf: `analyst_eval.load_skill_body()` + `load_reference()`. Ändert jemand
+`analyst_eval_skill.md`, ändert sich der Ausschnitt mit. Genau das ist der Mechanismus.
+
+**`build_system_prompt()` wird bewusst NICHT verwendet** — es hängt `OUTPUT_SCHEMA` an, den
+JSON-Vertrag des Gesamtlaufs mit `performance_score` und `action_steps`. Beides berechnet der
+Code über das **ganze** Video (`berechne_performance_score()` gewichtet sieben Dimensionen,
+`verteile_empfehlungen()` sortiert nach frühestem Zeitpunkt, `erzwinge_anlauf_schnitt()` liest
+`sprechbeginn_sec` des Gesamtvideos). Auf sechs Sekunden angewandt liefern diese Regeln Unsinn.
+Deshalb: gleiche Urteilsgrundlage, **eigener** Ausgabe-Vertrag (`SEGMENT_VERTRAG`), der
+Gesamtnote und action_steps ausdrücklich verbietet. Es bleibt bei **einer** verbindlichen
+Bewertung pro Video; der Ausschnitt schreibt nie in `analysis.json`.
+
+Weitere Festlegungen:
+
+- Das Zeitfenster geht über `types.VideoMetadata(start_offset, end_offset)`, **nicht** als
+  Hinweis im Prompt. Sonst verarbeitet und berechnet Gemini das ganze Video.
+- Nur Pausen **innerhalb** des Fensters gehen mit. Außerhalb liegende sieht das Modell im
+  Video nicht und würde sie trotzdem als Beobachtung ausgeben.
+- Fenster: mindestens 1 s, höchstens 60 s. Länger ist kein Ausschnitt mehr — dafür gibt es
+  den regulären Lauf.
+- Der Gemini-File-Handle wird in `analyst_runs/<id>/gemini_file.json` zwischengespeichert.
+  Die Files API hält Uploads rund 48 h; ohne Cache lädt jede Frage dasselbe Video erneut hoch.
+  Kein Ablaufdatum rechnen — `files.get` versuchen, bei jedem Fehler neu hochladen.
+- Ausgelöst wird über **Von/Bis-Felder im Frontend**, nicht über Absichtserkennung im Freitext.
+  Ein Modell, das aus dem Satz rät, löst irgendwann versehentlich einen teuren Video-Call aus.
+
+**Chat ist standardmäßig zugeklappt** und wird über den Kopf geöffnet (Plus wird zu Minus).
+Animiert über `grid-template-rows: 0fr → 1fr` — `height:auto` lässt sich nicht animieren, eine
+feste `max-height` schneidet ab oder ruckelt am Ende sichtbar nach. `prefers-reduced-motion`
+schaltet alle Übergänge ab.
 
 **Feedback je Chat-Antwort.** Der bestehende Feedback-Endpoint nimmt beliebige `field_id`
 entgegen — für die Chat-Bewertung war dort **keine** Änderung nötig. Das Frontend hängt unter

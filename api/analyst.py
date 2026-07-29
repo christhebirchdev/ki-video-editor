@@ -171,6 +171,61 @@ def chat_frage(run_id: str, body: ChatIn):
     )
 
 
+class AusschnittIn(BaseModel):
+    start_sec: float = 0.0
+    end_sec: float = 0.0
+    frage: str = ""
+
+
+# Kürzer als 1 s liefert Gemini kaum Substanz, länger als 60 s ist keine „Stelle" mehr,
+# sondern das halbe Video — und dann ist der reguläre Analyselauf das richtige Werkzeug.
+AUSSCHNITT_MIN_SEC = 1.0
+AUSSCHNITT_MAX_SEC = 60.0
+
+
+@router.post("/{run_id}/chat/ausschnitt")
+def chat_ausschnitt(run_id: str, body: AusschnittIn):
+    """Schaut das Video für ein Zeitfenster erneut an und beurteilt diese Stelle.
+
+    Läuft über dieselbe Urteilsgrundlage wie die Hauptanalyse (analyst_eval_skill.md), aber
+    mit eigenem Ausgabe-Vertrag: Der Ausschnitt liefert KEINEN Gesamtscore und KEINE
+    action_steps — die berechnet der Code über das ganze Video. Das Ergebnis landet als
+    normale Nachricht im Chatverlauf und wird nicht in analysis.json geschrieben.
+    """
+    run_dir, result = _fertige_analyse(run_id)
+
+    start = round(max(0.0, body.start_sec), 1)
+    ende = round(body.end_sec, 1)
+    if ende <= start:
+        raise HTTPException(status_code=422, detail="Ende muss nach dem Start liegen")
+    if result.duration_sec and ende > result.duration_sec + 0.5:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Das Video ist nur {result.duration_sec:.1f} Sekunden lang",
+        )
+    dauer = ende - start
+    if dauer < AUSSCHNITT_MIN_SEC:
+        raise HTTPException(status_code=422, detail=f"Der Ausschnitt muss mindestens {AUSSCHNITT_MIN_SEC:.0f} Sekunde lang sein")
+    if dauer > AUSSCHNITT_MAX_SEC:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Höchstens {AUSSCHNITT_MAX_SEC:.0f} Sekunden am Stück — für mehr ist der reguläre Analyselauf da",
+        )
+    if len(body.frage or "") > 4000:
+        raise HTTPException(status_code=422, detail="Frage ist zu lang (max. 4000 Zeichen)")
+
+    try:
+        analyst_chat._video_pfad(run_dir)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    return StreamingResponse(
+        analyst_chat.stream_ausschnitt(run_dir, result, start, ende, body.frage or ""),
+        media_type="text/plain; charset=utf-8",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
 # ---------- Admin-/Feedback-Ansicht (Experten-Feedback sammeln) ----------
 # Bewusst NUR sammeln: kein Auto-Fix, kein Auto-Commit. Die Auswertung passiert später
 # auf Befehl, mit dem Menschen am Merge-Knopf.

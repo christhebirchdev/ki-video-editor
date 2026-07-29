@@ -516,12 +516,16 @@ function MarkdownLite({ text }) {
 /* ===== V1.1: Rückfragen-Chat zur fertigen Analyse =====
    Fragt nach, lässt sich erklären, bekommt konkretere Hinweise. Der Chat ÄNDERT die Bewertung
    nicht — das braucht Versionierung und ein Bestätigungs-Gate und kommt separat. */
-function ChatPanel({ runId, filename }) {
+function ChatPanel({ runId, filename, dauerSec = 0 }) {
+  const [offen, setOffen] = useState(false);
   const [nachrichten, setNachrichten] = useState([]);
   const [eingabe, setEingabe] = useState("");
   const [laeuft, setLaeuft] = useState(false);
   const [fehler, setFehler] = useState("");
   const [teilantwort, setTeilantwort] = useState("");
+  const [ausschnittOffen, setAusschnittOffen] = useState(false);
+  const [vonSec, setVonSec] = useState("0");
+  const [bisSec, setBisSec] = useState("");
   const endeRef = useRef(null);
   const feldRef = useRef(null);
 
@@ -536,10 +540,13 @@ function ChatPanel({ runId, filename }) {
     return () => { abgebrochen = true; };
   }, [runId]);
 
-  // Immer ans Ende scrollen — auch während die Antwort noch wächst
+  // Immer ans Ende scrollen — auch während die Antwort noch wächst.
+  // Nur wenn der Chat offen ist: sonst scrollt der Browser zu einem unsichtbaren Element
+  // und reißt die Seite an eine Stelle, an der der Nutzer gar nicht ist.
   useEffect(() => {
+    if (!offen) return;
     endeRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [nachrichten, teilantwort]);
+  }, [nachrichten, teilantwort, offen]);
 
   function autoResize(el) {
     if (!el) return;
@@ -593,6 +600,63 @@ function ChatPanel({ runId, filename }) {
     }
   }
 
+  // Gemeinsamer Stream-Leser für Chat-Antwort und Ausschnitts-Analyse. Beide liefern
+  // text/plain Stück für Stück und landen im selben Verlauf — nur die URL und der Body
+  // unterscheiden sich.
+  async function streameUndAnhaengen(url, body, optimistischerText) {
+    setFehler("");
+    setNachrichten((n) => [...n, { rolle: "user", text: optimistischerText, ts: new Date().toISOString() }]);
+    setLaeuft(true);
+    setTeilantwort("");
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.detail || `HTTP ${res.status}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let voll = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        voll += decoder.decode(value, { stream: true });
+        setTeilantwort(voll);
+      }
+      setNachrichten((n) => [...n, { rolle: "model", text: voll, ts: new Date().toISOString() }]);
+      try {
+        const frisch = await api("GET", `/api/analyst/${runId}/chat`);
+        if (frisch.nachrichten?.length) setNachrichten(frisch.nachrichten);
+      } catch (_) { /* Anzeige steht, ohne id fehlt nur die Bewertung */ }
+    } catch (e) {
+      setFehler(e.message);
+    } finally {
+      setTeilantwort("");
+      setLaeuft(false);
+    }
+  }
+
+  async function ausschnittAnalysieren() {
+    if (laeuft || !runId) return;
+    const von = parseFloat(vonSec);
+    const bis = parseFloat(bisSec);
+    if (!isFinite(von) || !isFinite(bis) || bis <= von) {
+      setFehler("Bitte einen gültigen Bereich angeben — das Ende muss nach dem Start liegen.");
+      return;
+    }
+    const auftrag = eingabe.trim();
+    setEingabe("");
+    await streameUndAnhaengen(
+      `/api/analyst/${runId}/chat/ausschnitt`,
+      { start_sec: von, end_sec: bis, frage: auftrag },
+      `[Ausschnitt ${von.toFixed(1)}–${bis.toFixed(1)} s] ${auftrag || "Analysiere diese Stelle."}`
+    );
+  }
+
   function beiTaste(e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); senden(); }
   }
@@ -600,15 +664,37 @@ function ChatPanel({ runId, filename }) {
   const leer = nachrichten.length === 0 && !laeuft;
 
   return (
-    <div className="chat-card">
-      <div className="chat-head">
+    <div className={"chat-card" + (offen ? " ist-offen" : "")}>
+      {/* Kopf ist der Auf-/Zuklapp-Schalter. Als <button>, damit Tastatur und Screenreader
+          ihn bedienen können — ein <div> mit onClick kann beides nicht. */}
+      <button
+        type="button"
+        className="chat-head"
+        onClick={() => setOffen((o) => !o)}
+        aria-expanded={offen}
+        aria-controls="chat-klapp"
+      >
         <div className="chat-badge"><Ico.brain width="18" height="18" /></div>
-        <div>
+        <div className="chat-head-text">
           <div className="chat-titel">Rückfragen zur Analyse</div>
-          <div className="chat-sub">{filename || "Bereit für deine erste Nachricht"}</div>
+          <div className="chat-sub">
+            {offen
+              ? (filename || "Bereit für deine erste Nachricht")
+              : (nachrichten.length
+                  ? `${nachrichten.length} Nachrichten — zum Öffnen klicken`
+                  : "Frag nach, lass dir Stellen im Video erklären")}
+          </div>
         </div>
-      </div>
+        {/* Plus wird zu Minus: der senkrechte Strich fährt zusammen, während sich das
+            Zeichen dreht. Ein Icon-Tausch würde springen, das hier läuft durch. */}
+        <span className="chat-toggle" aria-hidden="true">
+          <span className="chat-toggle-bar" />
+          <span className="chat-toggle-bar chat-toggle-bar-v" />
+        </span>
+      </button>
 
+      <div className="chat-klapp" id="chat-klapp">
+       <div className="chat-klapp-inner">
       <div className="chat-stream">
         {leer && (
           <div className="chat-leer">
@@ -653,12 +739,51 @@ function ChatPanel({ runId, filename }) {
         <div ref={endeRef} />
       </div>
 
+      {/* Ausschnitts-Analyse: schaut das Video für ein Zeitfenster erneut an. Bewusst über
+          Von/Bis-Felder statt über Freitext-Erkennung — ein Modell, das aus dem Satz die
+          Absicht rät, löst irgendwann versehentlich einen teuren Video-Call aus. */}
+      <div className={"chat-ausschnitt" + (ausschnittOffen ? " ist-offen" : "")}>
+        <button
+          type="button"
+          className="chat-ausschnitt-schalter"
+          onClick={() => setAusschnittOffen((o) => !o)}
+          aria-expanded={ausschnittOffen}
+        >
+          <Ico.film width="14" height="14" />
+          Stelle im Video analysieren
+        </button>
+        {ausschnittOffen && (
+          <div className="chat-ausschnitt-felder">
+            <label>
+              von
+              <input type="number" min="0" step="0.5" value={vonSec}
+                     onChange={(e) => setVonSec(e.target.value)} disabled={laeuft} />
+            </label>
+            <label>
+              bis
+              <input type="number" min="0" step="0.5" value={bisSec}
+                     placeholder={dauerSec ? dauerSec.toFixed(1) : ""}
+                     onChange={(e) => setBisSec(e.target.value)} disabled={laeuft} />
+            </label>
+            <span className="chat-ausschnitt-einheit">Sek.</span>
+            <button type="button" className="chat-ausschnitt-start"
+                    onClick={ausschnittAnalysieren} disabled={laeuft}>
+              Analysieren
+            </button>
+            <div className="chat-ausschnitt-hinweis">
+              Nutzt dieselben Bewertungsregeln wie die Hauptanalyse. Ändert die Gesamtbewertung
+              nicht. Was im Feld unten steht, geht als Auftrag mit.
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="chat-eingabe">
         <textarea
           ref={feldRef}
           rows={1}
           value={eingabe}
-          placeholder="Schreibe deine Nachricht…"
+          placeholder={ausschnittOffen ? "Worauf sollen wir bei der Stelle achten? (optional)" : "Schreibe deine Nachricht…"}
           onChange={(e) => { setEingabe(e.target.value); autoResize(e.target); }}
           onKeyDown={beiTaste}
           disabled={laeuft}
@@ -669,6 +794,8 @@ function ChatPanel({ runId, filename }) {
           disabled={laeuft || !eingabe.trim()}
           aria-label="Nachricht senden"
         >→</button>
+      </div>
+       </div>
       </div>
     </div>
   );
@@ -815,7 +942,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
               onClick={() => fileRef.current?.click()}
             >
               <div className="dz-ico"><Ico.upload /></div>
-              <div className="dz-title">
+              {/* title: Der Name wird per CSS abgeschnitten — der volle Name bleibt im Tooltip. */}
+              <div className="dz-title" title={analysisFile ? analysisFile.name : ""}>
                 {analysisFile ? analysisFile.name : "Video auswählen oder hierher ziehen"}
               </div>
               <div className="dz-sub">
@@ -842,13 +970,15 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                   Die Analyse ist davon nicht betroffen.
                 </div>
               ) : (
-                <video
-                  src={videoUrl}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  onError={() => setVideoFehler(true)}
-                />
+                <div className="analyst-player-rahmen">
+                  <video
+                    src={videoUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    onError={() => setVideoFehler(true)}
+                  />
+                </div>
               )}
             </div>
           )}
@@ -1143,7 +1273,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       {/* V1.1: Chat erscheint erst, wenn eine Analyse fertig ist — vorher gibt es nichts zu fragen. */}
       {chat && phase === "done" && result && (
         <div style={{ marginTop: 24 }}>
-          <ChatPanel runId={runId} filename={result.filename} />
+          <ChatPanel runId={runId} filename={result.filename} dauerSec={result.duration_sec} />
         </div>
       )}
     </AdminCtx.Provider>

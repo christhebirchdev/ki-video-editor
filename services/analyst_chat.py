@@ -21,10 +21,12 @@ from pathlib import Path
 from google.genai import types
 
 from models.analyst import AnalystResult
-from services import analyst_prompt_log, gemini_service
+from services import analyst_eval, analyst_prompt_log, gemini_service
+from services.analyst_speech import PAUSE_THRESHOLD_SEC
 
 CHAT_DATEI = "chat.jsonl"
 VERLAUF_MD = "chat_verlauf.md"
+GEMINI_DATEI_CACHE = "gemini_file.json"
 
 # Wie viele Nachrichten des Verlaufs mitgeschickt werden. Ohne Deckel wächst der Prompt mit
 # jeder Runde weiter, und irgendwann zahlt jede Frage den gesamten bisherigen Chat mit.
@@ -158,6 +160,211 @@ def lade_verlauf(run_dir: Path) -> list[dict]:
             n["id"] = f"pos{i}"
         nachrichten.append(n)
     return nachrichten
+
+
+# ---------- Ausschnitts-Analyse ----------
+#
+# Warum das nicht einfach ein zweiter Bewertungslauf ist:
+#
+# Die angezeigte Bewertung entsteht aus ZWEI Quellen — dem Skill-Prompt UND der
+# Nachbearbeitung in analyst_eval.nachbearbeiten(). Die Code-Regeln dort gelten aber
+# ausdrücklich für das GANZE Video: berechne_performance_score() gewichtet sieben
+# Dimensionen über die volle Länge, verteile_empfehlungen() sortiert nach frühestem
+# Zeitpunkt im Video, erzwinge_anlauf_schnitt() liest sprechbeginn_sec des Gesamtvideos,
+# baue_pausen_schritt() alle gemessenen Pausen. Auf einen 6-Sekunden-Ausschnitt angewandt
+# liefern die Unsinn.
+#
+# Also: Der Ausschnitt bekommt DIESELBE Urteilsgrundlage (analyst_eval_skill.md +
+# analyst_video_reference.md, zur Laufzeit geladen — das ist das Produktverhalten), aber
+# einen eigenen Ausgabe-Vertrag. Er ist ausdrücklich KEINE Bewertung, sondern eine
+# Ausschnitts-Beobachtung: keine Gesamtnote, keine action_steps, kein Schreiben in
+# analysis.json. Damit bleibt es bei EINER verbindlichen Bewertung pro Video.
+
+SEGMENT_VERTRAG = f"""
+--- AUSGABE FÜR DIE AUSSCHNITTS-ANALYSE ---
+
+Du siehst NUR einen Ausschnitt des Videos, nicht das ganze Video. Antworte als Fließtext für
+einen Chat, NICHT als JSON.
+
+Es gelten alle Bewertungsregeln oben unverändert — dieselben Dimensionen, dieselbe 1–5-Skala,
+dieselben Maßstäbe, dieselbe einfache Sprache.
+
+VERBOTEN, weil diese Werte im Code über das GESAMTE Video berechnet werden und deine Version
+der angezeigten Bewertung widersprechen würde:
+- kein performance_score und keine Gesamtnote für den Ausschnitt
+- keine action_steps und keine nummerierte Top-3-Liste
+- keine Aussage darüber, wie sich der Ausschnitt auf die Gesamtbewertung auswirkt
+
+ERLAUBT und erwünscht:
+- Beobachtungen zu dem, was in diesem Zeitfenster tatsächlich passiert
+- Einzelscores 1–5 für die Dimensionen, die in diesem Ausschnitt überhaupt beurteilbar sind,
+  jeweils mit einem Satz Begründung — ausdrücklich als Ausschnitts-Einschätzung benannt
+- konkrete Verbesserungsvorschläge für genau diese Stelle
+
+Erfinde keine Zeitpunkte, Zahlen oder Messwerte. Gemessene Werte stehen in der Nachricht des
+Nutzers; Pausen unter {PAUSE_THRESHOLD_SEC} Sekunden wurden gar nicht erst gemeldet und
+existieren für dich nicht.
+
+Format: kurze Absätze, Aufzählungen mit "- ", **fett** für wichtige Begriffe. Keine
+Überschriften, keine Tabellen, kein Code, kein JSON.
+""".strip()
+
+
+def segment_system_prompt() -> str:
+    """Urteilsgrundlage des Analysten + eigener Ausgabe-Vertrag.
+
+    Bewusst `load_skill_body()` + `load_reference()` statt `build_system_prompt()`: Letzteres
+    hängt OUTPUT_SCHEMA an, den strikten JSON-Vertrag für den vollen Lauf inklusive
+    performance_score und action_steps. Genau die darf ein Ausschnitt nicht liefern.
+    Ändert jemand die Bewertungsregeln in analyst_eval_skill.md, ändern sie sich hier mit —
+    das ist der Punkt.
+    """
+    teile = [analyst_eval.load_skill_body()]
+    ref = analyst_eval.load_reference()
+    if ref:
+        teile.append(
+            "--- ANGEHÄNGTE REFERENZ: VIDEO-ANALYSE (EDITING + SKRIPT + TECHNIK/AUFTRETEN) ---\n"
+            + ref
+        )
+    teile.append(SEGMENT_VERTRAG)
+    return "\n\n".join(teile)
+
+
+def _pausen_im_fenster(result: AnalystResult, start: float, ende: float) -> list:
+    """Nur die gemessenen Pausen, die in den Ausschnitt fallen.
+
+    Ohne diese Einschränkung nennt das Modell Pausen, die außerhalb des gezeigten Fensters
+    liegen — es sieht sie im Video nicht und würde sie trotzdem als Beobachtung ausgeben.
+    """
+    if not result.speech_stats or not result.speech_stats.pausen:
+        return []
+    return [p for p in result.speech_stats.pausen if p.start_sec >= start and p.end_sec <= ende]
+
+
+def baue_ausschnitt_nachricht(result: AnalystResult, start: float, ende: float, frage: str) -> str:
+    """Die User-Message für die Ausschnitts-Analyse: Fenster, gemessene Fakten, Auftrag."""
+    zeilen = [
+        f"Analysiere den Ausschnitt von Sekunde {start:.1f} bis {ende:.1f} "
+        f"(Gesamtlänge des Videos: {result.duration_sec:.1f} Sekunden).",
+        f"Vom Nutzer gewähltes Format: {result.gewaehltes_format or '(nicht angegeben)'}",
+    ]
+
+    pausen = _pausen_im_fenster(result, start, ende)
+    if pausen:
+        liste = ", ".join(f"{p.start_sec:.1f}–{p.end_sec:.1f}s ({p.dauer_sec:.1f}s)" for p in pausen)
+        zeilen.append(f"\nGemessene Sprechpausen in diesem Fenster: {liste}")
+    else:
+        zeilen.append(
+            f"\nGemessene Sprechpausen in diesem Fenster: keine über {PAUSE_THRESHOLD_SEC} Sekunden."
+        )
+
+    if result.transcript:
+        zeilen.append(f"\nTranskript des GESAMTEN Videos (zur Einordnung):\n{result.transcript}")
+
+    zeilen.append(
+        "\nAuftrag des Nutzers:\n" + (frage.strip() or
+        "Beurteile diesen Ausschnitt nach den Analystenregeln und sag mir konkret, was hier "
+        "besser gehen würde.")
+    )
+    return "\n".join(zeilen)
+
+
+def _video_pfad(run_dir: Path) -> Path:
+    """Die hochgeladene Originaldatei des Laufs (analyst_runs/<id>/raw/<filename>)."""
+    raw = run_dir / "raw"
+    if not raw.is_dir():
+        raise FileNotFoundError("Zu diesem Lauf liegt keine Videodatei mehr vor")
+    dateien = sorted(p for p in raw.iterdir() if p.is_file())
+    if not dateien:
+        raise FileNotFoundError("Zu diesem Lauf liegt keine Videodatei mehr vor")
+    return dateien[0]
+
+
+def hole_video_handle(run_dir: Path):
+    """Gemini-File-Handle für das Video dieses Laufs, mit Wiederverwendung.
+
+    Die Files API hält hochgeladene Dateien rund 48 Stunden. Ohne Cache würde jede einzelne
+    Ausschnitts-Frage dasselbe Video erneut hochladen — bei 18 MB und mehr ist das die
+    teuerste und langsamste Stelle des ganzen Features.
+
+    Kein Ablaufdatum verwalten: Wir versuchen `files.get` und laden bei jedem Fehlschlag neu.
+    Das ist genau eine Bedingung statt einer Zeitrechnung, die falsch gehen kann.
+    """
+    cache = run_dir / GEMINI_DATEI_CACHE
+    if cache.exists():
+        try:
+            name = json.loads(cache.read_text(encoding="utf-8")).get("name", "")
+            if name:
+                handle = gemini_service.client.files.get(name=name)
+                if gemini_service._state_name(handle.state) == "ACTIVE":
+                    return handle
+        except Exception:  # noqa: BLE001 — abgelaufen, gelöscht, Netzfehler: in allen Fällen neu laden
+            pass
+
+    handle = gemini_service._upload_video_to_gemini(_video_pfad(run_dir))
+    try:
+        cache.write_text(json.dumps({"name": handle.name}, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass          # Cache ist Beschleunigung, kein Muss
+    return handle
+
+
+def stream_ausschnitt(run_dir: Path, result: AnalystResult, start: float, ende: float, frage: str):
+    """Generator wie stream_antwort, aber MIT Video und auf ein Zeitfenster begrenzt.
+
+    Das Zeitfenster wird über VideoMetadata gesetzt, nicht über einen Hinweis im Prompt:
+    Gemini verarbeitet dann nur diesen Abschnitt. Ein Prompt-Hinweis würde das ganze Video
+    abrechnen und das Modell trotzdem über Stellen reden lassen, die nicht gefragt waren.
+    """
+    auftrag = frage.strip() or f"Analysiere den Ausschnitt {start:.1f}–{ende:.1f} s."
+    haenge_nachricht_an(run_dir, "user", f"[Ausschnitt {start:.1f}–{ende:.1f} s] {auftrag}")
+
+    system = segment_system_prompt()
+    nachricht = baue_ausschnitt_nachricht(result, start, ende, frage)
+    handle = hole_video_handle(run_dir)
+
+    video_part = types.Part(
+        file_data=types.FileData(file_uri=handle.uri, mime_type=handle.mime_type),
+        video_metadata=types.VideoMetadata(
+            start_offset=f"{start:.1f}s", end_offset=f"{ende:.1f}s"
+        ),
+    )
+    cfg = types.GenerateContentConfig(system_instruction=system)
+    contents = [{"role": "user", "parts": [video_part, {"text": nachricht}]}]
+
+    letzter_fehler = None
+    for modell in [gemini_service.GEMINI_MODEL] + gemini_service.GEMINI_FALLBACK_MODELS:
+        gesammelt: list[str] = []
+        try:
+            for chunk in gemini_service.client.models.generate_content_stream(
+                model=modell, contents=contents, config=cfg
+            ):
+                stueck = getattr(chunk, "text", None)
+                if stueck:
+                    gesammelt.append(stueck)
+                    yield stueck
+        except Exception as e:  # noqa: BLE001
+            if gesammelt:
+                _abschliessen_ausschnitt(run_dir, "".join(gesammelt), modell, system, nachricht, True)
+                return
+            letzter_fehler = e
+            continue
+        _abschliessen_ausschnitt(run_dir, "".join(gesammelt), modell, system, nachricht)
+        return
+
+    raise RuntimeError(f"Ausschnitts-Analyse fehlgeschlagen: {letzter_fehler}")
+
+
+def _abschliessen_ausschnitt(run_dir: Path, antwort: str, modell: str, system: str,
+                             nachricht: str, abgebrochen: bool = False) -> None:
+    haenge_nachricht_an(run_dir, "model", antwort)
+    analyst_prompt_log.log_call(
+        run_dir, call="chat_ausschnitt", recipient="Gemini", model=modell,
+        system_prompt=system, user_message=nachricht, output_raw=antwort,
+        attachments=["Video (Zeitfenster)"],
+        inputs={"abgebrochen": abgebrochen},
+    )
+    schreibe_verlauf_md(run_dir)
 
 
 # ---------- Lesbarer Verlauf ----------
