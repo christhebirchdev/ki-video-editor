@@ -64,13 +64,38 @@ Urteils-Korrekturen, dann die Eingriffe in `empfehlungen`, `verteile_empfehlunge
 - `entferne_bestaetigungen()` — Empfehlungen, die den Ist-Zustand bestätigen („die Pause unbedingt
   behalten"), fliegen raus. Sie verbrannten regelmäßig einen der nur drei Top-Plätze (Feedback 10ff4193).
   Die Phrasenliste ist bewusst eng: „Lass den Zuschauer raten" ist eine echte Handlung.
+- `erzwinge_hook_empfehlungen()` — wird eine Hook unten kritisiert, MUSS oben eine Handlung stehen:
+  `text_hook_score == 0` → Texthook-Schritt, `sprech_hook_score` zwischen 1 und 3 → Sprechhook-Schritt,
+  beide auf Sekunde 0. Grund: Der Texthook-Score wird teils erst im Code geklemmt, davon konnte das
+  Modell nichts wissen (Feedback e7fdf99d); beim Sprech-Hook stand die Kritik im Score, aber keine
+  Handlung im Output (Feedback f2312dc9). **Score 0 zählt beim Sprech-Hook NICHT als schwach** — das
+  ist der Modell-Default bei Altläufen, keine Bewertung.
 - `erzwinge_anlauf_schnitt()` — `sprechbeginn_sec > 0.8` und Format ≠ Reaction → Schnitt-Empfehlung auf
   Sekunde 0. Die Regel stand im Skill und feuerte nicht (Feedback a4fbb8ae, Sprechbeginn 0.98 s).
+  Eigene Anlauf-Empfehlungen des Modells werden dabei **ersetzt, nicht ergänzt**. Erkannt wird über
+  Zeitfenster + Schnitt-Verb, nicht über das `gruppe`-Label: Das Modell schrieb `"anlauf_weg"` statt
+  `"anlauf"` und beide Schritte landeten im Output (Feedback 61d39035, „2 mal derselbe tipp").
+  `_SCHNITT_VERB` ist bewusst eng (`schneid|entfern`) — mit `kürz` würde „ersetze die Texthook durch
+  eine kürzere Variante" bei Sekunde 0 mitgelöscht.
+- `baue_pausen_schritt()` — aus dem Schema-Feld `pausen_urteile` (Urteil je Pause: raus/lassen/unklar)
+  entsteht EIN gebündelter Schnitt-Schritt mit allen Zeitpunkten. Über Freitext war das unmöglich:
+  `verteile_empfehlungen()` bündelt nur bei identischem Text, und das Modell schrieb pro Pause einen
+  eigenen Satz — es wurde faktisch nie gebündelt (Feedback 25b8b2f6, fünf fast gleiche Schritte).
+  Eigene Pausen-Empfehlungen des Modells werden ersetzt. **Altläufe ohne das Feld bleiben unverändert.**
+- `gueltige_texthook_varianten()` + `_texthook_anweisung()` — Varianten kommen als Liste aus
+  `texthook_varianten`, der Code zählt die Wörter (max. 9) und baut die Empfehlung. Die Regel stand im
+  Prompt samt „zähle die Wörter" und wurde trotzdem gerissen (Feedback f2312dc9: 13 Wörter). Zählen ist
+  Arithmetik.
+- `berechne_performance_score()` — Gesamtscore aus den sieben Einzel-Scores × `SCORE_GEWICHTE`,
+  **funnel-unabhängig** (Vorgabe Chris): Hooks + Ton- + Bildqualität am stärksten (je 17–18), dann
+  Spannungsbogen/Struktur/Schnitt (je 10). Nicht bewertbare Dimensionen (None) fallen raus, ihr Gewicht
+  verteilt sich proportional um. Vorher bestimmte das Modell den Wert frei — über 11 Läufe kam fünfmal
+  exakt 68 heraus. Nach dem Umbau liegt die Spanne derselben Läufe bei 45–96.
 - `verteile_empfehlungen()` — Top-3-`action_steps` **strikt nach frühestem Zeitpunkt im Video**, Rest nach
   `weitere_empfehlungen`. Gebündelt wird nur bei gleichem Label *und* gleicher Anweisung (Label allein
   führte zu Fehlmerges). **Bekannte Grenze:** Bei Sprechpausen greift die Bündelung faktisch nie, weil
   das Modell pro Pause individuellen Freitext schreibt. Der geplante Fix ist ein eigenes Schema-Feld
-  `pausen_urteile` (siehe offene Punkte), nicht noch eine Prompt-Regel.
+  `pausen_urteile` — seit 2026-07-29 umgesetzt, siehe `baue_pausen_schritt()` oben.
 
 **`PAUSE_THRESHOLD_SEC = 0.8` in `services/analyst_speech.py` nicht zurücksetzen.** Bei 0.5 s landeten
 regelmäßig Pausen von 0.5–0.6 s als Schnitt-Empfehlung im Output, die beim Zuschauen niemand wahrnimmt
@@ -167,13 +192,13 @@ uvicorn main:app --host 127.0.0.1 --port 8001 --workers 1     # ohne --reload
 Ein Worker, weil die Analyst-Warteschlange ein prozess-lokaler Semaphore ist
 (`analyst_engine._SLOTS`). Mehrere Worker heben die Begrenzung faktisch auf.
 
-Tests für den Analyst: `venv/bin/python -m pytest tests/test_analyst.py -q` → 59 Tests.
+Tests für den Analyst: `venv/bin/python -m pytest tests/test_analyst.py -q` → 78 Tests.
 
 **`pytest` ohne Argument läuft derzeit nicht.** Es bricht schon beim Einsammeln ab (`Interrupted:
 1 error during collection`) und führt dann *keinen einzigen* Test aus — `tests/test_models.py` und
 `tests/test_services.py` importieren `TakeAnalysis` und `CutDecision`, die es seit Commit `a44ae5c`
 (2026-06-10) nicht mehr in `models/analysis.py` gibt. Reine Editor-Altlast, der Analyst ist nicht
-betroffen. Wichtig zu wissen, weil ein grünes „59/59" **nicht** heißt, dass die Suite läuft.
+betroffen. Wichtig zu wissen, weil ein grünes „78/78" **nicht** heißt, dass die Suite läuft.
 
 ---
 
@@ -221,11 +246,8 @@ im Code, angeblich tote `cut_engine_v2`). Doku altert, Code nicht.
 - Gemini-Analysedauer schwankt stark (35–177 s bei ~gleichem Video), Ursache vermutlich
   Rate-Limiting. Ungeklärt: Free- oder Paid-Tier des API-Keys.
 - Block B (Login pro Kunde, Kundenprofile, Verlaufs-Kontext) — nicht begonnen.
-- **Offene Feedback-Fixes** (aus der Auswertung vom 2026-07-29, von Chris noch auszuarbeiten):
-  `docs/offene-fixes-analyst.md` — P2 Redundanz-Check mit Schwelle, P4 `pausen_urteile` als Schema-Feld,
-  P10 Texthook-Empfehlung erzwingen wenn Score 0, P11 `performance_score` aus Funnel-Gewichten,
-  P12 Sprech-Hook-Redundanz in Gegenrichtung, P14 Framing/Untertitel-Qualität als Prüfpunkte,
-  P15 Feedback-Speicherung on-blur statt on-change.
+- **Offene Feedback-Fixes:** `docs/offene-fixes-analyst.md`. Nach der zweiten Runde am 2026-07-29 ist
+  davon nur noch **P2** offen (Redundanz-Check ohne Schwelle und ohne Abschaltung bei gutem Score).
 - `tests/test_models.py` und `tests/test_services.py` reparieren oder entfernen (siehe „Lokal
   starten"). Editor-Thema, blockiert aber die gesamte Testsuite.
 

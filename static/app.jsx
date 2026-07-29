@@ -129,13 +129,21 @@ function Feedback({ field }) {
   const [verdict, setVerdict] = useState("");
   const [text, setText] = useState("");
   const [status, setStatus] = useState("");   // "", "gespeichert", Fehlertext
+  // Was zuletzt WIRKLICH gespeichert wurde. Ohne diesen Vergleich schreibt jeder Blur einen neuen
+  // Eintrag, auch wenn sich nichts geändert hat — und ein Klick auf den Daumen löst zuerst den Blur
+  // des Textfelds aus, also gleich zwei. In den Läufen vom 2026-07-29 waren dadurch von 61 Einträgen
+  // rund 35 Duplikate (Run 093dc5a7: 7× derselbe Text). Die Historie bleibt bewusst append-only —
+  // hier fallen nur die inhaltsgleichen Wiederholungen weg.
+  const gespeichert = React.useRef({ verdict: "", text: "" });
 
   if (!admin || !runId) return null;
 
   async function speichern(v, t) {
+    if (gespeichert.current.verdict === v && gespeichert.current.text === t) return;
     try {
       await api("POST", `/api/analyst/${runId}/feedback`,
                 { password, field_id: field, verdict: v, text: t });
+      gespeichert.current = { verdict: v, text: t };
       setStatus("gespeichert ✓");
       setTimeout(() => setStatus(""), 1800);
     } catch (e) { setStatus(e.message || "Fehler"); }

@@ -272,6 +272,24 @@ def test_verzoegerter_sprechbeginn_erzwingt_anlauf_schnitt():
     assert ev.empfehlungen[0].gruppe == "anlauf" and "Sekunde 1." in ev.empfehlungen[0].anweisung
 
 
+def test_eigene_anlauf_empfehlung_des_modells_wird_ersetzt_nicht_ergaenzt():
+    """Feedback Run 61d39035: „2 mal derselbe tipp." Das Modell lieferte `gruppe='anlauf_weg'` bei
+    0.98s — der Label-Vergleich griff nicht, beide Schritte landeten im Output."""
+    from services.analyst_eval import erzwinge_anlauf_schnitt
+    ev = erzwinge_anlauf_schnitt(
+        _ev((0.98, "Schneide das Atmen und Zögern vor deinem ersten Wort weg.", "anlauf_weg"),
+            (0.0, "Ersetze die Texthook am Anfang durch eine kürzere Variante.", ""),
+            (20.0, "Schneide die lange Pause heraus.", "pause_weg")),
+        _result(gewaehltes_format="Talking Head", speech_stats=_stats(0.98)),
+    )
+    anlauf = [e for e in ev.empfehlungen if "Anlauf" in e.anweisung or "Atmen" in e.anweisung]
+    assert len(anlauf) == 1 and anlauf[0].gruppe == "anlauf"
+    # Die Texthook-Empfehlung bei Sekunde 0 schneidet nichts und bleibt unangetastet
+    assert any("Texthook" in e.anweisung for e in ev.empfehlungen)
+    # Die Pause bei Sek. 20 liegt außerhalb des Fensters
+    assert any(e.zeitpunkt_sek == 20.0 for e in ev.empfehlungen)
+
+
 def test_reaction_bekommt_keinen_anlauf_schnitt():
     """Bei Reaction misst sprechbeginn das Fremdvideo — die Übergangspause trägt den Formatwechsel."""
     from services.analyst_eval import erzwinge_anlauf_schnitt
@@ -285,6 +303,180 @@ def test_sofortiger_sprechbeginn_erzwingt_nichts():
     ev = erzwinge_anlauf_schnitt(_ev((23.0, "Foto einblenden", "foto")),
                                  _result(gewaehltes_format="Talking Head", speech_stats=_stats(0.2)))
     assert len(ev.empfehlungen) == 1
+
+
+# ---------- Kritik ohne Handlung: Hook-Empfehlungen erzwingen ----------
+
+def _ev_scores(sprech=None, text=None, *empfehlungen):
+    from models.analyst import AnalystEvaluationV2, HookEval
+    return AnalystEvaluationV2(
+        hook=HookEval(sprech_hook_score=sprech, text_hook_score=text,
+                      text_hook_vorhanden=bool(text)),
+        empfehlungen=[{"zeitpunkt_sek": t, "anweisung": a, "gruppe": g} for t, a, g in empfehlungen],
+    )
+
+
+def test_schwache_sprechhook_erzwingt_eine_empfehlung():
+    """Feedback Run f2312dc9: „hier hätte noch ein tipp zur sprechhook ergänzt werden können. das wird
+    ja unten in der bewertung auch kritisiert." Score war 3 — Kritik unten, keine Handlung oben."""
+    from services.analyst_eval import erzwinge_hook_empfehlungen
+    ev = erzwinge_hook_empfehlungen(_ev_scores(3, 4, (33.0, "Grafik einblenden", "")))
+    assert ev.empfehlungen[0].gruppe == "sprechhook" and ev.empfehlungen[0].zeitpunkt_sek == 0.0
+
+
+def test_starke_sprechhook_erzwingt_nichts():
+    from services.analyst_eval import erzwinge_hook_empfehlungen
+    ev = erzwinge_hook_empfehlungen(_ev_scores(4, 4, (33.0, "Grafik einblenden", "")))
+    assert all(e.gruppe != "sprechhook" for e in ev.empfehlungen)
+
+
+def test_vorhandene_hook_empfehlung_wird_nicht_verdoppelt():
+    from services.analyst_eval import erzwinge_hook_empfehlungen
+    ev = erzwinge_hook_empfehlungen(_ev_scores(
+        2, 0, (0.0, "Ersetze die Texthook am Anfang durch eine kürzere Variante.", ""),
+        (1.0, "Formuliere deinen ersten Satz um, damit er neugierig macht.", "")))
+    assert len(ev.empfehlungen) == 2  # nichts dazugekommen
+
+
+def test_texthook_score_0_erzwingt_eine_empfehlung():
+    """Run e7fdf99d: text_hook_score 0 (im Code geklemmt), aber kein Handlungsschritt dazu — das
+    Modell hielt die Fremdvideo-Texthook für vorhanden und hatte keinen Grund, einen zu schreiben."""
+    from services.analyst_eval import erzwinge_hook_empfehlungen
+    ev = erzwinge_hook_empfehlungen(_ev_scores(4, 0, (10.0, "Fragezeichen einblenden", "")))
+    assert ev.empfehlungen[0].gruppe == "texthook" and "9 Wörter" in ev.empfehlungen[0].anweisung
+
+
+def test_stummes_video_erzwingt_keine_sprechhook_empfehlung():
+    """sprech_hook_score ist dort None — None darf nicht wie 'schwach' behandelt werden."""
+    from services.analyst_eval import erzwinge_hook_empfehlungen
+    ev = erzwinge_hook_empfehlungen(_ev_scores(None, 4, (5.0, "Sound einfügen", "")))
+    assert all(e.gruppe != "sprechhook" for e in ev.empfehlungen)
+
+
+def test_reihenfolge_der_erzwungenen_schritte():
+    """Alle drei liegen auf Sekunde 0 — die Einfüge-Reihenfolge entscheidet: Anlauf, Texthook, Sprechhook."""
+    from services.analyst_eval import nachbearbeiten
+    ev = nachbearbeiten(_ev_scores(2, 0, (25.0, "Foto einblenden", "foto")),
+                        _result(gewaehltes_format="Talking Head", speech_stats=_stats(1.5)))
+    assert [s.anweisung[:20] for s in ev.action_steps] == [
+        "Schneide den Anlauf ", "Blende in den ersten", "Formuliere deinen er"]
+
+
+# ---------- P4: Sprechpausen als Urteil, Schritt aus dem Code ----------
+
+def _ev_pausen(*urteile, **kw):
+    from models.analyst import AnalystEvaluationV2
+    return AnalystEvaluationV2(
+        pausen_urteile=[{"start_sec": s, "urteil": u} for s, u in urteile],
+        empfehlungen=[{"zeitpunkt_sek": t, "anweisung": a, "gruppe": g}
+                      for t, a, g in kw.get("empfehlungen", [])],
+    )
+
+
+def test_raus_urteile_werden_zu_einem_gebuendelten_schritt():
+    """Chris zu Run 25b8b2f6: „sprechpausen sollten gebündelt empfohlen werden." Über Freitext war das
+    unmöglich, weil verteile_empfehlungen() identischen Text zum Bündeln braucht."""
+    from services.analyst_eval import baue_pausen_schritt, verteile_empfehlungen
+    ev = verteile_empfehlungen(baue_pausen_schritt(
+        _ev_pausen((3.1, "lassen"), (12.0, "raus"), (24.0, "raus"), (47.0, "raus"), (60.0, "unklar"))))
+    pausen = [s for s in ev.action_steps + ev.weitere_empfehlungen if "Sprechpause" in s.anweisung]
+    assert len(pausen) == 1
+    assert pausen[0].zeitpunkt == "ca. Sek. 12, 24 und 47"   # „lassen" und „unklar" sind nicht dabei
+
+
+def test_eigene_pausen_empfehlungen_des_modells_werden_ersetzt():
+    """Sonst stünde der gebündelte Schritt neben den Einzelsätzen — derselbe Doppel-Fehler wie beim Anlauf."""
+    from services.analyst_eval import baue_pausen_schritt
+    ev = baue_pausen_schritt(_ev_pausen(
+        (12.0, "raus"),
+        empfehlungen=[(12.0, "Schneide die Pause von 0,9 Sekunden hier komplett heraus.", "pause_weg"),
+                      (20.0, "Kürze die lange Pause vor dem Schlusssatz.", ""),
+                      (30.0, "Blende ein Foto ein.", "foto")]))
+    texte = [e.anweisung for e in ev.empfehlungen]
+    assert sum("pause" in t.lower() for t in texte) == 1  # nur der gebaute Schritt
+    assert any("Foto" in t for t in texte)                # unbeteiligte Empfehlung bleibt
+
+
+def test_altlauf_ohne_pausen_urteile_behaelt_seine_empfehlungen():
+    """Ein Lauf mit altem Schema darf seine Pausen-Empfehlungen nicht ersatzlos verlieren."""
+    from services.analyst_eval import baue_pausen_schritt
+    ev = baue_pausen_schritt(_ev_pausen(
+        empfehlungen=[(12.0, "Schneide die Pause hier heraus.", "pause_weg")]))
+    assert len(ev.empfehlungen) == 1
+
+
+# ---------- P16: Texthook-Varianten prüft der Code ----------
+
+def test_zu_lange_texthook_varianten_werden_verworfen():
+    """Run f2312dc9 lieferte eine Variante mit 13 Wörtern, obwohl die 9-Wörter-Regel im Prompt steht.
+    Wortzählen ist Arithmetik und gehört deshalb in den Code."""
+    from services.analyst_eval import gueltige_texthook_varianten
+    gueltig = gueltige_texthook_varianten([
+        "Warum du keine Kunden gewinnst (und was Markus Baulig damit zu tun hat)",  # 13
+        "Der größte Fehler im Verkauf",                                             # 5
+        "Verkaufst du zu bedürftig?",                                               # 4
+    ])
+    assert gueltig == ["Der größte Fehler im Verkauf", "Verkaufst du zu bedürftig?"]
+
+
+def test_varianten_landen_in_der_texthook_empfehlung():
+    from services.analyst_eval import erzwinge_hook_empfehlungen
+    from models.analyst import AnalystEvaluationV2, HookEval
+    ev = erzwinge_hook_empfehlungen(AnalystEvaluationV2(
+        hook=HookEval(sprech_hook_score=4, text_hook_score=2, text_hook_vorhanden=True),
+        texthook_varianten=["Der größte Fehler im Verkauf", "Zu viel zu lang " * 4],
+        empfehlungen=[{"zeitpunkt_sek": 0.0, "anweisung": "Ersetze die Texthook durch etwas Besseres.",
+                       "gruppe": ""}],
+    ))
+    texthook = [e for e in ev.empfehlungen if e.gruppe == "texthook"]
+    assert len(texthook) == 1                                    # die Modell-Fassung wurde ersetzt
+    assert "Der größte Fehler im Verkauf" in texthook[0].anweisung
+    assert "Zu viel zu lang" not in texthook[0].anweisung        # zu lange Variante fliegt raus
+
+
+# ---------- P11: performance_score aus den Einzel-Scores ----------
+
+def _ev_voll(sprech, text, struktur, sprechq, schnitt, spannung, aesthetik):
+    from models.analyst import AnalystEvaluationV2
+    return AnalystEvaluationV2(**{
+        "hook": {"sprech_hook_score": sprech, "text_hook_score": text, "text_hook_vorhanden": True},
+        "struktur": {"score": struktur}, "sprechqualitaet": {"score": sprechq},
+        "schnitt_pacing": {"score": schnitt}, "spannungsbogen": {"score": spannung},
+        "visuelle_aesthetik": {"score": aesthetik},
+    })
+
+
+def test_score_wird_aus_den_dimensionen_berechnet():
+    """Gegenprobe an echten Läufen: 25b8b2f6 bekam vom Modell 62, Chris: „score sollte schlechter sein".
+    56748c94 (fast alles 5er) bekam 92 — der Wert soll oben bleiben."""
+    from services.analyst_eval import berechne_performance_score
+    schwach = berechne_performance_score(_ev_voll(3, 3, 3, 3, 2, 2, 3)).performance_score
+    stark = berechne_performance_score(_ev_voll(5, 4, 5, 5, 5, 5, 5)).performance_score
+    assert schwach < 55 and stark > 90
+    assert berechne_performance_score(_ev_voll(5, 5, 5, 5, 5, 5, 5)).performance_score == 100
+    assert berechne_performance_score(_ev_voll(1, 0, 1, 1, 1, 1, 1)).performance_score == 0
+
+
+def test_hooks_und_qualitaet_wiegen_schwerer_als_der_rest():
+    """Chris' Vorgabe: Sprechhook, Texthook, Audio und Bildqualität am stärksten."""
+    from services.analyst_eval import SCORE_GEWICHTE
+    stark = ("sprech_hook", "text_hook", "sprechqualitaet", "visuelle_aesthetik")
+    schwach = ("spannungsbogen", "struktur", "schnitt_pacing")
+    assert min(SCORE_GEWICHTE[k] for k in stark) > max(SCORE_GEWICHTE[k] for k in schwach)
+    assert sum(SCORE_GEWICHTE.values()) == 100
+
+
+def test_nicht_bewertbare_dimensionen_verteilen_ihr_gewicht_um():
+    """Stummes Video: Sprech-Hook und Sprechqualität sind None — das darf den Score nicht drücken."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import berechne_performance_score
+    ev = AnalystEvaluationV2(**{
+        "hook": {"sprech_hook_score": None, "text_hook_score": 4, "text_hook_vorhanden": True},
+        "struktur": {"score": 4}, "sprechqualitaet": {"score": None},
+        "schnitt_pacing": {"score": 4}, "spannungsbogen": {"score": 4},
+        "visuelle_aesthetik": {"score": 4},
+    })
+    assert berechne_performance_score(ev).performance_score >= 75
 
 
 # ---------- P9: Videos ohne gesprochenes Wort ----------
@@ -408,6 +600,47 @@ def test_stumme_videos_regel_ersetzt_die_alte_score_0_regel():
     assert "Keine Sprache erkannt → score 0" not in skill
     assert "Empfiehl NICHT,\netwas einzusprechen" in skill
     assert "oder null wenn im Video niemand spricht" in OUTPUT_SCHEMA
+
+
+def test_sprechhook_hat_eigene_massstaebe():
+    """P12, Chris: „Eine gute sprechhook ist in der regel deutlich länger als eine texthook." Ohne
+    diesen Satz überträgt das Modell die 9-Wörter-Grenze auf den gesprochenen Einstieg."""
+    from services.analyst_eval import load_skill_body
+    skill = load_skill_body()
+    assert "Die 9-Wörter-Grenze gilt für ihn\nNICHT" in skill
+    assert "Den Abzug bekommt im Zweifel die TEXT-HOOK" in skill
+
+
+def test_aesthetik_referenz_gilt_nur_fuer_talking_head():
+    """P14: Chris' Framing-Standard beschreibt ausdrücklich nur Talking-Head-Videos."""
+    from services.analyst_eval import load_skill_body
+    skill = load_skill_body()
+    assert "dieser Standard gilt NUR für Talking Head" in skill
+    for punkt in ("Kopfraum", "Augenhöhe", "Untertitel-Platzierung", "1080p"):
+        assert punkt in skill, f"{punkt!r} fehlt in der Ästhetik-Referenz"
+
+
+def test_score_regel_verweist_aufs_system_statt_auf_den_funnel():
+    """P11: Der funnel-abhängige Gewichtungsblock ist raus — der Code rechnet jetzt."""
+    from services.analyst_eval import load_skill_body
+    skill = load_skill_body()
+    assert "berechnet das SYSTEM, nicht du" in skill
+    assert "funnel-abhängig gewichten" not in skill
+    assert "## Funnel" in skill  # die Einordnung selbst bleibt, sie ist für den Nutzer relevant
+
+
+def test_pausen_und_varianten_werden_nicht_doppelt_erklaert():
+    """Prompt-Hygiene: Beide neuen Felder werden im Skill definiert, Override und Schema verweisen nur."""
+    from services.analyst_eval import OUTPUT_SCHEMA
+    from services.analyst_gemini_eval import _user_message
+    override = _user_message(_result(gewaehltes_format="Talking Head"), "hybrid")
+    assert "pausen_urteile" in override      # der Override nennt das Feld …
+    # … buchstabiert die Urteils-Kategorien aber nicht neu aus
+
+    for wiederholung in ("Stockung/Denkpause", "Dramaturgische Pause", "Übergangspause"):
+        assert wiederholung not in override, f"{wiederholung!r} steht doppelt im Override"
+    # Varianten-Regel steht nur im Skill; Schema nennt nur das Format
+    assert "andere Mechanik" in OUTPUT_SCHEMA and "Provokation" not in OUTPUT_SCHEMA
 
 
 # ---------- Lautheit: empirischer Bereich statt geratenem Richtwert ----------

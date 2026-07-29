@@ -122,6 +122,19 @@ class ActionStep(BaseModel):
     anweisung: str = ""      # EINE konkrete Handlung in super einfacher Sprache
 
 
+class PausenUrteil(BaseModel):
+    """Urteil des Modells zu EINER gemessenen Pause — Urteil, nicht Formulierung.
+
+    Vorher schrieb das Modell pro Pause eine eigene Empfehlung im Freitext („Schneide die Pause von
+    0,6 Sekunden vor dem Satz 'Ich glaube nicht…' heraus"). Die Bündelung in verteile_empfehlungen()
+    verlangt identischen Text — zwei Pausentexte sind nie identisch, also wurde nie gebündelt und der
+    Nutzer bekam fünf fast gleiche Schritte (Feedback 25b8b2f6). Jetzt urteilt das Modell nur noch
+    „raus / lassen / unklar", den Satz baut der Code.
+    """
+    start_sec: float
+    urteil: str = "unklar"   # raus | lassen | unklar
+
+
 class Empfehlung(BaseModel):
     """EINE Empfehlung, wie das Modell sie liefert — flach, mit Zeitpunkt als ZAHL.
 
@@ -159,6 +172,9 @@ class AnalystEvaluationV2(BaseModel):
     staerken: list[str] = Field(default_factory=list)             # positives Feedback: was schon gut ist
     top_tipps: list[str] = Field(default_factory=list)            # ausführliches Verbesserungs-Feedback
     empfehlungen: list[Empfehlung] = Field(default_factory=list)  # ROH vom Modell: flach, unsortiert
+    # Urteile statt Formulierungen — der Code baut daraus die fertigen Schritte:
+    pausen_urteile: list[PausenUrteil] = Field(default_factory=list)
+    texthook_varianten: list[str] = Field(default_factory=list)   # je max. 9 Wörter; Code prüft und filtert
     # Die beiden folgenden Listen berechnet der Code aus `empfehlungen` — das Modell füllt sie nicht:
     action_steps: list[ActionStep] = Field(default_factory=list)  # die 3 frühesten Handlungsempfehlungen
     weitere_empfehlungen: list[ActionStep] = Field(default_factory=list)  # alle übrigen (aufklappbar)

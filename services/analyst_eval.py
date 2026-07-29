@@ -168,6 +168,10 @@ def entferne_bestaetigungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
 # Ab wann der Start als „Anlauf" gilt: Atmen, Einrichten, Denkpause vor dem ersten Wort.
 ANLAUF_SCHWELLE_SEC = 0.8
 
+# Bewusst eng: „kürz" wäre hier falsch, weil „ersetze die Texthook durch eine kürzere Variante"
+# bei Sekunde 0 sonst als Anlauf-Schnitt gelesen und gelöscht würde.
+_SCHNITT_VERB = re.compile(r"(schneid|entfern)", re.IGNORECASE)
+
 ANLAUF_HINWEIS = (
     "Schneide den Anlauf am Anfang weg — dein erstes Wort kommt erst bei Sekunde {sek}. "
     "Lass das Video direkt mit dem gesprochenen Satz starten, damit die Hook sofort sitzt."
@@ -190,14 +194,135 @@ def erzwinge_anlauf_schnitt(parsed: AnalystEvaluationV2, result: AnalystResult) 
         return parsed
     beginn = getattr(stats, "sprechbeginn_sec", 0.0) or 0.0
     ist_reaction = (getattr(result, "gewaehltes_format", "") or "").strip().lower() == "reaction"
-    schon_da = any((e.gruppe or "").strip().lower() == "anlauf" for e in parsed.empfehlungen)
-    if beginn <= ANLAUF_SCHWELLE_SEC or ist_reaction or schon_da:
+    if beginn <= ANLAUF_SCHWELLE_SEC or ist_reaction:
         return parsed
+    # Eigene Anlauf-Empfehlungen des Modells verwerfen — der erzwungene Schritt ist die kanonische
+    # Fassung. Ein Vergleich über das `gruppe`-Label reichte nicht: das Modell schrieb "anlauf_weg"
+    # statt "anlauf" und beide Schritte landeten im Output (Feedback Run 61d39035: „2 mal derselbe
+    # tipp"). Erkannt wird stattdessen über Zeitfenster + Schnitt-Verb — eine Texthook-Empfehlung bei
+    # Sekunde 0 bleibt damit unangetastet, weil sie nichts schneidet.
+    parsed.empfehlungen = [
+        e for e in parsed.empfehlungen
+        if not (e.zeitpunkt_sek <= beginn + 0.5 and _SCHNITT_VERB.search(e.anweisung or ""))
+    ]
     parsed.empfehlungen.insert(0, Empfehlung(
         zeitpunkt_sek=0.0, gruppe="anlauf",
         # :g statt round(): „Sekunde 1" statt „Sekunde 1.0", aber „Sekunde 1,4" bleibt genau.
         anweisung=ANLAUF_HINWEIS.format(sek=f"{round(beginn, 1):g}"),
     ))
+    return parsed
+
+
+# Ab diesem Score gilt eine Hook als verbesserungswürdig. 3 heißt laut Skill „funktional aber
+# generisch" — da ist immer Luft nach oben, und genau dieser Fall blieb ohne Handlung (Run f2312dc9).
+HOOK_SCHWACH_SCORE = 3
+
+TEXTHOOK_EMPFEHLUNG = (
+    "Blende in den ersten 3 Sekunden eine Texthook ein — kurzer Text im Bild, maximal 9 Wörter, der "
+    "neugierig macht. Schreib dir 3 Varianten und teste sie über die Testreel-Funktion von Instagram "
+    "gegeneinander."
+)
+
+SPRECHHOOK_EMPFEHLUNG = (
+    "Formuliere deinen ersten gesprochenen Satz um: Er soll entweder sofort neugierig machen oder ein "
+    "konkretes Problem deiner Zielgruppe ansprechen. Sag gleich im ersten Satz, worum es geht — nicht "
+    "erst im zweiten."
+)
+
+
+TEXTHOOK_MAX_WOERTER = 9
+
+PAUSEN_ANWEISUNG = "Schneide diese unnötige Sprechpause raus, damit das Video flüssiger läuft."
+
+# Eine Empfehlung, die eine Pause behandelt: „Pause" plus eine Schnitt-Handlung. Breiter als
+# _SCHNITT_VERB (hier ist „kürzen" gemeint), aber durch das Wort „Pause" trotzdem eng.
+_PAUSEN_EMPFEHLUNG = re.compile(r"pause.*(schneid|kürz|entfern|weg)|(schneid|kürz|entfern).*pause",
+                                re.IGNORECASE | re.DOTALL)
+
+
+def baue_pausen_schritt(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Aus `pausen_urteile` EINEN gebündelten Schnitt-Schritt bauen.
+
+    Chris zu Run 25b8b2f6: „sprechpausen als empfehlung rauszuschneiden sollte gebündelt empfohlen
+    werden". Über Freitext war das unmöglich — siehe PausenUrteil. Hier entsteht pro „raus"-Pause ein
+    Eintrag mit IDENTISCHEM Text und gleichem Label; verteile_empfehlungen() fasst sie danach zu einem
+    Schritt mit allen Zeitpunkten zusammen („ca. Sek. 12, 24 und 47").
+
+    Liefert das Modell das Feld nicht (Altlauf), bleibt alles unverändert — sonst verlöre so ein Lauf
+    seine Pausen-Empfehlungen ersatzlos.
+    """
+    if not parsed.pausen_urteile:
+        return parsed
+    parsed.empfehlungen = [
+        e for e in parsed.empfehlungen if not _PAUSEN_EMPFEHLUNG.search(e.anweisung or "")
+    ]
+    for p in sorted((u for u in parsed.pausen_urteile if u.urteil == "raus"), key=lambda u: u.start_sec):
+        parsed.empfehlungen.append(Empfehlung(
+            zeitpunkt_sek=p.start_sec, gruppe="sprechpausen", anweisung=PAUSEN_ANWEISUNG))
+    return parsed
+
+
+def gueltige_texthook_varianten(varianten: list[str]) -> list[str]:
+    """Varianten über der Wortgrenze verwerfen. Zählen ist Arithmetik und gehört deshalb hierher.
+
+    Die Regel steht im Skill samt Aufforderung „zähle die Wörter" — und wurde trotzdem gerissen
+    (Run f2312dc9: 13 Wörter statt 9). Wortzählen ist genau die Aufgabe, die Sprachmodelle mal
+    treffen und mal nicht.
+    """
+    return [v.strip() for v in varianten if v and len(v.split()) <= TEXTHOOK_MAX_WOERTER]
+
+
+def _texthook_anweisung(varianten: list[str]) -> str:
+    """Kanonische Texthook-Empfehlung, mit den geprüften Varianten als Beispiele."""
+    if not varianten:
+        return TEXTHOOK_EMPFEHLUNG
+    liste = " | ".join(f"„{v}“" for v in varianten)
+    return (
+        f"Blende in den ersten 3 Sekunden eine Texthook ein — kurzer Text im Bild, der neugierig macht. "
+        f"Teste diese Varianten über die Testreel-Funktion von Instagram gegeneinander: {liste}"
+    )
+
+
+def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Wird eine Hook unten kritisiert, MUSS oben eine Handlung dazu stehen.
+
+    Der häufigste Leerlauf im Output: Score und Begründung benennen die Schwäche, aber unter den
+    Handlungsempfehlungen taucht sie nicht auf (Feedback Run e7fdf99d für die Texthook, Run f2312dc9
+    für die Sprechhook: „hier hätte noch ein tipp zur sprechhook ergänzt werden können. das wird ja
+    unten in der bewertung auch kritisiert."). Bei der Texthook kommt dazu, dass der Score teils erst
+    NACH dem Modell-Call im Code auf 0 gesetzt wird (bereinige_fremd_texthook) — das Modell konnte
+    davon gar nichts wissen.
+
+    Beide Schritte liegen auf Sekunde 0 und landen damit vorn; ein bereits vorhandener Schritt zum
+    selben Thema wird nicht verdoppelt.
+    """
+    def fehlt(*stichworte: str) -> bool:
+        texte = [(e.anweisung or "").lower() for e in parsed.empfehlungen]
+        return not any(s in t for t in texte for s in stichworte)
+
+    # 1..3, nicht <=3: 0 ist kein gültiger Sprech-Hook-Score, sondern der Modell-Default bei
+    # Altläufen und Teil-Antworten. Daraus eine „schwache Hook" zu machen wäre erfunden.
+    if parsed.hook.sprech_hook_score is not None \
+            and 1 <= parsed.hook.sprech_hook_score <= HOOK_SCHWACH_SCORE \
+            and fehlt("sprechhook", "sprech-hook", "erster satz", "ersten satz"):
+        parsed.empfehlungen.insert(0, Empfehlung(
+            zeitpunkt_sek=0.0, gruppe="sprechhook", anweisung=SPRECHHOOK_EMPFEHLUNG))
+
+    # Die Texthook-Empfehlung baut IMMER der Code, sobald das Modell Varianten geliefert hat — sonst
+    # stünden die ungeprüften Varianten im Freitext der Modell-Empfehlung (Run f2312dc9: 13 Wörter).
+    varianten = gueltige_texthook_varianten(parsed.texthook_varianten)
+    th = parsed.hook.text_hook_score
+    schwach = th is not None and th <= HOOK_SCHWACH_SCORE
+    if varianten or (th == 0 and fehlt("texthook", "text-hook")):
+        if varianten:  # eigene Formulierungen des Modells zur Texthook ersetzen, nicht ergänzen
+            parsed.empfehlungen = [
+                e for e in parsed.empfehlungen
+                if "texthook" not in (e.anweisung or "").lower()
+                and "text-hook" not in (e.anweisung or "").lower()
+            ]
+        if varianten or schwach:
+            parsed.empfehlungen.insert(0, Empfehlung(
+                zeitpunkt_sek=0.0, gruppe="texthook", anweisung=_texthook_anweisung(varianten)))
     return parsed
 
 
@@ -224,18 +349,63 @@ def neutralisiere_stumme_scores(parsed: AnalystEvaluationV2, result: AnalystResu
     return parsed
 
 
+# Gewichte für den performance_score, Summe 100. Bewusst FUNNEL-UNABHÄNGIG (Vorgabe Chris,
+# 2026-07-29): Am stärksten zählen die beiden Hooks sowie Ton- und Bildqualität — das entscheidet in
+# den ersten Sekunden darüber, ob überhaupt jemand dranbleibt. Danach Spannungsbogen, Struktur,
+# Schnitt & Pacing. Vorher bestimmte das Modell den Score frei: über 11 Läufe kam fünfmal exakt 68
+# heraus, und Chris hielt ihn mehrfach für zu mild.
+SCORE_GEWICHTE = {
+    "sprech_hook": 18, "text_hook": 18, "sprechqualitaet": 17, "visuelle_aesthetik": 17,
+    "spannungsbogen": 10, "struktur": 10, "schnitt_pacing": 10,
+}
+
+
+def berechne_performance_score(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Gesamtscore aus den Einzel-Scores statt aus dem Bauch des Modells.
+
+    Jede Dimension wird auf 0..1 normalisiert (1–5 → (s-1)/4; der Text-Hook auf 0–5 → s/5, weil dort
+    die 0 „fehlt komplett" bedeutet und nicht „Modell hat nichts gesagt"). Nicht bewertbare
+    Dimensionen (None, z.B. Sprech-Hook in einem stummen Video) fallen raus und ihr Gewicht verteilt
+    sich proportional auf den Rest — sonst würde ein bewusst stummes Format doppelt bestraft.
+    """
+    dimensionen = {
+        "sprech_hook": (parsed.hook.sprech_hook_score, 1),
+        "text_hook": (parsed.hook.text_hook_score, 0),
+        "sprechqualitaet": (parsed.sprechqualitaet.score, 1),
+        "visuelle_aesthetik": (parsed.visuelle_aesthetik.score, 1),
+        "spannungsbogen": (parsed.spannungsbogen.score, 1),
+        "struktur": (parsed.struktur.score, 1),
+        "schnitt_pacing": (parsed.schnitt_pacing.score, 1),
+    }
+    summe = gewicht_gesamt = 0.0
+    for name, (score, minimum) in dimensionen.items():
+        if score is None or score < minimum:
+            continue  # nicht bewertbar, oder 0 als Modell-Default statt echter Bewertung
+        gewicht = SCORE_GEWICHTE[name]
+        summe += gewicht * (score - minimum) / (5 - minimum)
+        gewicht_gesamt += gewicht
+    if gewicht_gesamt:
+        parsed.performance_score = round(summe / gewicht_gesamt * 100)
+    return parsed
+
+
 def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
     """Alle deterministischen Korrekturen in fester Reihenfolge — die eine Stelle, an der sie stehen.
 
-    Reihenfolge ist nicht beliebig: erst die Urteils-Korrekturen (Format, Texthook, stumme Scores),
-    dann die Eingriffe in `empfehlungen` (filtern, ergänzen), und `verteile_empfehlungen` als
-    Letztes — es liest die fertige Liste und schneidet die Top 3 ab.
+    Reihenfolge ist nicht beliebig: erst die Urteils-Korrekturen (Format, Texthook, stumme Scores) —
+    sie bestimmen, was danach erzwungen wird. Dann die Eingriffe in `empfehlungen`: filtern, bevor
+    ergänzt wird. Zuletzt `verteile_empfehlungen` — es liest die fertige Liste und schneidet die Top 3
+    ab. Die beiden Ergänzungen liegen beide auf Sekunde 0; ihre Einfüge-Reihenfolge entscheidet damit
+    über die Reihenfolge im Output: Anlauf (schnellste Handlung) vor Texthook vor Sprechhook.
     """
     parsed = erzwinge_nutzer_format(parsed, result)
     parsed = bereinige_fremd_texthook(parsed, result)
     parsed = neutralisiere_stumme_scores(parsed, result)
     parsed = entferne_bestaetigungen(parsed)
+    parsed = baue_pausen_schritt(parsed)
+    parsed = erzwinge_hook_empfehlungen(parsed)
     parsed = erzwinge_anlauf_schnitt(parsed, result)
+    parsed = berechne_performance_score(parsed)
     return verteile_empfehlungen(parsed)
 
 
@@ -272,7 +442,7 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "zielgruppe": "<genau 1 Satz: wer angesprochen wird>",
   "format": "<übernimm das vorgegebene Format aus der Aufgabe unverändert>",
   "protagonist_ab_sek": <float: ab welcher Sekunde der Protagonist seinen ersten INHALTLICHEN Satz beginnt — den, mit dem er anfängt zu ERKLÄREN/zu reden. NICHT seine erste Lautäußerung: mitreagierende Rufe („Ja!", „BÄM!"), Lacher oder das Mitsprechen zum Fremdvideo zählen NICHT. Spricht er von Beginn an inhaltlich: sein erstes Wort. Bei Reaction: erst wenn das Fremdvideo endet UND er zu reden anfängt (die Übergangspause davor gehört noch NICHT zu ihm).>,
-  "performance_score": <int 0-100>,
+  "performance_score": <int 0-100; reiner Fallback — das System berechnet ihn aus den Einzel-Scores und überschreibt diesen Wert>,
   "funnel": "<TOFU | MOFU | BOFU | Mischung>",
   "hook": {
     "sprech_hook_score": <int 1-5, oder null wenn im Video niemand spricht — siehe „Videos ohne gesprochenes Wort">,
@@ -292,8 +462,13 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur Auffälliges, je 1-2 Sätze, sonst []>"]},
   "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],
   "top_tipps": ["<3-5 wichtigste Hebel, je 1-2 Sätze, nach Wirkung priorisiert>"],
+  "pausen_urteile": [{"start_sec": <float: die start_sec EINER gemessenen Pause aus der Sprachstatistik, unverändert übernommen>, "urteil": "<raus | lassen | unklar — siehe „Sprechpausen — nach FUNKTION beurteilen">"}],
+  "texthook_varianten": ["<bis zu 3 Vorschläge für eine bessere Text-Hook, je HÖCHSTENS 9 Wörter, je andere Mechanik; leer lassen, wenn die vorhandene Text-Hook stark ist>"],
   "empfehlungen": [{"zeitpunkt_sek": <float: die Sekunde im Video, auf die sich die Handlung bezieht — Richtwert, ±1–2 s>, "anweisung": "<EINE konkrete Handlung, die etwas VERÄNDERT, in SUPER EINFACHER Sprache>", "gruppe": "<Label nur für die WÖRTLICH GLEICHE Handlung an mehreren Stellen, sonst leer>"}]
 }
+
+Sprechpausen und Text-Hook-Varianten gehören NICHT in `empfehlungen` — dafür gibt es die beiden Felder
+darüber. Das System baut daraus die fertigen Schritte.
 
 Inhaltliche Regeln zu `empfehlungen` stehen im Abschnitt „Empfehlungen — die kanonische Regel" oben
 und gelten unverändert; hier steht nur das Datenformat.

@@ -45,8 +45,9 @@ def replay(run_id: str) -> bool:
 
     alt_steps, neu_steps = _steps(roh.get("action_steps") or []), _steps(neu.action_steps)
     scores_alt = (roh.get("hook", {}).get("sprech_hook_score"),
-                  (roh.get("sprechqualitaet") or {}).get("score"))
-    scores_neu = (neu.hook.sprech_hook_score, neu.sprechqualitaet.score)
+                  (roh.get("sprechqualitaet") or {}).get("score"),
+                  roh.get("performance_score"))
+    scores_neu = (neu.hook.sprech_hook_score, neu.sprechqualitaet.score, neu.performance_score)
     stats = daten.get("speech_stats") or {}
     unter_schwelle = [p for p in (stats.get("pausen") or []) if p["dauer_sec"] <= PAUSE_THRESHOLD_SEC]
 
@@ -65,7 +66,8 @@ def replay(run_id: str) -> bool:
             print("   +", s)
     if scores_alt != scores_neu:
         print(f" Scores: sprech_hook {scores_alt[0]} → {scores_neu[0]}, "
-              f"sprechqualitaet {scores_alt[1]} → {scores_neu[1]}")
+              f"sprechqualitaet {scores_alt[1]} → {scores_neu[1]}, "
+              f"performance {scores_alt[2]} → {scores_neu[2]}")
     if unter_schwelle:
         # Wirkt erst beim NÄCHSTEN echten Lauf: das Modell sieht diese Pausen dann gar nicht mehr.
         print(f" Pausen unter der Messschwelle ({PAUSE_THRESHOLD_SEC}s), künftig nicht mehr gemeldet: "

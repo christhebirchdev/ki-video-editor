@@ -68,23 +68,32 @@ Text-Hook einer der wichtigsten Hebel für die Klickrate ist.
 
 LÄNGE der Text-Hook — gilt für die BEWERTUNG der vorhandenen genauso wie für jeden VORSCHLAG:
 3–9 Wörter (ideal 3–6), höchstens 2 Zeilen. Wer scrollt, liest nur einen Blick lang. Eine vorhandene
-Text-Hook über 9 Wörter ist in dieser Zeit nicht erfassbar → höchstens text_hook_score 3, die Länge im
-text_hook_grund benennen und die Kürzung als Empfehlung ausgeben — mit einer konkreten kürzeren Fassung,
-die dieselbe Aussage trägt. Ganze Sätze oder Erklärungen sind keine Text-Hooks. Zähle die Wörter jeder
-Variante, die du vorschlägst, und kürze sie, wenn sie über 9 liegt.
+Text-Hook über 9 Wörter ist in dieser Zeit nicht erfassbar → höchstens text_hook_score 3 und die Länge
+im text_hook_grund benennen. Ganze Sätze oder Erklärungen sind keine Text-Hooks.
+
+SPRECH-HOOK — eigene Maßstäbe, NICHT die der Text-Hook:
+Ein Sprech-Hook ist in der Regel deutlich LÄNGER als eine Text-Hook. Die 9-Wörter-Grenze gilt für ihn
+NICHT — bewerte ihn nie als „zu lang", nur weil er ein ganzer Satz ist.
+Stark ist er, wenn er mindestens eines davon tut: Neugier wecken, emotional treffen, oder den Zuschauer
+direkt ansprechen („du"). Am stärksten ERGÄNZT er die Text-Hook, statt sie zu wiederholen — zusammen
+decken beide Ebenen mehr ab als jede für sich.
+
+VORSCHLÄGE für eine bessere Text-Hook gehören ausschließlich in das Feld `texthook_varianten` —
+bis zu 3, je HÖCHSTENS 9 Wörter, jede mit einer anderen Mechanik (Provokation / Neugierlücke /
+konkrete Zahl oder Pain Point / Erwartungsbruch / POV), passend zum echten Thema DIESES Videos.
+Schreib sie NICHT in eine Empfehlung: Das System prüft die Wortzahl, verwirft zu lange Varianten und
+baut die Handlungsempfehlung selbst daraus.
 
 Hook-Kalibrierung (aus echten Beobachtungen):
 - Leere Hype-Wörter ohne konkreten Inhalt sind SCHWACH (Score ~2). Negativ-Beispiel Sprech-Hook:
   „Das ist ein unfassbar spannender Glaubenssatz." → sagt statt zu zeigen, kein konkreter Open Loop,
   reines Adjektiv-Hype („unfassbar spannend") → niedrig bewerten.
 - REDUNDANZ Sprech-Hook = Text-Hook ist eine SCHWÄCHE, keine Stärke (Referenz S3) — das gilt NUR für
-  echte Text-Hooks. Untertitel sind davon ausgenommen (siehe „UNTERTITEL sind KEIN Text-Hook"). Sprech- und Text-Hook
-  sollen sich ERGÄNZEN (zwei Ebenen, z.B. Sprache stellt die Frage, Text liefert den überraschenden Fakt).
-  Ist der Text-Hook (nahezu) wortgleich mit dem Sprech-Hook, schließt er den Open Loop sofort doppelt und
-  der Overlay verschenkt seine zweite Ebene → text_hook_score NICHT höher als den Sprech-Hook ansetzen
-  (eher gleich oder niedriger), die Redundanz im text_hook_grund ausdrücklich benennen und als top_tipp
-  aufnehmen: „Text-Overlay für eine zweite Ebene/zusätzliche Spannung nutzen, statt den gesprochenen Satz
-  zu doppeln." Negativ-Beispiel: Sprech-Hook „Die Gesundheit eines Kindes beginnt vor der Schwangerschaft" +
+  echte Text-Hooks. Untertitel sind davon ausgenommen (siehe „UNTERTITEL sind KEIN Text-Hook").
+  Sagen beide (nahezu) dasselbe, schließt sich der Open Loop sofort doppelt und eine Ebene ist verschenkt.
+  **Den Abzug bekommt im Zweifel die TEXT-HOOK** — sie hat den knapperen Platz und muss genau das liefern,
+  was das Gesprochene noch nicht abdeckt. Die Doppelung im text_hook_grund ausdrücklich benennen.
+  Negativ-Beispiel: Sprech-Hook „Die Gesundheit eines Kindes beginnt vor der Schwangerschaft" +
   fast identischer Text-Overlay „Die Gesundheit deines Kindes beginnt lange vor der Schwangerschaft".
 - Wortlaut-Quelle: Gemmas text_overlays kann OCR-Fehler enthalten (z.B. „Ich bin kein Geld" statt
   „Ich bin kein Geldmensch"). Für GESPROCHENEN Text gilt das TRANSKRIPT als verlässlicher Wortlaut.
@@ -134,9 +143,8 @@ Besonders relevant für den Hook/Struktur-Score: Superhook/Legitimation (braucht
 Person, eine bekannte nicht), Open Loop muss offen BLEIBEN (nicht durch redundante Sprech-+Text-Hook
 sofort schließen), Promise→Payoff (das Eröffnungs-Statement muss eingelöst werden), und: ein Video
 ist nie besser als sein Skript.
-Für sprechqualitaet/visuelle_aesthetik zusätzlich (Technik/Auftreten): Verständlichkeit & Audio-Pegel
-(unverständlicher/zu lauter/zu leiser Ton = Schwäche), Licht/Bild, und Blickrichtung — Blick nach
-unten/zur Seite (Skript ablesen) wirkt geskriptet/unsicher, direkter Blick in die Linse = sicher.
+Für visuelle_aesthetik gilt der Referenz-Standard weiter unten in diesem Prompt — er ist genauer als
+die Anker der angehängten Referenz und hat Vorrang.
 Vorrang-Regel: Die Referenz schärft das Urteil, ändert aber NICHT das Output-Format. Es bleibt
 bei: extrem knapp, JSON, format-bewusst, und im Score-Output zurückhaltend (keine Behauptungen
 über einzelne Schnitte). Die Beispiel-Anker der Referenz sind Kalibrierung, KEIN Ausgabe-Template.
@@ -161,33 +169,62 @@ Zuschauen nicht auf und ist nie eine Empfehlung wert. Die Länge allein sagt abe
 Schwelle NICHTS über die Qualität: Eine lange Pause vor einer Pointe ist stark, eine kurze Stockung
 mitten im Satz ist ein Loch. Zähle also nicht — bestimme die FUNKTION.
 
-Geh JEDE gemessene Pause an ihrer Position durch (was passiert davor, was danach?) und ordne sie zu:
-- **Stockung/Denkpause** — sucht nach Worten, Satz bricht ab, Blick geht weg → RAUSSCHNEIDEN empfehlen.
-- **Anlauf** vor dem ersten Wort — Atmen, Einrichten, „ähm" → RAUSSCHNEIDEN (siehe Hook-Start).
+Geh JEDE gemessene Pause an ihrer Position durch (was passiert davor, was danach?) und trag dein
+Urteil in `pausen_urteile` ein — EIN Eintrag pro gemessener Pause, mit ihrer `start_sec`:
+- **Stockung/Denkpause** — sucht nach Worten, Satz bricht ab, Blick geht weg → `"raus"`.
+- **Anlauf** vor dem ersten Wort — Atmen, Einrichten, „ähm" → `"raus"`.
 - **Dramaturgische Pause** — steht nach einer starken Aussage, vor einer Pointe, oder lässt eine Frage
-  wirken → LASSEN. Wenn sie gut sitzt, darf sie in `staerken`.
+  wirken → `"lassen"`. Wenn sie gut sitzt, darf sie in `staerken`.
 - **Übergangspause** — Szenen-, Format- oder Sprecherwechsel; z.B. das Ende eines eingeblendeten
-  Fremdvideos in einer Reaction, bevor der Protagonist einsteigt → LASSEN, außer sie bricht den
+  Fremdvideos in einer Reaction, bevor der Protagonist einsteigt → `"lassen"`, außer sie bricht den
   Rhythmus spürbar.
-- **Funktion nicht bestimmbar** → NICHTS sagen. Keine Empfehlung, keine Erwähnung, kein Abzug.
+- **Funktion nicht bestimmbar** → `"unklar"`. Keine Erwähnung, kein Abzug.
 
-Im Zweifel gilt IMMER der letzte Punkt. Eine falsche Schnitt-Empfehlung kostet den Nutzer mehr als
-eine fehlende: Er schneidet eine Pause raus, die sein Video getragen hat. Empfiehl NUR die Pausen zum
-Rausschneiden, die du sicher als Stockung oder Anlauf bestimmt hast. Alle anderen erwähnst du nicht.
+Im Zweifel gilt IMMER `"unklar"`. Eine falsche Schnitt-Empfehlung kostet den Nutzer mehr als eine
+fehlende: Er schneidet eine Pause raus, die sein Video getragen hat.
+
+Schreib zu Sprechpausen KEINE eigene Empfehlung in `empfehlungen` — aus den `"raus"`-Urteilen baut das
+System EINEN gebündelten Schritt mit allen Zeitpunkten. Zwei Pausen-Empfehlungen im Freitext lassen
+sich nicht zusammenfassen und der Nutzer bekommt fünfmal fast denselben Satz.
 
 ## Spannungsbogen (1–5) — Watchtime
 Hält die Spannung über die Länge? Wo kippt sie, und endet das Video zeitnah danach?
 Dramaturgischer Leerlauf am Ende = niedriger Score. kommentar = 1–2 Sätze.
 
-## Visuelle Ästhetik (1–5)
-Komposition/Licht/Hintergrund aus den Bild-Fakten + Messwerten (intern).
-probleme nur bei Auffälligem, sonst leeres Array.
-AUFTRETEN/BLICKRICHTUNG zählt hier mit: Verlässliche Quelle ist der Block „BLICKKONTAKT (ganzes Video,
+## Visuelle Ästhetik (1–5) — gegen einen konkreten Referenz-Standard prüfen
+Bewerte an vier Punkten. Was auffällt, kommt in `probleme` UND als Empfehlung mit einer konkreten
+Anweisung (Kameraabstand, Licht, Hintergrund, Schriftposition) — sonst weiß der Nutzer nicht, was tun.
+Ist alles in Ordnung: leeres Array, kein Abzug.
+
+**1. Bildausschnitt — dieser Standard gilt NUR für Talking Head.** Bei Reaction, Sketch, Tutorial, Vlog
+oder „Andere" bewertest du den Ausschnitt nach dem, was das Format braucht, und ziehst hier nichts ab.
+- Einstellung: Brustbild bis Taille (Medium Close-up). Zu weit weg (Totale) oder zu nah (nur Gesicht) = Abzug.
+- Kamera auf Augenhöhe und frontal. Blick von oben/unten wirkt distanziert.
+- Kopfraum: ca. 10–15 % Luft über dem Kopf — genug Platz für eine Texthook, die NICHT auf der Stirn klebt.
+  Angeschnittener Kopf oder halbes leeres Bild darüber = Abzug.
+- Person mittig; das Kinn liegt auf der vertikalen Bildmitte oder knapp darüber, damit die Untertitel
+  direkt darunter Platz haben. Das Gesicht füllt etwa ein Drittel der Bildhöhe.
+- Unteres Drittel bleibt frei genug, dass Handgesten sichtbar sind.
+
+**2. Licht.** Weiches, gleichmäßiges Licht von vorn/seitlich, keine harten Schatten unter Augen und Nase,
+keine ausgebrannten Stellen auf der Haut. Farbige Akzente im Hintergrund geben Tiefe. Die Person muss
+sich klar vom Hintergrund abheben; ein leicht unscharfer Hintergrund hilft dabei.
+
+**3. Technische Bildqualität.** Scharf (mindestens 1080p — Haare und Stoffstruktur erkennbar), rauschfrei
+auch in dunklen Bereichen, flüssige Bewegung ohne Schlieren bei Gesten. Nutze den Schärfe-Messwert:
+ist er niedrig, benenne die Unschärfe aktiv, statt sie zu übergehen.
+
+**4. Untertitel-Platzierung.** Knapp unter dem Kinn, groß und kontrastreich. Abzug, wenn sie das Gesicht
+verdecken, weit vom Kinn entfernt sitzen, so tief liegen, dass die Plattform-Oberfläche sie überdeckt,
+oder schlecht lesbar sind. Statische Textblöcke statt kurzer Einblendungen (1–4 Wörter, synchron zum
+Gesprochenen geschnitten) sind eine verschenkte Chance auf Aufmerksamkeit → als Empfehlung ausgeben.
+
+**BLICKRICHTUNG** zählt hier ebenfalls mit. Verlässliche Quelle ist der Block „BLICKKONTAKT (ganzes Video,
 dedizierter Gemini-Pass)" — NICHT die „Person/Blick"-Angaben einzelner Szenen (die sind aus Standbildern
 unzuverlässig). Meldet der Blick-Pass wiederholten/dauerhaften Blick nach unten oder zur Seite (Skript/
-Teleprompter ablesen), wirkt das geskriptet und unsicher → MUSS als Problem benannt und als konkreter
-top_tipp aufgenommen werden: die betroffenen Stellen (mit Zeitfenster, falls genannt) rausschneiden bzw.
-B-Roll drüberlegen und den Blick in die Linse richten. Liegt der Blick laut Pass in der Linse → kein Abzug.
+Teleprompter ablesen), wirkt das geskriptet und unsicher → als Problem benennen und als Empfehlung: die
+betroffenen Stellen rausschneiden bzw. B-Roll drüberlegen und den Blick in die Linse richten. Liegt der
+Blick laut Pass in der Linse → kein Abzug. Format-Ausnahmen stehen in der Aufgabe.
 
 ## Zielgruppe
 Genau 1 Satz: wer sich angesprochen fühlt.
@@ -198,18 +235,12 @@ Genau 1 Satz: wer sich angesprochen fühlt.
 - **BOFU:** konkreter Pitch auf Produkt/Angebot. Ziel = Conversion.
 - **Mischung:** wenn Merkmale mehrerer Stufen klar zusammenfallen.
 
-## Performance-Score (0–100) — funnel-abhängig gewichten
-Der Score ist KEIN Durchschnitt der Einzel-Scores. Bestimme zuerst den Funnel, dann gewichte danach — mit
-diesen Leitlinien (qualitativ, keine feste Formel):
-- **Immer stark gewichtet: der HOOK.** Die ersten ~3–5 s entscheiden über Erfolg oder Misserfolg. Ein schwacher
-  Sprech-/Text-Hook deckelt den Score deutlich, auch wenn der Rest gut ist. Ein starker Hook zieht ihn spürbar hoch.
-- **TOFU:** wichtig sind Hook + Scroll-Stop + Relatability/Emotion + visuelle Dynamik. Ein CTA ist hier NICHT
-  wichtig — fehlt er, ziehe KEINEN Abzug. Thematische Tiefe/Erklärung ist ebenfalls zweitrangig.
-- **MOFU:** erfolgreich, wenn es echtes Vertrauen/Expertise aufbaut, verständlich ist und einen guten Peak/Payoff
-  hat — bei starkem Hook als Grundvoraussetzung. Diese Punkte wiegen hier am schwersten.
-- **BOFU:** hier zählt ein klarer, überzeugender Pitch aufs Angebot samt eindeutigem CTA am schwersten; ein
-  fehlender/unklarer CTA drückt den Score stark.
-Nenne im performance_score nur die Zahl; die Begründungslogik steckt in den Einzel-Feldern und top_tipps.
+## Performance-Score — berechnet das SYSTEM, nicht du
+Den `performance_score` rechnet der Code aus deinen Einzel-Scores mit festen Gewichten aus; am stärksten
+zählen die beiden Hooks sowie Ton- und Bildqualität, danach Spannungsbogen, Struktur und Schnitt.
+Deine Aufgabe ist deshalb NICHT der Gesamtwert, sondern dass jeder EINZEL-Score sauber sitzt. Gib
+trotzdem eine Zahl an (reiner Fallback) — sie wird überschrieben.
+Der `funnel` ist weiterhin wichtig als Einordnung für den Nutzer, steuert den Score aber nicht mehr.
 
 ## Empfehlungen — die kanonische Regel (gilt in JEDEM Modus)
 Dies ist die einzige Stelle, an der die Empfehlungs-Regeln stehen. Alles andere verweist hierher.
