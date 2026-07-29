@@ -6,11 +6,13 @@ import secrets
 import shutil
 import uuid
 from datetime import datetime
+from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from config import settings
-from models.analyst import FORMATE
-from services import analyst_vlm
+from models.analyst import FORMATE, AnalystResult
+from services import analyst_chat, analyst_vlm
 from services.analyst_engine import ANALYST_PATH, run_analysis, write_status
 
 router = APIRouter()
@@ -119,6 +121,56 @@ async def get_analysis(run_id: str):
     return out
 
 
+# ---------- V1.1: Rückfragen-Chat zur fertigen Analyse ----------
+# Bewusst NUR Fragen und Antworten: Der Chat liest die Analyse, er ändert sie nicht.
+# Das Ändern der Bewertung braucht Versionierung, Rollback und ein Bestätigungs-Gate und
+# muss über analyst_eval.nachbearbeiten() laufen — das kommt separat.
+
+class ChatIn(BaseModel):
+    frage: str = ""
+
+
+def _fertige_analyse(run_id: str) -> tuple[Path, AnalystResult]:
+    """Run-Verzeichnis + geparste Analyse. 409, solange es noch keine fertige Analyse gibt —
+    ein Chat über ein Ergebnis, das es nicht gibt, ist kein Serverfehler, sondern ein
+    Zustandsproblem."""
+    run_dir = _run_dir(run_id)
+    pfad = run_dir / "analysis.json"
+    if not pfad.exists():
+        raise HTTPException(status_code=409, detail="Für diesen Lauf gibt es noch keine fertige Analyse")
+    return run_dir, AnalystResult(**json.loads(pfad.read_text()))
+
+
+@router.get("/{run_id}/chat")
+def chat_verlauf(run_id: str):
+    """Bisheriger Chatverlauf — damit die Ansicht nach einem Reload nicht leer ist."""
+    return {"nachrichten": analyst_chat.lade_verlauf(_run_dir(run_id))}
+
+
+@router.post("/{run_id}/chat")
+def chat_frage(run_id: str, body: ChatIn):
+    """Antwort wird gestreamt, damit die Anzeige sofort etwas zeigt statt zu warten.
+
+    Bewusst `def` statt `async def`: FastAPI führt synchrone Endpunkte in einem Threadpool aus.
+    Als `async def` würde der blockierende Gemini-Call den Event-Loop anhalten — bei
+    `--workers 1` steht dann die komplette App still, auch laufende Hintergrund-Analysen.
+    """
+    frage = (body.frage or "").strip()
+    if not frage:
+        raise HTTPException(status_code=422, detail="Bitte eine Frage eingeben")
+    if len(frage) > 4000:
+        raise HTTPException(status_code=422, detail="Frage ist zu lang (max. 4000 Zeichen)")
+    run_dir, result = _fertige_analyse(run_id)
+    kontext = analyst_chat.baue_kontext(result)
+    return StreamingResponse(
+        analyst_chat.stream_antwort(run_dir, kontext, frage),
+        media_type="text/plain; charset=utf-8",
+        # Ohne diese Header puffert ein vorgeschalteter Proxy (auf dem VPS läuft Traefik davor)
+        # den Stream und liefert die Antwort am Stück — genau das, was Streaming verhindern soll.
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
 # ---------- Admin-/Feedback-Ansicht (Experten-Feedback sammeln) ----------
 # Bewusst NUR sammeln: kein Auto-Fix, kein Auto-Commit. Die Auswertung passiert später
 # auf Befehl, mit dem Menschen am Merge-Knopf.
@@ -171,6 +223,10 @@ async def save_feedback(run_id: str, body: FeedbackIn):
     }
     with (run_dir / "feedback.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(eintrag, ensure_ascii=False) + "\n")
+    # Chat-Bewertungen wandern zusätzlich in den lesbaren Verlauf, damit man beim Auswerten
+    # nicht feedback.jsonl und chat.jsonl von Hand über die IDs zusammenführen muss.
+    if eintrag["field_id"].startswith("chat."):
+        analyst_chat.schreibe_verlauf_md(run_dir)
     return {"ok": True, "gespeichert": eintrag["ts"]}
 
 

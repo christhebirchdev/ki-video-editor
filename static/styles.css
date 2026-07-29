@@ -550,3 +550,128 @@
   border-radius:8px;font-size:11.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
 }
+
+/* ===== V1.1 Chat =====
+   Farben ausschließlich über die bestehenden Variablen aus templates/index.html.
+   Eine zweite, um 2 % abweichende Beige-Palette sieht aus wie ein Rendering-Fehler,
+   nicht wie Design. */
+.chat-card{
+  display:flex; flex-direction:column;
+  background:var(--paper); border:1px solid var(--line);
+  border-radius:var(--radius); box-shadow:var(--shadow);
+  overflow:hidden; height:620px; max-height:80vh;
+}
+.chat-head{display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid var(--line);}
+.chat-badge{
+  width:36px; height:36px; border-radius:10px; display:grid; place-items:center;
+  background:linear-gradient(145deg,var(--gold),var(--gold-deep)); color:#fff; flex:none;
+}
+.chat-titel{font-size:18px; font-weight:700; color:var(--ink);}
+.chat-sub{font-size:12px; color:var(--taupe-soft); margin-top:2px;}
+
+.chat-stream{
+  flex:1; overflow-y:auto; padding:24px;
+  display:flex; flex-direction:column; gap:16px; background:var(--paper-alt);
+}
+
+.chat-zeile{display:flex; flex-direction:column; gap:4px;}
+.chat-zeile.ist-user{align-items:flex-end;}
+.chat-zeile.ist-ki{align-items:flex-start;}
+
+.chat-bubble{padding:12px 16px; font-size:14px; line-height:1.5; overflow-wrap:anywhere;}
+.bubble-user{
+  max-width:75%; color:#fff;
+  background:linear-gradient(135deg,var(--gold),var(--gold-deep));
+  border-radius:18px 18px 4px 18px;
+}
+.bubble-ki{
+  max-width:85%; color:var(--ink);
+  background:var(--cream); border:1px solid var(--line);
+  border-radius:18px 18px 18px 4px;
+}
+.bubble-ki p{margin:0 0 8px;}
+.bubble-ki p:last-child{margin-bottom:0;}
+.chat-liste{margin:0 0 8px; padding-left:20px;}
+.chat-liste:last-child{margin-bottom:0;}
+.chat-liste li{margin:3px 0;}
+.chat-zeit{font-size:11px; color:var(--taupe-soft); padding:0 4px;}
+
+/* Tipp-Indikator: drei versetzt pulsierende Punkte, reines CSS */
+.chat-tippt{display:flex; gap:5px; align-items:center; padding:14px 18px;}
+.chat-tippt span{
+  width:7px; height:7px; border-radius:50%; background:var(--taupe-soft);
+  animation:chatPuls 1.3s infinite ease-in-out;
+}
+.chat-tippt span:nth-child(2){animation-delay:.18s;}
+.chat-tippt span:nth-child(3){animation-delay:.36s;}
+@keyframes chatPuls{
+  0%,60%,100%{transform:translateY(0); opacity:.35;}
+  30%{transform:translateY(-4px); opacity:1;}
+}
+@media (prefers-reduced-motion:reduce){
+  .chat-tippt span{animation:none; opacity:.6;}
+}
+
+.chat-fehler{
+  align-self:flex-start; font-size:13px; color:var(--err-ink);
+  background:var(--err-bg); border:1px solid var(--err-line);
+  border-radius:var(--radius-sm); padding:8px 12px;
+}
+
+.chat-eingabe{
+  display:flex; align-items:flex-end; gap:10px;
+  padding:12px 16px; border-top:1px solid var(--line); background:var(--paper);
+}
+.chat-eingabe textarea{
+  flex:1; resize:none; border:1px solid var(--line-strong); border-radius:24px;
+  padding:11px 18px; font-size:14px; line-height:1.4; color:var(--ink);
+  background:var(--paper); outline:none; max-height:140px; font-family:inherit;
+  box-shadow:0 4px 12px rgba(34,30,24,.03);
+}
+.chat-eingabe textarea:focus{border-color:var(--gold);}
+.chat-eingabe textarea:disabled{background:var(--paper-alt); color:var(--taupe);}
+.chat-senden{
+  width:44px; height:44px; flex:none; border:none; border-radius:14px;
+  color:#fff; font-size:18px; line-height:1;
+  background:linear-gradient(145deg,var(--gold),var(--gold-deep));
+}
+.chat-senden:disabled{opacity:.4; cursor:not-allowed;}
+
+.chat-leer{
+  margin:auto; text-align:center; max-width:340px;
+  display:flex; flex-direction:column; align-items:center; gap:10px;
+}
+.chat-leer-badge{
+  width:56px; height:56px; border-radius:16px; display:grid; place-items:center;
+  background:var(--gold-tint-2); color:var(--gold-deep);
+}
+.chat-leer-titel{font-size:17px; font-weight:700; color:var(--ink);}
+.chat-leer-sub{font-size:13px; line-height:1.5; color:var(--taupe);}
+
+/* Bewertung je KI-Antwort (nur Admin-Ansicht). Breiter als die Blase wäre unruhig,
+   schmaler würde das Textfeld unbrauchbar — 85 % deckt sich mit .bubble-ki. */
+.chat-feedback{width:85%; max-width:85%;}
+
+/* ===== Video-Player nach der Analyse =====
+   Zweispaltig erst ab 900 px und nur, wenn der Player wirklich sichtbar ist — sonst würde
+   die Dropzone ohne Grund auf die halbe Breite schrumpfen. */
+.analyst-quelle{display:flex; flex-direction:column; gap:12px;}
+.analyst-quelle-eingabe{display:flex; flex-direction:column; gap:12px; min-width:0;}
+@media (min-width:900px){
+  .analyst-quelle.hat-player{
+    display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;
+  }
+}
+.analyst-player{display:flex; flex-direction:column; gap:8px; min-width:0;}
+.analyst-player-titel{font-size:12px; font-weight:600; color:var(--taupe);}
+/* max-height + contain deckt beide Seitenverhältnisse ab: ein 9:16-Reel würde sonst die halbe
+   Seite füllen, ein 16:9-Video wäre unnötig klein. */
+.analyst-player video{
+  width:100%; max-height:360px; display:block;
+  border-radius:var(--radius-sm); background:#000; object-fit:contain;
+}
+.analyst-player-hinweis{
+  font-size:13px; line-height:1.5; color:var(--taupe);
+  background:var(--paper-alt); border:1px solid var(--line);
+  border-radius:var(--radius-sm); padding:12px 14px;
+}

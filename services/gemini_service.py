@@ -25,6 +25,14 @@ GEMINI_MODEL = "gemini-3.5-flash"
 # aktiviertes Billing und haben strengere Rate-Limits. gemini-2.0-flash wurde abgeschaltet → raus.
 GEMINI_FALLBACK_MODELS = ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]
 
+# BEWUSST auf 3.5 geblieben (geprüft 2026-07-29): gemini-3.6-flash ist GA und günstiger, verlangt
+# aber das Entfernen von `temperature`/`top_p`/`top_k` — die sind ab 3.6 deprecated und werden
+# ignoriert. Ohne `temperature=0.0` schwankt die Bewertung zwischen zwei Läufen auf demselben
+# Video spürbar; Determinismus wiegt hier schwerer als Preis und Modellalter (Entscheidung Chris).
+# Vor einem späteren Wechsel auf 3.6+ (spätestens wenn 3.5 abgekündigt wird): erst messen, wie
+# stark die Streuung ohne temperature real ist — z.B. dreimal derselbe Lauf auf demselben Video.
+# Quelle: https://ai.google.dev/gemini-api/docs/latest-model#api-changes-and-parameter-updates
+
 RETRY_DELAYS_SEC = [3, 10, 30]
 # 429 (RESOURCE_EXHAUSTED) bewusst NICHT retrybar: Quota füllt sich nicht in Sekunden auf,
 # jeder Retry verbrennt nur weiteres Tageskontingent. Bei 429 sofort zum nächsten Modell bzw. abbrechen.

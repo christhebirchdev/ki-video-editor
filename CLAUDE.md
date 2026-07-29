@@ -46,6 +46,119 @@ Bildbeschreibung lokal lief. Beschreibung und Bewertung laufen heute beide über
 `analyst_engine.py`): Gemini/VLM beschreibt in Segmenten, danach bewertet **Claude** über
 `analyst_eval.evaluate()`. Nur dieser Pfad nutzt die Anthropic-API.
 
+### V1.1: Rückfragen-Chat (Stand 2026-07-29)
+
+Zweite Analyst-Ansicht **neben** der bestehenden, Tab „Video Analyst V1.1". Beide rendern
+dieselbe Komponente `VideoAnalystPage`; V1.1 bekommt nur die Prop `chat`. **Die bestehende
+Ansicht ist dadurch funktional unverändert** — wer am Chat arbeitet, fasst sie nicht an.
+Zwei Instanzen = zwei getrennte Zustände; das ist gewollt.
+
+- Backend: `services/analyst_chat.py`, Endpoints `GET`/`POST /api/analyst/{id}/chat`.
+  Sie liegen in `api/analyst.py`, weil bei `ANALYST_ONLY=1` nur dieser Router eingebunden wird.
+- Kontext = Bewertung + Transkript + Messwerte als **Text**. Das Video wird pro Turn NICHT
+  erneut hochgeladen: Gemini hat keinen serverseitigen Gesprächsspeicher, jeder Turn schickt
+  den Verlauf mit — läge das Video darin, wüchsen Kosten und Latenz mit jeder Nachricht.
+  Der Verlauf ist auf `MAX_VERLAUF = 20` gedeckelt.
+- Verlauf: `analyst_runs/<id>/chat.jsonl`, append-only wie `feedback.jsonl`. Kaputte Zeilen
+  werden beim Lesen übersprungen, nicht geworfen.
+- Die Chat-Endpoints sind bewusst **synchrone** `def`-Funktionen. Als `async def` würde der
+  blockierende Gemini-Call den Event-Loop anhalten; bei `--workers 1` steht dann die ganze
+  App, inklusive laufender Hintergrund-Analysen.
+- `StreamingResponse` setzt `X-Accel-Buffering: no` — ohne das puffert der vorgeschaltete
+  Traefik den Stream und liefert die Antwort am Stück.
+- Bricht der Stream ab, **nachdem** schon Text geflossen ist, wird NICHT auf ein anderes
+  Modell gewechselt: Der Nutzer bekäme den Anfang sonst ein zweites Mal in dieselbe Blase.
+  Abgeschnitten ist besser als doppelt. Fallback greift nur, solange noch nichts gesendet wurde.
+- Frontend: `MarkdownLite` rendert eine Teilmenge (Absätze, `- `-Listen, `1. `-Listen, `**fett**`).
+  Es gibt keinen Build-Step, also kein `react-markdown`. Der Renderer muss **unvollständiges**
+  Markdown vertragen — beim Streaming ist ein `**` oft noch nicht geschlossen; nur Paare werden
+  fett. Kein `dangerouslySetInnerHTML`.
+- **Der Chat ändert die Bewertung nicht.** Das steht als Regel im System-Prompt und ist Absicht:
+  Die angezeigte Bewertung entsteht nicht roh aus dem Modell, sondern erst nach
+  `analyst_eval.nachbearbeiten()` (`performance_score` wird aus gewichteten Einzelscores
+  berechnet, `action_steps` werden sortiert). Ein Chat, der direkt in `analysis.json` schreibt,
+  umgeht diese Kette und erzeugt eine zweite, stillschweigend abweichende Bewertungslogik.
+  Wenn Revision kommt, dann **über** `nachbearbeiten()` — mit Versionierung, Rollback und
+  Bestätigungs-Gate. Plan: `docs/superpowers/plans/2026-07-29-analyst-chat-v11.md`.
+- Tests: `tests/test_analyst_chat.py` (26). Bewusst eigene Datei, `tests/test_analyst.py`
+  bleibt unberührt.
+
+**Feedback je Chat-Antwort.** Der bestehende Feedback-Endpoint nimmt beliebige `field_id`
+entgegen — für die Chat-Bewertung war dort **keine** Änderung nötig. Das Frontend hängt unter
+jede Modell-Blase `<Feedback field={"chat." + n.id} />`; sichtbar nur in der Admin-Ansicht.
+
+Jede Chat-Nachricht bekommt beim Schreiben eine eigene `id` (`uuid4[:8]`). **Nicht über die
+Position identifizieren:** `lade_verlauf()` überspringt kaputte Zeilen, dabei verschieben sich
+alle nachfolgenden Indizes und ein bestehendes Feedback zeigt auf die falsche Antwort.
+Nachrichten aus der ersten Fassung haben keine `id` und bekommen beim Laden `pos<N>`.
+
+Nach dem Streamen lädt das Frontend den Verlauf einmal neu — die IDs vergibt der Server, ohne
+das Nachladen hätte die gerade eingetroffene Antwort kein Bewertungsfeld bis zum Reload.
+
+**Drei Dateien pro Lauf, drei Aufgaben** — nicht zusammenlegen:
+
+| Datei | Aufgabe |
+|---|---|
+| `chat.jsonl` | Datenquelle, append-only, maschinenlesbar |
+| `chat_verlauf.md` | lesbarer Verlauf inkl. Admin-Bewertung je Antwort, **abgeleitet** aus chat.jsonl |
+| `prompt_log.md` | Nachvollziehbarkeit wie bei allen anderen LLM-Calls |
+
+`chat_verlauf.md` wird bei jeder neuen Nachricht **komplett neu** aus `chat.jsonl` erzeugt und
+zusätzlich, wenn ein Feedback mit `field_id`-Präfix `chat.` gespeichert wird. Bewusst neu
+schreiben statt anhängen: Ein zweiter Append-Pfad könnte von `chat.jsonl` abweichen, ein
+abgeleitetes Dokument nicht.
+
+Im `prompt_log.md`-Eintrag steht der Analyse-Kontext **nicht** drin, nur seine Zeichenzahl. Er
+geht als Gesprächs-Historie mit und ist in jedem Turn identisch — ihn voll zu loggen würde die
+Datei mit jeder Frage erneut aufblähen. Inhaltlich steht er ohnehin in `analysis.json`.
+
+### Video-Player nach der Analyse (Stand 2026-07-29)
+
+Nach `phase === "done"` erscheint neben der Dropzone ein `<video controls>` mit dem
+analysierten Video. In `VideoAnalystPage`, gilt damit für beide Ansichten.
+
+**Kein `GET /api/analyst/{id}/video` — bewusst verworfen.** Die Quelle ist ein
+`URL.createObjectURL(analysisFile.file)`, der Browser liest direkt vom Rechner des Nutzers.
+Ein Endpoint würde dasselbe Video ein zweites Mal über einen VPS ziehen, der mit
+`ANALYST_MAX_CONCURRENT=1` bewusst gedrosselt ist, und zusätzlich HTTP-Range-Handling
+verlangen (ohne das spielt Safari gar nicht erst ab). Vorteil hätte er nur nach einem Reload
+— dann ist das Analyse-Ergebnis aber ohnehin weg, es lebt nur im React-State.
+Nicht ohne neuen Grund erneut vorschlagen.
+
+`URL.revokeObjectURL` im Cleanup des Effekts ist Pflicht, sonst hält der Browser die Referenz
+bis zum Schließen des Tabs.
+
+Die Dropzone erlaubt auch MKV und AVI — **die spielen Browser nicht ab**. Der `onError` des
+`<video>` schaltet auf einen Hinweistext um; ohne das steht dort ein schwarzer Kasten ohne
+Erklärung.
+
+### Gemini-Modell: bewusst auf 3.5 Flash (geprüft 2026-07-29)
+
+Modelle stehen an **einer** Stelle: `services/gemini_service.py`. Alle anderen Module importieren
+`GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS`, niemand hartkodiert eine Version.
+
+**Nicht auf `gemini-3.6-flash` wechseln, ohne vorher die Streuung zu messen.** 3.6 Flash ist seit
+Juli 2026 GA und im Output günstiger ($7.50 statt $9.00 pro 1M Tokens), verlangt aber laut Google
+das Entfernen von `temperature`, `top_p` und `top_k`: ab 3.6 sind sie deprecated und werden
+ignoriert, künftige Generationen antworten mit HTTP 400. `candidate_count` entfällt in Gemini 3.x
+ganz.
+
+Der Analyst setzt an vier Stellen `temperature=0.0` (`analyst_gemini_eval.py`, dreimal
+`analyst_vlm.py`). Ohne diese Pinnung schwankt die Bewertung zwischen zwei Läufen auf demselben
+Video spürbar. **Entscheidung Chris (2026-07-29): Determinismus wiegt schwerer als Preis und
+Modellalter — wir bleiben auf 3.5.** Der Wechsel wurde einmal gebaut und wieder verworfen.
+
+Wenn der Wechsel doch kommt (spätestens bei Abkündigung von 3.5), gehört diese Messung davor:
+denselben Lauf dreimal auf demselben Video, Streuung der Einzelscores vergleichen. Was dagegen
+hält, wenn die Streuung vertretbar ist: die expliziten Regeln im System-Prompt und die
+Nachbearbeitung in `analyst_eval.nachbearbeiten()` — der `performance_score` etwa wird ohnehin
+im Code aus gewichteten Einzelscores berechnet, nicht vom Modell gesetzt.
+
+Nicht betroffen: `whisper_service.py` (faster-whisper, lokal — `temperature=0.0` dort bleibt
+zwingend) und der Claude-Pfad in `analyst_eval.py`.
+
+Quelle: <https://ai.google.dev/gemini-api/docs/latest-model#api-changes-and-parameter-updates>
+
 ### Was bewusst im Code steht statt im Prompt
 
 Diese Regeln haben als Prompt-Anweisung nachweislich nicht zuverlässig gegriffen. Sie zurück in den

@@ -451,7 +451,232 @@ function problemeDetail(block) {
   return p.length ? p.join(" · ") : "Keine Auffälligkeiten";
 }
 
-function VideoAnalystPage({ adminPw = "" }) {
+/* ===== V1.1: Markdown-Teilmenge für Chat-Antworten =====
+   Kein react-markdown: Das Frontend läuft ohne Build-Step (Babel im Browser), npm-Pakete gibt
+   es hier nicht. Unterstützt wird bewusst nur, was der Chat-Prompt erlaubt: Absätze,
+   "- "-Aufzählungen, "1. "-Listen und **fett**.
+
+   WICHTIG: Muss UNVOLLSTÄNDIGES Markdown vertragen. Beim Streaming ist ein ** oft noch nicht
+   geschlossen — ein naiver Renderer färbt dann den Rest der Antwort fett. Deshalb: nur PAARE
+   werden fett, ein einzelnes ** bleibt sichtbarer Text.
+   Kein dangerouslySetInnerHTML — der Text kommt vom Modell. */
+function mdInline(text) {
+  const teile = [];
+  let rest = text;
+  let key = 0;
+  while (true) {
+    const auf = rest.indexOf("**");
+    if (auf === -1) { if (rest) teile.push(rest); break; }
+    const zu = rest.indexOf("**", auf + 2);
+    if (zu === -1) { teile.push(rest); break; }   // offenes ** → als Text stehen lassen
+    if (auf > 0) teile.push(rest.slice(0, auf));
+    teile.push(<strong key={"b" + key++}>{rest.slice(auf + 2, zu)}</strong>);
+    rest = rest.slice(zu + 2);
+  }
+  return teile;
+}
+
+function MarkdownLite({ text }) {
+  const zeilen = (text || "").split("\n");
+  const bloecke = [];
+  let liste = null;   // {geordnet:bool, items:[]}
+
+  const listeSchliessen = () => {
+    if (!liste) return;
+    const Tag = liste.geordnet ? "ol" : "ul";
+    bloecke.push(
+      <Tag key={"l" + bloecke.length} className="chat-liste">
+        {liste.items.map((it, i) => <li key={i}>{mdInline(it)}</li>)}
+      </Tag>
+    );
+    liste = null;
+  };
+
+  for (const zeile of zeilen) {
+    const auf = zeile.replace(/^\s+/, "");
+    const punkt = auf.match(/^[-•]\s+(.*)$/);
+    const zahl = auf.match(/^\d+\.\s+(.*)$/);
+    if (punkt) {
+      if (liste && liste.geordnet) listeSchliessen();
+      liste = liste || { geordnet: false, items: [] };
+      liste.items.push(punkt[1]);
+    } else if (zahl) {
+      if (liste && !liste.geordnet) listeSchliessen();
+      liste = liste || { geordnet: true, items: [] };
+      liste.items.push(zahl[1]);
+    } else {
+      listeSchliessen();
+      if (auf.trim()) bloecke.push(<p key={"p" + bloecke.length}>{mdInline(zeile)}</p>);
+    }
+  }
+  listeSchliessen();
+  return <>{bloecke}</>;
+}
+
+/* ===== V1.1: Rückfragen-Chat zur fertigen Analyse =====
+   Fragt nach, lässt sich erklären, bekommt konkretere Hinweise. Der Chat ÄNDERT die Bewertung
+   nicht — das braucht Versionierung und ein Bestätigungs-Gate und kommt separat. */
+function ChatPanel({ runId, filename }) {
+  const [nachrichten, setNachrichten] = useState([]);
+  const [eingabe, setEingabe] = useState("");
+  const [laeuft, setLaeuft] = useState(false);
+  const [fehler, setFehler] = useState("");
+  const [teilantwort, setTeilantwort] = useState("");
+  const endeRef = useRef(null);
+  const feldRef = useRef(null);
+
+  // Verlauf laden, sobald eine (andere) Analyse vorliegt — nach einem Reload ist der Chat
+  // sonst leer, obwohl serverseitig alles noch da ist.
+  useEffect(() => {
+    if (!runId) { setNachrichten([]); return; }
+    let abgebrochen = false;
+    api("GET", `/api/analyst/${runId}/chat`)
+      .then((d) => { if (!abgebrochen) setNachrichten(d.nachrichten || []); })
+      .catch(() => {});
+    return () => { abgebrochen = true; };
+  }, [runId]);
+
+  // Immer ans Ende scrollen — auch während die Antwort noch wächst
+  useEffect(() => {
+    endeRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [nachrichten, teilantwort]);
+
+  function autoResize(el) {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 140) + "px";
+  }
+
+  async function senden() {
+    const frage = eingabe.trim();
+    if (!frage || laeuft || !runId) return;
+    setFehler("");
+    setEingabe("");
+    if (feldRef.current) feldRef.current.style.height = "auto";
+    setNachrichten((n) => [...n, { rolle: "user", text: frage, ts: new Date().toISOString() }]);
+    setLaeuft(true);
+    setTeilantwort("");
+    try {
+      const res = await fetch(`/api/analyst/${runId}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frage }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.detail || `HTTP ${res.status}`);
+      }
+      // Stück für Stück lesen — das ist der Punkt, an dem sich „schnell" anfühlt.
+      // Auf die Komplettantwort zu warten würde denselben Server-Call langsam wirken lassen.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let voll = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        voll += decoder.decode(value, { stream: true });
+        setTeilantwort(voll);
+      }
+      setNachrichten((n) => [...n, { rolle: "model", text: voll, ts: new Date().toISOString() }]);
+      // Verlauf einmal nachladen: Die IDs vergibt der Server beim Schreiben in chat.jsonl.
+      // Ohne das hätte die gerade eingetroffene Antwort keine id — und damit kein
+      // Bewertungsfeld, bis man die Seite neu lädt.
+      try {
+        const frisch = await api("GET", `/api/analyst/${runId}/chat`);
+        if (frisch.nachrichten?.length) setNachrichten(frisch.nachrichten);
+      } catch (_) { /* Anzeige steht schon, ohne id fehlt nur die Bewertung */ }
+    } catch (e) {
+      setFehler(e.message);
+    } finally {
+      setTeilantwort("");
+      setLaeuft(false);
+    }
+  }
+
+  function beiTaste(e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); senden(); }
+  }
+
+  const leer = nachrichten.length === 0 && !laeuft;
+
+  return (
+    <div className="chat-card">
+      <div className="chat-head">
+        <div className="chat-badge"><Ico.brain width="18" height="18" /></div>
+        <div>
+          <div className="chat-titel">Rückfragen zur Analyse</div>
+          <div className="chat-sub">{filename || "Bereit für deine erste Nachricht"}</div>
+        </div>
+      </div>
+
+      <div className="chat-stream">
+        {leer && (
+          <div className="chat-leer">
+            <div className="chat-leer-badge"><Ico.brain width="22" height="22" /></div>
+            <div className="chat-leer-titel">Frag nach, was du nicht verstehst.</div>
+            <div className="chat-leer-sub">
+              Warum ist ein Tipp wichtig, wie setzt du ihn um, worauf kommt es beim nächsten
+              Video an — frag einfach.
+            </div>
+          </div>
+        )}
+
+        {nachrichten.map((n, i) => (
+          <div key={n.id || i} className={"chat-zeile " + (n.rolle === "user" ? "ist-user" : "ist-ki")}>
+            <div className={"chat-bubble " + (n.rolle === "user" ? "bubble-user" : "bubble-ki")}>
+              {n.rolle === "user" ? n.text : <MarkdownLite text={n.text} />}
+            </div>
+            <div className="chat-zeit">{(n.ts || "").slice(11, 16)}</div>
+            {/* Bewertung je KI-Antwort — nur in der Admin-Ansicht sichtbar (Feedback rendert
+                sonst null). Die id kommt aus chat.jsonl und bleibt über Reloads stabil. */}
+            {n.rolle === "model" && n.id && (
+              <div className="chat-feedback"><Feedback field={"chat." + n.id} /></div>
+            )}
+          </div>
+        ))}
+
+        {laeuft && teilantwort && (
+          <div className="chat-zeile ist-ki">
+            <div className="chat-bubble bubble-ki"><MarkdownLite text={teilantwort} /></div>
+          </div>
+        )}
+
+        {laeuft && !teilantwort && (
+          <div className="chat-zeile ist-ki">
+            <div className="chat-bubble bubble-ki chat-tippt">
+              <span /><span /><span />
+            </div>
+          </div>
+        )}
+
+        {fehler && <div className="chat-fehler">{fehler}</div>}
+        <div ref={endeRef} />
+      </div>
+
+      <div className="chat-eingabe">
+        <textarea
+          ref={feldRef}
+          rows={1}
+          value={eingabe}
+          placeholder="Schreibe deine Nachricht…"
+          onChange={(e) => { setEingabe(e.target.value); autoResize(e.target); }}
+          onKeyDown={beiTaste}
+          disabled={laeuft}
+        />
+        <button
+          className="chat-senden"
+          onClick={senden}
+          disabled={laeuft || !eingabe.trim()}
+          aria-label="Nachricht senden"
+        >→</button>
+      </div>
+    </div>
+  );
+}
+
+// `chat` ist per Default aus → die bestehende Analyst-Ansicht verhält sich unverändert.
+// V1.1 mountet dieselbe Komponente ein zweites Mal mit chat={true}.
+function VideoAnalystPage({ adminPw = "", chat = false }) {
   const [runId, setRunId] = useState("");   // für die Feedback-Zuordnung in der Admin-Ansicht
   const [analysisFile, setAnalysisFile] = useState(null);
   const engine = "v2_hybrid";    // nur noch V2 Hybrid im Frontend (V1 entfernt; Backend kann v1/v2_pure weiter via API)
@@ -466,11 +691,27 @@ function VideoAnalystPage({ adminPw = "" }) {
   const [activePhase, setActivePhase] = useState("");   // aktuelle Bearbeitungsstufe (transcribe/quality/evaluate)
   const [phaseStartMs, setPhaseStartMs] = useState(0);  // Startzeitpunkt der aktuellen Stufe
   const [tick, setTick] = useState(0);                  // erzwingt zeitbasierte Neuberechnung der Balken
+  const [videoUrl, setVideoUrl] = useState("");         // lokale Quelle für den Player
+  const [videoFehler, setVideoFehler] = useState(false);// Format, das der Browser nicht abspielt
   const fileRef = useRef(null);
   const cancelledRef = useRef(false);
   const activePhaseRef = useRef("");                    // stale-freier Vergleich im Poll-Loop
 
   useEffect(() => () => { cancelledRef.current = true; }, []);
+
+  // Object-URL zur gewählten Datei — der Player liest direkt vom Rechner des Nutzers.
+  // Bewusst KEIN Server-Endpoint: Die Datei liegt lokal vor; sie über das Backend
+  // zurückzuholen würde dasselbe Video ein zweites Mal über einen VPS ziehen, der bewusst
+  // auf ANALYST_MAX_CONCURRENT=1 gedrosselt ist — und Video-Streaming bräuchte zusätzlich
+  // HTTP-Range-Handling, sonst spielt Safari gar nicht erst ab.
+  // revokeObjectURL ist Pflicht: ohne das hält der Browser die Referenz bis zum Tab-Schluss.
+  useEffect(() => {
+    if (!analysisFile?.file) { setVideoUrl(""); setVideoFehler(false); return; }
+    const url = URL.createObjectURL(analysisFile.file);
+    setVideoUrl(url);
+    setVideoFehler(false);
+    return () => URL.revokeObjectURL(url);
+  }, [analysisFile]);
 
   // Solange die Analyse läuft: regelmäßig neu rendern, damit die aktive Stufe weiterfüllt.
   useEffect(() => {
@@ -546,6 +787,9 @@ function VideoAnalystPage({ adminPw = "" }) {
     setPhaseStartMs(0);
   }
 
+  // Player erst nach der Analyse — vorher gibt es kein „analysiertes Video".
+  const zeigePlayer = phase === "done" && !!videoUrl;
+
   return (
     <AdminCtx.Provider value={{ admin: !!adminPw, password: adminPw, runId }}>
       {error && (
@@ -557,31 +801,55 @@ function VideoAnalystPage({ adminPw = "" }) {
 
       {/* Eingabe */}
       <Card icon={<Ico.upload />} title="Video-Quelle" sub="Lade dein Video hoch">
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="video/*"
-            style={{ display: "none" }}
-            onChange={onPickFile}
-          />
-          <div
-            className={"dropzone" + (analysisFile ? " has" : "")}
-            onClick={() => fileRef.current?.click()}
-          >
-            <div className="dz-ico"><Ico.upload /></div>
-            <div className="dz-title">
-              {analysisFile ? analysisFile.name : "Video auswählen oder hierher ziehen"}
+        <div className={"analyst-quelle" + (zeigePlayer ? " hat-player" : "")}>
+          <div className="analyst-quelle-eingabe">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="video/*"
+              style={{ display: "none" }}
+              onChange={onPickFile}
+            />
+            <div
+              className={"dropzone" + (analysisFile ? " has" : "")}
+              onClick={() => fileRef.current?.click()}
+            >
+              <div className="dz-ico"><Ico.upload /></div>
+              <div className="dz-title">
+                {analysisFile ? analysisFile.name : "Video auswählen oder hierher ziehen"}
+              </div>
+              <div className="dz-sub">
+                {analysisFile ? analysisFile.size : "MP4, MOV, AVI, MKV · max. 4 GB"}
+              </div>
             </div>
-            <div className="dz-sub">
-              {analysisFile ? analysisFile.size : "MP4, MOV, AVI, MKV · max. 4 GB"}
-            </div>
+            {analysisFile && (
+              <div>
+                <button className="btn btn-ghost" style={{ padding: "9px 16px", fontSize: 13 }} onClick={() => setAnalysisFile(null)}>
+                  <Ico.x width="14" height="14" /> Datei entfernen
+                </button>
+              </div>
+            )}
           </div>
-          {analysisFile && (
-            <div>
-              <button className="btn btn-ghost" style={{ padding: "9px 16px", fontSize: 13 }} onClick={() => setAnalysisFile(null)}>
-                <Ico.x width="14" height="14" /> Datei entfernen
-              </button>
+
+          {/* Player nach der Analyse. <video controls> bringt Abspielen, Pausieren, Scrubbing,
+              Lautstärke und Vollbild mit — inklusive Tastatur- und Screenreader-Bedienung. */}
+          {zeigePlayer && (
+            <div className="analyst-player">
+              <div className="analyst-player-titel">Analysiertes Video</div>
+              {videoFehler ? (
+                <div className="analyst-player-hinweis">
+                  Dieses Format kann der Browser nicht abspielen (z.B. MKV oder AVI).
+                  Die Analyse ist davon nicht betroffen.
+                </div>
+              ) : (
+                <video
+                  src={videoUrl}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  onError={() => setVideoFehler(true)}
+                />
+              )}
             </div>
           )}
         </div>
@@ -870,6 +1138,13 @@ function VideoAnalystPage({ adminPw = "" }) {
           </details>
           )}
         </Card>
+      )}
+
+      {/* V1.1: Chat erscheint erst, wenn eine Analyse fertig ist — vorher gibt es nichts zu fragen. */}
+      {chat && phase === "done" && result && (
+        <div style={{ marginTop: 24 }}>
+          <ChatPanel runId={runId} filename={result.filename} />
+        </div>
       )}
     </AdminCtx.Provider>
   );
@@ -1928,8 +2203,9 @@ function VideoEditorPage() {
 
 /* ===== Hauptkomponente ===== */
 const PAGES = [
-  { id: "editor",  label: "Video Editor",  Icon: Ico.scissors },
-  { id: "analyst", label: "Video Analyst", Icon: Ico.brain },
+  { id: "editor",      label: "Video Editor",       Icon: Ico.scissors },
+  { id: "analyst",     label: "Video Analyst",      Icon: Ico.brain },
+  { id: "analyst_v11", label: "Video Analyst V1.1", Icon: Ico.sparkles },
 ];
 
 const PAGE_META = {
@@ -1942,6 +2218,11 @@ const PAGE_META = {
     title: "AI Video Analyst",
     desc: "Analysiere jedes Video auf Inhalt, Sprach-Qualität, Schnitt-Pacing & Plattform-Potenzial — lade einfach dein Video hoch.",
     appTitle: "AI Video Analyst",
+  },
+  analyst_v11: {
+    title: "AI Video Analyst V1.1",
+    desc: "Wie der Video Analyst — plus Chat: Stell Rückfragen zur fertigen Analyse, lass dir erklären, warum ein Tipp wichtig ist, und frag nach konkreteren Hinweisen zu deinem Video.",
+    appTitle: "AI Video Analyst V1.1",
   },
 };
 
@@ -1982,21 +2263,27 @@ function App() {
         </div>
       </header>
 
-      {/* Navigation — im Analyst-only-Deployment ausgeblendet */}
-      {!ANALYST_ONLY && (
-        <nav className="main-nav">
-          {PAGES.map((p) => (
-            <button
-              key={p.id}
-              className={"nav-tab" + (activePage === p.id ? " active" : "")}
-              onClick={() => setActivePage(p.id)}
-            >
-              <p.Icon width="15" height="15" />
-              {p.label}
-            </button>
-          ))}
-        </nav>
-      )}
+      {/* Navigation — im Analyst-only-Deployment ohne den Editor, aber NICHT komplett weg:
+          sonst wäre die V1.1-Ansicht auf dem Server nicht erreichbar. Bleibt nur eine Seite
+          übrig, verschwindet die Leiste wie bisher. */}
+      {(() => {
+        const sichtbar = ANALYST_ONLY ? PAGES.filter((p) => p.id !== "editor") : PAGES;
+        if (sichtbar.length < 2) return null;
+        return (
+          <nav className="main-nav">
+            {sichtbar.map((p) => (
+              <button
+                key={p.id}
+                className={"nav-tab" + (activePage === p.id ? " active" : "")}
+                onClick={() => setActivePage(p.id)}
+              >
+                <p.Icon width="15" height="15" />
+                {p.label}
+              </button>
+            ))}
+          </nav>
+        );
+      })()}
 
       {/* Page Header */}
       <div className="page-head">
@@ -2011,6 +2298,11 @@ function App() {
       )}
       <div className={activePage !== "analyst" ? "page-hidden" : ""}>
         <VideoAnalystPage adminPw={adminPw} />
+      </div>
+      {/* V1.1: zweite Instanz derselben Komponente, nur mit Chat. Zwei Instanzen = zwei
+          getrennte Zustände — gewollt, V1.1 ist eine eigene Ansicht, kein Umschalter. */}
+      <div className={activePage !== "analyst_v11" ? "page-hidden" : ""}>
+        <VideoAnalystPage adminPw={adminPw} chat />
       </div>
     </div>
   );
