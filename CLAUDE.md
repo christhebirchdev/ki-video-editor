@@ -82,10 +82,18 @@ Urteils-Korrekturen, dann die Eingriffe in `empfehlungen`, `verteile_empfehlunge
   `verteile_empfehlungen()` bündelt nur bei identischem Text, und das Modell schrieb pro Pause einen
   eigenen Satz — es wurde faktisch nie gebündelt (Feedback 25b8b2f6, fünf fast gleiche Schritte).
   Eigene Pausen-Empfehlungen des Modells werden ersetzt. **Altläufe ohne das Feld bleiben unverändert.**
+- `baue_einblendungs_schritt()` — aus dem Feld `einblendungen` (Stelle + was verstärkt werden soll)
+  entsteht EIN Schritt für höchstens 3 Stellen, der dem Nutzer Grafik/Symbol/Emoji/Foto/B-Roll zur
+  Wahl lässt (Feedback 3185d209: „maximal an 3 stellen empfehlen"). Bewusst EIN Eintrag statt mehrerer
+  mit gleichem Text: Beim Bündeln über `verteile_empfehlungen` überlebt nur eine Anweisung, und dann
+  wäre weg, WAS an welcher Stelle verstärkt werden soll. Der Filter gegen Modell-eigene Einblendungen
+  greift nur bei Zeitpunkt-Treffer (±2 s) — ein „Folgen-Knopf" am Ende ist ein CTA und bleibt stehen.
 - `gueltige_texthook_varianten()` + `_texthook_anweisung()` — Varianten kommen als Liste aus
   `texthook_varianten`, der Code zählt die Wörter (max. 9) und baut die Empfehlung. Die Regel stand im
   Prompt samt „zähle die Wörter" und wurde trotzdem gerissen (Feedback f2312dc9: 13 Wörter). Zählen ist
-  Arithmetik.
+  Arithmetik. **Ab `text_hook_score` 4 wird gar keine Texthook-Empfehlung mehr gebaut** — das Modell
+  liefert trotz Prompt-Bitte auch bei Score 5 Varianten, und die Empfehlung stand dann in fast jedem
+  Lauf auf Platz 1 (Feedback b98c88b1).
 - `berechne_performance_score()` — Gesamtscore aus den sieben Einzel-Scores × `SCORE_GEWICHTE`,
   **funnel-unabhängig** (Vorgabe Chris): Hooks + Ton- + Bildqualität am stärksten (je 17–18), dann
   Spannungsbogen/Struktur/Schnitt (je 10). Nicht bewertbare Dimensionen (None) fallen raus, ihr Gewicht
@@ -113,11 +121,14 @@ erzeugt Varianten im Output. Seit 2026-07-29 gilt:
 - Dasselbe gilt für die Texthook-Längenregel: nur im Skill, gilt für Bewertung *und* Vorschläge.
 - Tests in `tests/test_analyst.py` schlagen an, wenn eine Regel wieder doppelt auftaucht.
 
-**Untertitel vs. Texthook** wird am WORTLAUT entschieden, nicht an der Darstellung: Bildtext, der
-(nahezu) so im Transkript vorkommt, ist Untertitel — auch wenn er statisch stehen bleibt oder oben im
-Bild steht. Die alte Regel hing an „wechselt mit der Sprache" und versagte bei statischen
-Untertitel-Blöcken (Feedback 25b8b2f6). Greift auch das nicht, ist der nächste Schritt ein
-Nutzer-Auswahlfeld im Frontend — nicht noch eine Prompt-Runde.
+**Untertitel vs. Texthook** braucht ZWEI Merkmale gleichzeitig: der Wortlaut kommt im Transkript vor
+UND der Text läuft über das Video mit (laufend neue Blöcke). Nur beides zusammen ist eine
+Untertitelspur — dann auch bei statischen Blöcken oben im Bild (Feedback 25b8b2f6). Ein einzelner
+Textblock am Anfang bleibt eine Texthook, selbst wenn er den gesprochenen Satz wiederholt; er ist dann
+**redundant, nicht abwesend** (Score-Abzug statt 0). Die erste Fassung dieser Regel prüfte nur den
+Wortlaut und kippte genau diesen Fall (Feedback 3185d209: „nicht richtig. texthook ist vorhanden.").
+Greift auch das nicht, ist der nächste Schritt ein Nutzer-Auswahlfeld im Frontend — nicht noch eine
+Prompt-Runde.
 
 ### Änderungen an der Nachbearbeitung gegen echte Läufe prüfen
 
@@ -144,7 +155,8 @@ Python-Dateien. `admin_password` ist absichtlich `""` (fail closed) und kommt au
 
 **`PROMPT_VERSION` in `services/analyst_eval.py` bei inhaltlichen Prompt-Änderungen hochzählen.**
 Der Wert wird an jedes gespeicherte Feedback gestempelt (`analyst_runs/<id>/feedback.jsonl`). Ohne
-Erhöhung ist altes Feedback später nicht von neuem unterscheidbar. Aktuell: `"2026-07-29"`.
+Erhöhung ist altes Feedback später nicht von neuem unterscheidbar. Aktuell: `"2026-07-29b"` — bei einer
+zweiten inhaltlichen Änderung am selben Tag wird ein Buchstabe angehängt.
 
 **Die Determinismus-Zeilen in `services/whisper_service.py` nicht „aufräumen".** `temperature=0.0`,
 `condition_on_previous_text=False` und `beam_size=5` gehören zusammen und sind einzeln begründet
@@ -192,13 +204,13 @@ uvicorn main:app --host 127.0.0.1 --port 8001 --workers 1     # ohne --reload
 Ein Worker, weil die Analyst-Warteschlange ein prozess-lokaler Semaphore ist
 (`analyst_engine._SLOTS`). Mehrere Worker heben die Begrenzung faktisch auf.
 
-Tests für den Analyst: `venv/bin/python -m pytest tests/test_analyst.py -q` → 78 Tests.
+Tests für den Analyst: `venv/bin/python -m pytest tests/test_analyst.py -q` → 82 Tests.
 
 **`pytest` ohne Argument läuft derzeit nicht.** Es bricht schon beim Einsammeln ab (`Interrupted:
 1 error during collection`) und führt dann *keinen einzigen* Test aus — `tests/test_models.py` und
 `tests/test_services.py` importieren `TakeAnalysis` und `CutDecision`, die es seit Commit `a44ae5c`
 (2026-06-10) nicht mehr in `models/analysis.py` gibt. Reine Editor-Altlast, der Analyst ist nicht
-betroffen. Wichtig zu wissen, weil ein grünes „78/78" **nicht** heißt, dass die Suite läuft.
+betroffen. Wichtig zu wissen, weil ein grünes „82/82" **nicht** heißt, dass die Suite läuft.
 
 ---
 

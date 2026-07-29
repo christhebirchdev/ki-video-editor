@@ -24,6 +24,10 @@ from services.analyst_speech import PAUSE_THRESHOLD_SEC  # noqa: E402
 
 RUNS = Path(__file__).resolve().parent.parent / "analyst_runs"
 
+# `gruppe`-Labels, die ausschließlich der Code vergibt — beim Replay werden sie entfernt, damit die
+# Erzwingungs-Regeln neu greifen statt das alte Ergebnis durchzureichen.
+CODE_GRUPPEN = {"anlauf", "texthook", "sprechhook", "sprechpausen", "einblendungen"}
+
 
 def _steps(items) -> list[str]:
     return [f"{s['zeitpunkt'] if isinstance(s, dict) else s.zeitpunkt} | "
@@ -41,7 +45,13 @@ def replay(run_id: str) -> bool:
         return False  # Altlauf ohne flache Liste — die Nachbearbeitung greift dort nicht
 
     result = AnalystResult(**{k: v for k, v in daten.items() if k in AnalystResult.model_fields})
-    neu = nachbearbeiten(AnalystEvaluationV2(**roh), result)
+    eingang = AnalystEvaluationV2(**roh)
+    # Die gespeicherte `empfehlungen`-Liste enthält bereits die Schritte, die die Nachbearbeitung
+    # beim damaligen Lauf selbst eingefügt hat (nachbearbeiten mutiert die Liste, und genau die wird
+    # gespeichert). Ohne sie herauszunehmen würde der Replay sie einfach durchreichen und jede
+    # Änderung an den Erzwingungs-Regeln sähe wirkungslos aus.
+    eingang.empfehlungen = [e for e in eingang.empfehlungen if e.gruppe not in CODE_GRUPPEN]
+    neu = nachbearbeiten(eingang, result)
 
     alt_steps, neu_steps = _steps(roh.get("action_steps") or []), _steps(neu.action_steps)
     scores_alt = (roh.get("hook", {}).get("sprech_hook_score"),

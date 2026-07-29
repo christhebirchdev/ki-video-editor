@@ -434,6 +434,59 @@ def test_varianten_landen_in_der_texthook_empfehlung():
     assert "Zu viel zu lang" not in texthook[0].anweisung        # zu lange Variante fliegt raus
 
 
+def test_starke_texthook_bekommt_keine_empfehlung_mehr():
+    """Feedback b98c88b1 (Score 5): „die texthook empfehlung bei 1 ist unnötig, da ja eine schon sehr
+    gute texthook vorhanden ist." Das Modell liefert Varianten trotzdem — die Schranke muss im Code sein."""
+    from services.analyst_eval import erzwinge_hook_empfehlungen
+    from models.analyst import AnalystEvaluationV2, HookEval
+    for score in (4, 5):
+        ev = erzwinge_hook_empfehlungen(AnalystEvaluationV2(
+            hook=HookEval(sprech_hook_score=5, text_hook_score=score, text_hook_vorhanden=True),
+            texthook_varianten=["Der größte Fehler im Verkauf"],
+            empfehlungen=[{"zeitpunkt_sek": 5.0, "anweisung": "Sound einfügen", "gruppe": ""}]))
+        assert all(e.gruppe != "texthook" for e in ev.empfehlungen), f"Score {score} löst noch aus"
+    # bei 3 kommt sie weiterhin
+    ev3 = erzwinge_hook_empfehlungen(AnalystEvaluationV2(
+        hook=HookEval(sprech_hook_score=5, text_hook_score=3, text_hook_vorhanden=True),
+        texthook_varianten=["Der größte Fehler im Verkauf"]))
+    assert any(e.gruppe == "texthook" for e in ev3.empfehlungen)
+
+
+# ---------- Einblendungen: ein Sammelschritt statt mehrerer Einzeltipps ----------
+
+def test_einblendungen_werden_zu_einem_schritt_gebuendelt():
+    """Feedback 3185d209: „den tipp mit den grafiken kann man auch zusammenfassen. maximal an 3
+    stellen empfehlen. gerne auch statt bildgrafik auch optional eine b-roll aufnahme."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import baue_einblendungs_schritt
+    ev = baue_einblendungs_schritt(AnalystEvaluationV2(
+        einblendungen=[{"zeitpunkt_sek": 40.0, "verstaerkt": "Kinder"},
+                       {"zeitpunkt_sek": 23.0, "verstaerkt": "Hof"},
+                       {"zeitpunkt_sek": 8.0, "verstaerkt": "Zweifel"},
+                       {"zeitpunkt_sek": 55.0, "verstaerkt": "Glück"}],
+        empfehlungen=[{"zeitpunkt_sek": 23.0, "anweisung": "Blende hier eine kleine Grafik zum Hof ein.",
+                       "gruppe": "bild"},
+                      {"zeitpunkt_sek": 56.0, "anweisung": "Blende einen Folgen-Knopf ein.", "gruppe": "cta"}]))
+    schritte = [e for e in ev.empfehlungen if e.gruppe == "einblendungen"]
+    assert len(schritte) == 1
+    text = schritte[0].anweisung
+    assert "Sek. 8" in text and "Sek. 23" in text and "Sek. 40" in text
+    assert "Sek. 55" not in text            # höchstens 3 Stellen
+    assert "B-Roll" in text and "Emoji" in text
+    assert schritte[0].zeitpunkt_sek == 8.0  # sortiert ab der frühesten Stelle
+    # die Modell-Empfehlung an derselben Stelle ist ersetzt, der CTA am Ende bleibt
+    assert not any("Grafik zum Hof" in (e.anweisung or "") for e in ev.empfehlungen)
+    assert any("Folgen-Knopf" in (e.anweisung or "") for e in ev.empfehlungen)
+
+
+def test_ohne_einblendungs_feld_bleibt_alles_stehen():
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import baue_einblendungs_schritt
+    ev = baue_einblendungs_schritt(AnalystEvaluationV2(
+        empfehlungen=[{"zeitpunkt_sek": 23.0, "anweisung": "Blende eine Grafik ein.", "gruppe": "bild"}]))
+    assert len(ev.empfehlungen) == 1
+
+
 # ---------- P11: performance_score aus den Einzel-Scores ----------
 
 def _ev_voll(sprech, text, struktur, sprechq, schnitt, spannung, aesthetik):
@@ -530,13 +583,23 @@ def test_untertitel_regel_entscheidet_am_wortlaut_nicht_an_der_darstellung():
     Regel hing an „wechselt mit der Sprache" — genau das Merkmal fehlte dort."""
     from services.analyst_eval import load_skill_body
     skill = load_skill_body()
-    assert "Kommt ein Bildtext (nahezu) genauso im TRANSKRIPT vor, sind das UNTERTITEL" in skill
-    assert "Untertitel müssen\nweder wechseln noch unten stehen" in skill
-    # Untertitel dürfen nie Auslöser einer Texthook-Empfehlung sein
+    assert "ZWEI Merkmalen, die BEIDE zutreffen müssen" in skill
+    assert "Untertitel müssen weder wechseln noch unten sitzen" in skill
+    # Untertitelspur darf nie Auslöser einer Texthook-Empfehlung sein
     assert "NIE zum Gegenstand einer\nTexthook-Empfehlung" in skill
     # die alte, zu enge Definition ist raus
     assert "wechselt mit der Sprache" not in skill
     assert "wechselnde Zeile in der unteren Bildhälfte" not in skill
+
+
+def test_einzelner_textblock_ist_texthook_kein_untertitel():
+    """Regression aus der ersten Runde: Weil die Texthook fast wortgleich mit dem Gesprochenen war,
+    stufte das Modell sie als Untertitel ein und gab Score 0 (Run 3185d209, Chris: „nicht richtig.
+    texthook ist vorhanden."). Wortgleichheit allein reicht als Kriterium nicht."""
+    from services.analyst_eval import load_skill_body
+    skill = load_skill_body()
+    assert "Trifft nur Punkt 1 zu, ist es eine TEXT-HOOK" in skill
+    assert "sondern REDUNDANT" in skill and "nicht Score 0" in skill
 
 
 def test_texthook_laengenregel_gilt_auch_fuer_die_bewertung():
@@ -570,12 +633,14 @@ def test_reaction_blick_auf_laptop_ist_kein_ablesen():
     assert "PFLICHT Blickkontakt" in th and "FUNKTIONAL" not in th
 
 
-def test_einblendungen_geben_den_zweck_vor_nicht_das_motiv():
-    """P8, Feedback Run 093dc5a7: „ich verbinde selbstbewusstsein nicht mit einem gehirn symbol"."""
+def test_einblendungen_gehen_ins_eigene_feld():
+    """P8 + Feedback 3185d209: Motiv bleibt Sache des Nutzers, und mehrere Stellen werden zu EINEM
+    Schritt gebündelt — beides steuert jetzt das Feld `einblendungen`."""
     from services.analyst_eval import load_skill_body
     skill = load_skill_body()
-    assert "den ZWECK vorgeben, nicht das Motiv" in skill
-    assert "bis zu 3 Motiv-Optionen" in skill
+    assert "gehören ins Feld `einblendungen`" in skill
+    assert "HÖCHSTENS 3\n  Stellen" in skill
+    assert "Folgen-Knopf" in skill   # Abgrenzung: CTA-Einblendungen bleiben normale Empfehlungen
 
 
 def test_empfehlungsregeln_stehen_nur_an_einer_stelle():

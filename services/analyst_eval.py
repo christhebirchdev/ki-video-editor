@@ -24,7 +24,9 @@ from services import analyst_prompt_log
 # Version der Bewertungslogik (Skill + Schema + Nachbearbeitung). Wird an jedes gespeicherte
 # Feedback gestempelt: Feedback zu einer alten Prompt-Version ist für spätere Auswertungen sonst
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
-PROMPT_VERSION = "2026-07-29"
+# Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
+# Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
+PROMPT_VERSION = "2026-07-29b"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -262,6 +264,51 @@ def baue_pausen_schritt(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
     return parsed
 
 
+EINBLENDUNGEN_MAX = 3
+
+# Eine Empfehlung, die eine visuelle Einblendung vorschlägt. Wird nur zusammen mit einem
+# Zeitpunkt-Treffer ausgewertet, deshalb darf das Muster breit sein.
+_EINBLENDUNG_EMPFEHLUNG = re.compile(r"(einblend|blende|grafik|symbol|emoji|b-roll|broll)", re.IGNORECASE)
+
+
+def baue_einblendungs_schritt(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Aus `einblendungen` EINEN Schritt bauen, der alle Stellen nennt — höchstens drei.
+
+    Chris zu Run 3185d209: „den tipp mit den grafiken kann man auch zusammenfassen. maximal an 3
+    stellen empfehlen. gerne auch statt bildgrafik auch optional eine b-roll aufnahme oder ähnliches
+    empfehlen. hauptsache es geht um eine visuelle einblendung die den inhalt verstärkt und für
+    abwechslung sorgt."
+
+    Anders als bei den Pausen entsteht hier EIN Eintrag statt mehrerer mit gleichem Text: Die
+    Information, WAS an welcher Stelle verstärkt werden soll, muss erhalten bleiben — beim Bündeln
+    über `verteile_empfehlungen` überlebt nur eine Anweisung.
+    """
+    if not parsed.einblendungen:
+        return parsed
+    stellen = sorted(parsed.einblendungen, key=lambda e: e.zeitpunkt_sek)[:EINBLENDUNGEN_MAX]
+    # Eigene Einblendungs-Empfehlungen des Modells an genau diesen Stellen verwerfen. Der
+    # Zeitpunkt-Treffer (±2 s) hält den Filter eng: ein „Folgen-Knopf einblenden" am Videoende ist
+    # ein CTA und keine Inhalts-Verstärkung — der bleibt.
+    parsed.empfehlungen = [
+        e for e in parsed.empfehlungen
+        if not (_EINBLENDUNG_EMPFEHLUNG.search(e.anweisung or "")
+                and any(abs(e.zeitpunkt_sek - s.zeitpunkt_sek) <= 2.0 for s in stellen))
+    ]
+    liste = ", ".join(
+        f"bei Sek. {round(s.zeitpunkt_sek):g}" + (f" zu „{s.verstaerkt}“" if s.verstaerkt else "")
+        for s in stellen
+    )
+    parsed.empfehlungen.append(Empfehlung(
+        zeitpunkt_sek=stellen[0].zeitpunkt_sek, gruppe="einblendungen",
+        anweisung=(
+            f"Blende an diesen Stellen etwas Visuelles ein, das den Inhalt verstärkt — eine Grafik, "
+            f"ein Symbol, ein Emoji, ein Foto oder eine kurze B-Roll-Aufnahme: {liste}. "
+            f"Das bringt Abwechslung ins Bild und hält die Zuschauer länger im Video."
+        ),
+    ))
+    return parsed
+
+
 def gueltige_texthook_varianten(varianten: list[str]) -> list[str]:
     """Varianten über der Wortgrenze verwerfen. Zählen ist Arithmetik und gehört deshalb hierher.
 
@@ -308,21 +355,24 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
         parsed.empfehlungen.insert(0, Empfehlung(
             zeitpunkt_sek=0.0, gruppe="sprechhook", anweisung=SPRECHHOOK_EMPFEHLUNG))
 
-    # Die Texthook-Empfehlung baut IMMER der Code, sobald das Modell Varianten geliefert hat — sonst
-    # stünden die ungeprüften Varianten im Freitext der Modell-Empfehlung (Run f2312dc9: 13 Wörter).
-    varianten = gueltige_texthook_varianten(parsed.texthook_varianten)
+    # Texthook-Empfehlung NUR bei schwacher Text-Hook. Der Prompt bittet darum, `texthook_varianten`
+    # bei Score 4/5 leer zu lassen — das Modell hält sich nicht daran und liefert sie trotzdem
+    # (Feedback b98c88b1, Score 5: „die texthook empfehlung bei 1 ist unnötig, da ja eine schon sehr
+    # gute texthook vorhanden ist"). Ohne diese Schranke steht in fast jedem Lauf eine
+    # Texthook-Empfehlung auf Platz 1 — derselbe Boilerplate-Effekt wie vorher beim Redundanz-Check.
     th = parsed.hook.text_hook_score
-    schwach = th is not None and th <= HOOK_SCHWACH_SCORE
+    if th is None or th > HOOK_SCHWACH_SCORE:
+        return parsed
+    varianten = gueltige_texthook_varianten(parsed.texthook_varianten)
+    if varianten:  # eigene Formulierungen des Modells zur Texthook ersetzen, nicht ergänzen
+        parsed.empfehlungen = [
+            e for e in parsed.empfehlungen
+            if "texthook" not in (e.anweisung or "").lower()
+            and "text-hook" not in (e.anweisung or "").lower()
+        ]
     if varianten or (th == 0 and fehlt("texthook", "text-hook")):
-        if varianten:  # eigene Formulierungen des Modells zur Texthook ersetzen, nicht ergänzen
-            parsed.empfehlungen = [
-                e for e in parsed.empfehlungen
-                if "texthook" not in (e.anweisung or "").lower()
-                and "text-hook" not in (e.anweisung or "").lower()
-            ]
-        if varianten or schwach:
-            parsed.empfehlungen.insert(0, Empfehlung(
-                zeitpunkt_sek=0.0, gruppe="texthook", anweisung=_texthook_anweisung(varianten)))
+        parsed.empfehlungen.insert(0, Empfehlung(
+            zeitpunkt_sek=0.0, gruppe="texthook", anweisung=_texthook_anweisung(varianten)))
     return parsed
 
 
@@ -403,6 +453,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = neutralisiere_stumme_scores(parsed, result)
     parsed = entferne_bestaetigungen(parsed)
     parsed = baue_pausen_schritt(parsed)
+    parsed = baue_einblendungs_schritt(parsed)
     parsed = erzwinge_hook_empfehlungen(parsed)
     parsed = erzwinge_anlauf_schnitt(parsed, result)
     parsed = berechne_performance_score(parsed)
@@ -463,12 +514,13 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],
   "top_tipps": ["<3-5 wichtigste Hebel, je 1-2 Sätze, nach Wirkung priorisiert>"],
   "pausen_urteile": [{"start_sec": <float: die start_sec EINER gemessenen Pause aus der Sprachstatistik, unverändert übernommen>, "urteil": "<raus | lassen | unklar — siehe „Sprechpausen — nach FUNKTION beurteilen">"}],
-  "texthook_varianten": ["<bis zu 3 Vorschläge für eine bessere Text-Hook, je HÖCHSTENS 9 Wörter, je andere Mechanik; leer lassen, wenn die vorhandene Text-Hook stark ist>"],
+  "texthook_varianten": ["<bis zu 3 Vorschläge für eine bessere Text-Hook, je HÖCHSTENS 9 Wörter, je andere Mechanik; LEER LASSEN, wenn text_hook_score 4 oder 5 ist>"],
+  "einblendungen": [{"zeitpunkt_sek": <float: Stelle, an der eine visuelle Einblendung den Inhalt verstärken würde>, "verstaerkt": "<das Wort oder die Aussage, die dort verstärkt werden soll — z.B. Hof, Selbstbewusstsein>"}],
   "empfehlungen": [{"zeitpunkt_sek": <float: die Sekunde im Video, auf die sich die Handlung bezieht — Richtwert, ±1–2 s>, "anweisung": "<EINE konkrete Handlung, die etwas VERÄNDERT, in SUPER EINFACHER Sprache>", "gruppe": "<Label nur für die WÖRTLICH GLEICHE Handlung an mehreren Stellen, sonst leer>"}]
 }
 
-Sprechpausen und Text-Hook-Varianten gehören NICHT in `empfehlungen` — dafür gibt es die beiden Felder
-darüber. Das System baut daraus die fertigen Schritte.
+Sprechpausen, Text-Hook-Varianten und inhaltsverstärkende Einblendungen gehören NICHT in
+`empfehlungen` — dafür gibt es die drei Felder darüber. Das System baut daraus die fertigen Schritte.
 
 Inhaltliche Regeln zu `empfehlungen` stehen im Abschnitt „Empfehlungen — die kanonische Regel" oben
 und gelten unverändert; hier steht nur das Datenformat.

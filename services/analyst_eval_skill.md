@@ -51,14 +51,23 @@ Anker: 5 = alle 4 stark; 4 = stark, einer schwächer; 3 = funktional aber generi
 2 = schwach; 1 = kein Hook/abschreckend.
 Grund = 1–2 Sätze mit dem ausschlaggebenden Faktor (das WARUM, nicht nur das WAS).
 
-UNTERTITEL sind KEIN Text-Hook — entscheide am WORTLAUT, nicht an der Darstellung:
-Kommt ein Bildtext (nahezu) genauso im TRANSKRIPT vor, sind das UNTERTITEL. Das gilt auch, wenn sie
-statisch stehen bleiben, in großen Blöcken erscheinen oder oben im Bild stehen — Untertitel müssen
-weder wechseln noch unten stehen. Der Text-Hook ist umgekehrt der Bildtext, der NICHT gesprochen wird.
-Stehen BEIDE im Bild (Titelzeile + Untertitel), ist allein der nicht gesprochene Text der Text-Hook.
-Den Untertitel-Text bewertest du nie als Text-Hook und machst ihn NIE zum Gegenstand einer
-Texthook-Empfehlung. Ein Untertitel WIEDERHOLT das Gesprochene per Definition — daraus folgt kein
-Redundanz-Vorwurf und keine Empfehlung, ihn zu ersetzen.
+UNTERTITEL sind KEIN Text-Hook. Erkenne sie an ZWEI Merkmalen, die BEIDE zutreffen müssen:
+1. Der Wortlaut kommt (nahezu) genauso im TRANSKRIPT vor, UND
+2. der Text LÄUFT MIT: über das Video hinweg kommen laufend neue Blöcke, die das jeweils gerade
+   Gesagte mitschreiben.
+Trifft beides zu, ist es eine Untertitelspur — auch wenn die Blöcke statisch stehen bleiben, groß sind
+oder oben im Bild stehen. Untertitel müssen weder wechseln noch unten sitzen.
+
+Trifft nur Punkt 1 zu, ist es eine TEXT-HOOK: ein einzelner Textblock am Anfang, der danach nicht
+weiterläuft, bleibt eine Text-Hook — auch wenn er fast wörtlich wiederholt, was gesprochen wird.
+Dann ist sie NICHT „nicht vorhanden" (nicht Score 0), sondern REDUNDANT: bewerte sie nach der
+Redundanz-Regel unten, also mit Abzug und dem Hinweis, dass eine der beiden Ebenen etwas Neues
+liefern muss.
+
+Stehen Untertitelspur UND ein eigener Titeltext im Bild, ist allein der Titeltext die Text-Hook.
+Die Untertitelspur bewertest du nie als Text-Hook und machst sie NIE zum Gegenstand einer
+Texthook-Empfehlung — sie wiederholt das Gesprochene per Definition, daraus folgt kein
+Redundanz-Vorwurf.
 Ist in der Eröffnung kein nicht-gesprochener Bildtext zu sehen → text_hook_vorhanden=false,
 **text_hook_score=0** (nicht null), und text_hook_grund benennt es KLAR + gibt den Tipp: „Es gibt keine
 Text-Hook im Bild — Untertitel zählen nicht, egal ob sie mitlaufen oder stehen bleiben. Damit verschenkst du eine der stärksten
@@ -83,6 +92,9 @@ bis zu 3, je HÖCHSTENS 9 Wörter, jede mit einer anderen Mechanik (Provokation 
 konkrete Zahl oder Pain Point / Erwartungsbruch / POV), passend zum echten Thema DIESES Videos.
 Schreib sie NICHT in eine Empfehlung: Das System prüft die Wortzahl, verwirft zu lange Varianten und
 baut die Handlungsempfehlung selbst daraus.
+**Ist die vorhandene Text-Hook stark (Score 4 oder 5), lass `texthook_varianten` LEER.** Dann braucht
+der Nutzer keine Alternativen — eine Empfehlung, das Beste am Video umzubauen, verbrennt nur einen der
+drei Top-Plätze.
 
 Hook-Kalibrierung (aus echten Beobachtungen):
 - Leere Hype-Wörter ohne konkreten Inhalt sind SCHWACH (Score ~2). Negativ-Beispiel Sprech-Hook:
@@ -258,12 +270,13 @@ Dies ist die einzige Stelle, an der die Empfehlungs-Regeln stehen. Alles andere 
 - **Bei jeder Einblendung sagen, WIE sie aussieht:** VOLLBILD oder KLEINE Einblendung im laufenden Bild
   (z.B. „einen kurzen Woosh-Ton einfügen, der 2 Sekunden hält", „ein kleines Foto vom Hof oben rechts
   einblenden").
-- **Bei Bild-/Symbol-Einblendungen den ZWECK vorgeben, nicht das Motiv.** Welches Bild zu einem Begriff
-  passt, entscheidet der Nutzer — ein unpassendes Motiv entwertet den ganzen Schritt. Nenne also das
-  Wort oder die Aussage, die verstärkt werden soll, und biete bis zu 3 Motiv-Optionen zur Auswahl an.
-  So NICHT: „Zeige eine kleine Einblendung mit einem Gehirn-Symbol für das Wort ‚Selbstbewusstsein'."
-  So BESSER: „Blende hier eine kleine Grafik ein, die das Wort ‚Selbstbewusstsein' verstärkt — z.B. ein
-  Emoji, ein Symbol oder ein kurzes Foto, das für dich dafür steht."
+- **Visuelle Einblendungen gehören ins Feld `einblendungen`, nicht hierher.** Trag dort HÖCHSTENS 3
+  Stellen ein: `zeitpunkt_sek` plus das Wort/die Aussage, die dort verstärkt werden soll. Das System
+  baut daraus EINEN Schritt, der alle Stellen nennt und dem Nutzer die Wahl zwischen Grafik, Symbol,
+  Emoji, Foto und kurzer B-Roll lässt. Welches Motiv zu einem Begriff passt, entscheidet der Nutzer —
+  ein vorgeschriebenes Motiv, das nicht passt, entwertet den ganzen Schritt.
+  Gemeint sind Einblendungen, die den INHALT verstärken. Andere visuelle Elemente (Folgen-Knopf,
+  Endtafel, Namens-Einblendung) sind normale Empfehlungen und bleiben hier.
 - **`zeitpunkt_sek`** ist die Sekunde als ZAHL (Richtwert, ±1–2 s).
 - **`gruppe`** markiert die WÖRTLICH GLEICHE Handlung an mehreren Stellen (z.B. dieselbe Sprechpause bei
   Sek. 3, 15, 24): allen diesen Einträgen dasselbe Label UND denselben anweisung-Text geben, dann werden

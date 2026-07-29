@@ -135,6 +135,19 @@ class PausenUrteil(BaseModel):
     urteil: str = "unklar"   # raus | lassen | unklar
 
 
+class Einblendung(BaseModel):
+    """EINE Stelle, an der eine visuelle Einblendung den Inhalt verstärken würde.
+
+    Wie bei PausenUrteil liefert das Modell nur die Stelle und den Zweck; den Satz baut der Code.
+    Grund: Einzelne Einblendungs-Empfehlungen belegten mehrere der nur drei Top-Plätze (Feedback
+    3185d209: „den tipp mit den grafiken kann man auch zusammenfassen. maximal an 3 stellen
+    empfehlen."). Sie im Prompt über `gruppe` zu bündeln ist keine Option — dabei hat das Modell
+    schon einmal drei verschiedene Motive zu einer falschen Empfehlung verschmolzen (Lauf 702f9c11).
+    """
+    zeitpunkt_sek: float = 0.0
+    verstaerkt: str = ""   # das Wort oder die Aussage, die verstärkt werden soll
+
+
 class Empfehlung(BaseModel):
     """EINE Empfehlung, wie das Modell sie liefert — flach, mit Zeitpunkt als ZAHL.
 
@@ -175,6 +188,7 @@ class AnalystEvaluationV2(BaseModel):
     # Urteile statt Formulierungen — der Code baut daraus die fertigen Schritte:
     pausen_urteile: list[PausenUrteil] = Field(default_factory=list)
     texthook_varianten: list[str] = Field(default_factory=list)   # je max. 9 Wörter; Code prüft und filtert
+    einblendungen: list[Einblendung] = Field(default_factory=list)  # Code bündelt zu EINEM Schritt
     # Die beiden folgenden Listen berechnet der Code aus `empfehlungen` — das Modell füllt sie nicht:
     action_steps: list[ActionStep] = Field(default_factory=list)  # die 3 frühesten Handlungsempfehlungen
     weitere_empfehlungen: list[ActionStep] = Field(default_factory=list)  # alle übrigen (aufklappbar)
