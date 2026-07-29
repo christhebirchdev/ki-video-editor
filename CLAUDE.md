@@ -55,10 +55,46 @@ Zwei Instanzen = zwei getrennte Zustände; das ist gewollt.
 
 - Backend: `services/analyst_chat.py`, Endpoints `GET`/`POST /api/analyst/{id}/chat`.
   Sie liegen in `api/analyst.py`, weil bei `ANALYST_ONLY=1` nur dieser Router eingebunden wird.
-- Kontext = Bewertung + Transkript + Messwerte als **Text**. Das Video wird pro Turn NICHT
-  erneut hochgeladen: Gemini hat keinen serverseitigen Gesprächsspeicher, jeder Turn schickt
-  den Verlauf mit — läge das Video darin, wüchsen Kosten und Latenz mit jeder Nachricht.
-  Der Verlauf ist auf `MAX_VERLAUF = 20` gedeckelt.
+- **Zweistufig — das Video geht nur mit, wenn es gebraucht wird.**
+  Stufe 1 läuft ohne Video, nur mit der Analyse als Text. Kann das Modell die Frage daraus
+  beantworten, bleibt es bei einem Call ohne Videotokens. Braucht es das Video, gibt es
+  stattdessen `VIDEO_MARKER` (`[VIDEO]`) aus, und Stufe 2 läuft mit Video.
+  Die Entscheidung trifft **das Modell**, nicht eine Stichwortliste: „schau mal auf die
+  Einblendung bei Sekunde 12" und „warum ist meine Hook nur eine 3" unterscheiden sich nicht
+  zuverlässig an einzelnen Wörtern. Die Fehlerkosten sind asymmetrisch — ein unnötiger
+  Text-Call ist billig, eine geratene Antwort ohne Nachsehen ist falsch. Deshalb steht in
+  `ENTSCHEIDUNGS_REGEL`: im Zweifel Video.
+  Der Marker erreicht den Nutzer nie — `stream_antwort` puffert die ersten Stücke, bis die
+  Entscheidung feststeht, auch wenn der Marker über mehrere Chunks eintrudelt.
+- **Der bisherige Chatverlauf geht in BEIDE Stufen mit** (auf `MAX_VERLAUF = 20` gedeckelt).
+  Auch mit Cache: Systemprompt, Video und Analyse stecken im Cache, der Verlauf nicht — der
+  ändert sich ja mit jeder Nachricht.
+- **Explizites Context Caching**, angelegt beim ersten Video-Turn eines Laufs
+  (`hole_cache`, TTL 30 min, Name in `analyst_runs/<id>/gemini_file.json`).
+  Gecacht werden Systemprompt + Video + Analyse-Kontext — über alle Turns identisch.
+  **Ein Cache ist an EIN Modell gebunden.** Auf einem Fallback-Modell ist der Name ungültig
+  und der Call scheitert, statt nur teurer zu sein — deshalb wird er ausschließlich beim
+  Primärmodell gesetzt und die Modellkennung mitgespeichert. Schlägt das Anlegen fehl
+  (Mindest-Tokenzahl, Quota), geht alles inline; Caching darf den Chat nie blockieren.
+  *Implizites* Caching läuft bei Gemini 2.5+ ohnehin automatisch (ab 4096 Tokens bei 3.5
+  Flash) — deshalb stehen große, gleichbleibende Inhalte in `_contents` vorn.
+- Der Video-*Upload* passiert nur einmal je Lauf (File-Handle ebenfalls in
+  `gemini_file.json`; kein Ablaufdatum rechnen — `files.get` versuchen, bei jedem Fehler neu
+  hochladen).
+- **Regelerhalt:** `chat_system_prompt()` lädt `analyst_eval.load_skill_body()` +
+  `load_reference()` — dieselbe Quelle wie der reguläre Lauf. Ändert jemand
+  `analyst_eval_skill.md`, ändert sich der Chat mit. **`build_system_prompt()` bewusst NICHT**,
+  weil es `OUTPUT_SCHEMA` anhängt: den JSON-Vertrag des Gesamtlaufs mit `performance_score` und
+  `action_steps`. Beides berechnet der Code über das ganze Video. Deshalb gleiche
+  Urteilsgrundlage, eigener Ausgabe-Vertrag (`CHAT_VERTRAG`), der Gesamtnote und action_steps
+  ausdrücklich verbietet. Es bleibt bei **einer** verbindlichen Bewertung pro Video.
+- Fehlt die Videodatei (aufgeräumter Altlauf), antwortet der Chat weiter — ohne Video und mit
+  `OHNE_VIDEO_HINWEIS` im Systemprompt, damit das Modell nicht so tut, als sähe es etwas.
+  Ein harter Fehler wäre schlechter: Fragen zur bestehenden Bewertung gehen auch ohne Video.
+- **Verworfen (2026-07-29): Ausschnitts-Analyse über Von/Bis-Felder.** War gebaut
+  (`VideoMetadata(start_offset, end_offset)`, eigener Endpoint) und wurde auf Wunsch wieder
+  entfernt: Gefragt ist die Vertiefung eines *Aspekts* per Chatnachricht, nicht die eines
+  Zeitfensters per Formular. Nicht ohne neuen Grund erneut vorschlagen.
 - Verlauf: `analyst_runs/<id>/chat.jsonl`, append-only wie `feedback.jsonl`. Kaputte Zeilen
   werden beim Lesen übersprungen, nicht geworfen.
 - Die Chat-Endpoints sind bewusst **synchrone** `def`-Funktionen. Als `async def` würde der
@@ -82,36 +118,6 @@ Zwei Instanzen = zwei getrennte Zustände; das ist gewollt.
   Bestätigungs-Gate. Plan: `docs/superpowers/plans/2026-07-29-analyst-chat-v11.md`.
 - Tests: `tests/test_analyst_chat.py` (43). Bewusst eigene Datei, `tests/test_analyst.py`
   bleibt unberührt.
-
-**Ausschnitts-Analyse (`POST /{id}/chat/ausschnitt`).** Schaut das Video für ein Zeitfenster
-erneut an und beurteilt diese Stelle; das Ergebnis landet als normale Nachricht im Chat.
-
-Die Regeln bleiben erhalten, weil `segment_system_prompt()` **dieselbe Quelle** lädt wie der
-reguläre Lauf: `analyst_eval.load_skill_body()` + `load_reference()`. Ändert jemand
-`analyst_eval_skill.md`, ändert sich der Ausschnitt mit. Genau das ist der Mechanismus.
-
-**`build_system_prompt()` wird bewusst NICHT verwendet** — es hängt `OUTPUT_SCHEMA` an, den
-JSON-Vertrag des Gesamtlaufs mit `performance_score` und `action_steps`. Beides berechnet der
-Code über das **ganze** Video (`berechne_performance_score()` gewichtet sieben Dimensionen,
-`verteile_empfehlungen()` sortiert nach frühestem Zeitpunkt, `erzwinge_anlauf_schnitt()` liest
-`sprechbeginn_sec` des Gesamtvideos). Auf sechs Sekunden angewandt liefern diese Regeln Unsinn.
-Deshalb: gleiche Urteilsgrundlage, **eigener** Ausgabe-Vertrag (`SEGMENT_VERTRAG`), der
-Gesamtnote und action_steps ausdrücklich verbietet. Es bleibt bei **einer** verbindlichen
-Bewertung pro Video; der Ausschnitt schreibt nie in `analysis.json`.
-
-Weitere Festlegungen:
-
-- Das Zeitfenster geht über `types.VideoMetadata(start_offset, end_offset)`, **nicht** als
-  Hinweis im Prompt. Sonst verarbeitet und berechnet Gemini das ganze Video.
-- Nur Pausen **innerhalb** des Fensters gehen mit. Außerhalb liegende sieht das Modell im
-  Video nicht und würde sie trotzdem als Beobachtung ausgeben.
-- Fenster: mindestens 1 s, höchstens 60 s. Länger ist kein Ausschnitt mehr — dafür gibt es
-  den regulären Lauf.
-- Der Gemini-File-Handle wird in `analyst_runs/<id>/gemini_file.json` zwischengespeichert.
-  Die Files API hält Uploads rund 48 h; ohne Cache lädt jede Frage dasselbe Video erneut hoch.
-  Kein Ablaufdatum rechnen — `files.get` versuchen, bei jedem Fehler neu hochladen.
-- Ausgelöst wird über **Von/Bis-Felder im Frontend**, nicht über Absichtserkennung im Freitext.
-  Ein Modell, das aus dem Satz rät, löst irgendwann versehentlich einen teuren Video-Call aus.
 
 **Chat ist standardmäßig zugeklappt** und wird über den Kopf geöffnet (Plus wird zu Minus).
 Animiert über `grid-template-rows: 0fr → 1fr` — `height:auto` lässt sich nicht animieren, eine
@@ -149,8 +155,15 @@ Datei mit jeder Frage erneut aufblähen. Inhaltlich steht er ohnehin in `analysi
 
 ### Video-Player nach der Analyse (Stand 2026-07-29)
 
-Nach `phase === "done"` erscheint neben der Dropzone ein `<video controls>` mit dem
-analysierten Video. In `VideoAnalystPage`, gilt damit für beide Ansichten.
+Nach `phase === "done"` **ersetzt** ein `<video controls>` den Upload-Bereich — hochzuladen
+gibt es dann nichts mehr, für einen neuen Durchlauf gibt es „Neue Analyse" im Ergebnisbereich.
+In `VideoAnalystPage`, gilt damit für beide Ansichten.
+
+**Schwebender Player:** Scrollt der Player aus dem Bild, wandert er als kleiner Player unten
+rechts mit (`position:fixed`, ausgelöst über einen `IntersectionObserver` auf dem Slot). Es ist
+**dasselbe** `<video>`-Element — nur der Rahmen wechselt die Klasse. Würde man ein zweites
+rendern, startet die Wiedergabe beim Umschalten von vorn. Der Slot behält währenddessen seine
+gemessene Höhe, sonst springt die Seite in dem Moment, in dem der Rahmen aus dem Fluss geht.
 
 **Kein `GET /api/analyst/{id}/video` — bewusst verworfen.** Die Quelle ist ein
 `URL.createObjectURL(analysisFile.file)`, der Browser liest direkt vom Rechner des Nutzers.

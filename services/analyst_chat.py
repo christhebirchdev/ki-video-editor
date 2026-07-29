@@ -1,17 +1,21 @@
 # services/analyst_chat.py
 """Rückfragen-Chat zur fertigen Analyse (V1.1).
 
-Bewusst OHNE Video: Der Chat bekommt die fertige Bewertung, das Transkript und die gemessenen
-Werte als Text. Gemini hat keinen serverseitigen Gesprächsspeicher — jeder Turn schickt den
-kompletten Verlauf erneut mit. Läge das Video darin, würden Kosten und Latenz mit jeder
-Nachricht wachsen. Der Chat soll erklären, was in der Analyse steht, nicht neu beobachten.
+Der Chat bekommt die fertige Bewertung, das Transkript und die gemessenen Werte als Text —
+UND das Video. Damit kann er einen einzelnen Aspekt auf Anfrage wirklich neu ansehen
+("schau dir nochmal die Untertitel an") statt ihn aus der vorhandenen Bewertung abzuleiten.
 
-Was der Chat NICHT darf: die gespeicherte Analyse ändern. Die angezeigte Bewertung entsteht
-nicht roh aus dem Modell, sondern erst nach analyst_eval.nachbearbeiten() — dort wird der
-performance_score aus gewichteten Einzelscores berechnet und die action_steps werden sortiert.
-Ein Chat, der direkt in analysis.json schreibt, umgeht diese Kette und erzeugt eine zweite,
-stillschweigend abweichende Bewertungslogik. Revision kommt separat, über nachbearbeiten(),
-mit Versionierung und Bestätigungs-Gate.
+Preis dafür, bewusst in Kauf genommen: Gemini hat keinen serverseitigen Gesprächsspeicher,
+jeder Turn schickt den kompletten Kontext erneut. Das Video wird also in JEDEM Turn verarbeitet
+und abgerechnet. Der Upload passiert nur einmal je Lauf (hole_video_handle cached den
+File-Handle), die Verarbeitung pro Call nicht.
+
+Was der Chat NICHT darf: die gespeicherte Analyse ändern oder eine konkurrierende Gesamtnote
+vergeben. Die angezeigte Bewertung entsteht nicht roh aus dem Modell, sondern erst nach
+analyst_eval.nachbearbeiten() — dort wird der performance_score aus gewichteten Einzelscores
+berechnet und die action_steps werden sortiert. Ein Chat, der das neu vergibt, erzeugt eine
+zweite, stillschweigend abweichende Bewertungslogik. Deshalb: gleiche Urteilsgrundlage
+(analyst_eval_skill.md, zur Laufzeit geladen), aber eigener Ausgabe-Vertrag (CHAT_VERTRAG).
 """
 import json
 import uuid
@@ -32,24 +36,97 @@ GEMINI_DATEI_CACHE = "gemini_file.json"
 # jeder Runde weiter, und irgendwann zahlt jede Frage den gesamten bisherigen Chat mit.
 MAX_VERLAUF = 20
 
-SYSTEM_PROMPT = """Du bist der Video-Analyst von MEINFLUSS und beantwortest Rückfragen zu einer
-Analyse, die du bereits erstellt hast.
+# Lebensdauer des expliziten Caches. Deckt eine übliche Chat-Sitzung ab, ohne Speicher für
+# einen Lauf zu bezahlen, den niemand mehr anfasst. Läuft er ab, wird beim nächsten
+# Video-Turn neu angelegt.
+CACHE_TTL = "1800s"
 
-Deine Aufgabe: erklären, einordnen, konkreter werden. Der Nutzer will verstehen, WARUM etwas
-wichtig ist und WIE er es beim nächsten Video besser macht.
+# Das Modell fordert das Video an, indem es GENAU diesen Marker als Erstes ausgibt. Er darf
+# den Nutzer nie erreichen — stream_antwort puffert so lange, bis die Entscheidung feststeht.
+VIDEO_MARKER = "[VIDEO]"
 
-Regeln:
-- Antworte auf Deutsch, in einfacher Sprache, ohne Fachjargon.
-- Kurz und konkret. Zwei bis fünf Sätze reichen meistens. Keine Einleitungsfloskeln.
-- Beziehe dich auf die Werte aus der Analyse. Erfinde keine Zahlen, Zeitpunkte oder
-  Beobachtungen, die nicht im Kontext stehen.
-- Du hast das Video NICHT vor dir. Wenn eine Frage nur mit erneutem Ansehen des Videos zu
-  beantworten wäre, sag das offen, statt zu raten.
-- Du änderst die Bewertung NICHT. Du vergibst keine neuen Scores und korrigierst keine
-  bestehenden. Fragt der Nutzer nach einer neuen Bewertung, erkläre, dass das in dieser
-  Version noch nicht geht, und beantworte stattdessen seine inhaltliche Frage.
-- Formatierung: nur einfache Absätze, Aufzählungen mit "- " und **fett** für wichtige Begriffe.
-  Keine Überschriften, keine Tabellen, kein Code."""
+ENTSCHEIDUNGS_REGEL = f"""
+--- ERSTE ENTSCHEIDUNG: BRAUCHST DU DAS VIDEO? ---
+
+Für DIESE Antwort liegt dir das Video nicht vor, nur die Analyse als Text.
+
+Prüfe zuerst: Lässt sich die Frage sauber und ohne Raten aus der Analyse beantworten?
+- Ja → antworte ganz normal.
+- Nein → gib GENAU {VIDEO_MARKER} aus und sonst NICHTS. Kein Wort davor, kein Wort danach.
+  Du bekommst das Video dann sofort und beantwortest die Frage im zweiten Anlauf.
+
+Gib {VIDEO_MARKER} immer aus, wenn der Nutzer dich bittet, dir etwas anzusehen, etwas
+nachzuprüfen, einen Aspekt neu zu beurteilen, oder wenn er nach etwas fragt, das nicht als
+Wert in der Analyse steht. Im Zweifel: {VIDEO_MARKER}. Raten ist schlechter als nachsehen.
+""".strip()
+
+CHAT_VERTRAG = f"""
+--- AUSGABE FÜR DEN RÜCKFRAGEN-CHAT ---
+
+Du bist der Video-Analyst von MEINFLUSS im Gespräch mit dem Nutzer über eine Analyse, die du
+bereits erstellt hast. **Das Video liegt dir vor** — du kannst es erneut ansehen.
+
+Deine Aufgabe: erklären, einordnen, konkreter werden. Und auf Wunsch einen einzelnen Aspekt
+neu und genauer ansehen — Untertitel, Texteinblendungen, Hook, Schnitt, Blickkontakt, Ton,
+was auch immer der Nutzer wissen will. Dafür schaust du dir das Video wirklich an, statt aus
+der vorhandenen Bewertung abzuleiten.
+
+Es gelten alle Bewertungsregeln oben unverändert — dieselben Dimensionen, dieselbe 1–5-Skala,
+dieselben Maßstäbe, dieselbe einfache Sprache.
+
+VERBOTEN, weil diese Werte im Code über das gesamte Video berechnet werden und deine Version
+der angezeigten Bewertung widersprechen würde:
+- kein neuer performance_score und keine neue Gesamtnote
+- keine neuen action_steps und keine nummerierte Top-3-Handlungsliste
+- keine Behauptung, du hättest die gespeicherte Bewertung geändert — das kannst du nicht
+
+ERLAUBT und erwünscht:
+- Einzelscores 1–5 für einen Aspekt, wenn der Nutzer danach fragt, mit einem Satz Begründung
+  und ausdrücklich als vertiefte Einschätzung zu diesem Aspekt benannt
+- konkrete Beobachtungen mit Zeitangabe, wenn du sie im Video wirklich siehst
+- konkrete Verbesserungsvorschläge für genau die Stelle oder den Aspekt, um den es geht
+
+Antworte auf Deutsch, in einfacher Sprache, ohne Fachjargon. Kurz und konkret — zwei bis fünf
+Sätze reichen meistens, bei einer vertieften Aspekt-Analyse darf es länger werden. Keine
+Einleitungsfloskeln.
+
+Erfinde keine Messwerte. Gemessene Zahlen stehen im Kontext; Pausen unter
+{PAUSE_THRESHOLD_SEC} Sekunden wurden gar nicht erst gemeldet und existieren für dich nicht.
+
+Format: kurze Absätze, Aufzählungen mit "- ", **fett** für wichtige Begriffe. Keine
+Überschriften, keine Tabellen, kein Code, kein JSON.
+""".strip()
+
+
+OHNE_VIDEO_HINWEIS = (
+    "\n\nHINWEIS FÜR DIESES GESPRÄCH: Das Video liegt dir ausnahmsweise NICHT vor. "
+    "Wenn eine Frage nur mit Ansehen des Videos zu beantworten wäre, sag das offen, "
+    "statt zu raten."
+)
+
+
+def chat_system_prompt(mit_video: bool = True) -> str:
+    """Urteilsgrundlage des Analysten + Ausgabe-Vertrag für den Chat.
+
+    Bewusst `load_skill_body()` + `load_reference()` statt `build_system_prompt()`: Letzteres
+    hängt OUTPUT_SCHEMA an, den strikten JSON-Vertrag des Gesamtlaufs inklusive
+    performance_score und action_steps. Genau die darf der Chat nicht liefern — sie entstehen
+    im Code über das ganze Video (berechne_performance_score() gewichtet sieben Dimensionen,
+    verteile_empfehlungen() sortiert nach frühestem Zeitpunkt). Ein Chat, der sie neu vergibt,
+    widerspricht der angezeigten Bewertung.
+
+    Dieselbe Regelquelle heißt: Ändert jemand analyst_eval_skill.md, ändert sich der Chat mit.
+    """
+    teile = [analyst_eval.load_skill_body()]
+    ref = analyst_eval.load_reference()
+    if ref:
+        teile.append(
+            "--- ANGEHÄNGTE REFERENZ: VIDEO-ANALYSE (EDITING + SKRIPT + TECHNIK/AUFTRETEN) ---\n"
+            + ref
+        )
+    vertrag = CHAT_VERTRAG if mit_video else CHAT_VERTRAG + OHNE_VIDEO_HINWEIS
+    teile.append(vertrag)
+    return "\n\n".join(teile)
 
 
 # ---------- Kontext ----------
@@ -162,112 +239,7 @@ def lade_verlauf(run_dir: Path) -> list[dict]:
     return nachrichten
 
 
-# ---------- Ausschnitts-Analyse ----------
-#
-# Warum das nicht einfach ein zweiter Bewertungslauf ist:
-#
-# Die angezeigte Bewertung entsteht aus ZWEI Quellen — dem Skill-Prompt UND der
-# Nachbearbeitung in analyst_eval.nachbearbeiten(). Die Code-Regeln dort gelten aber
-# ausdrücklich für das GANZE Video: berechne_performance_score() gewichtet sieben
-# Dimensionen über die volle Länge, verteile_empfehlungen() sortiert nach frühestem
-# Zeitpunkt im Video, erzwinge_anlauf_schnitt() liest sprechbeginn_sec des Gesamtvideos,
-# baue_pausen_schritt() alle gemessenen Pausen. Auf einen 6-Sekunden-Ausschnitt angewandt
-# liefern die Unsinn.
-#
-# Also: Der Ausschnitt bekommt DIESELBE Urteilsgrundlage (analyst_eval_skill.md +
-# analyst_video_reference.md, zur Laufzeit geladen — das ist das Produktverhalten), aber
-# einen eigenen Ausgabe-Vertrag. Er ist ausdrücklich KEINE Bewertung, sondern eine
-# Ausschnitts-Beobachtung: keine Gesamtnote, keine action_steps, kein Schreiben in
-# analysis.json. Damit bleibt es bei EINER verbindlichen Bewertung pro Video.
-
-SEGMENT_VERTRAG = f"""
---- AUSGABE FÜR DIE AUSSCHNITTS-ANALYSE ---
-
-Du siehst NUR einen Ausschnitt des Videos, nicht das ganze Video. Antworte als Fließtext für
-einen Chat, NICHT als JSON.
-
-Es gelten alle Bewertungsregeln oben unverändert — dieselben Dimensionen, dieselbe 1–5-Skala,
-dieselben Maßstäbe, dieselbe einfache Sprache.
-
-VERBOTEN, weil diese Werte im Code über das GESAMTE Video berechnet werden und deine Version
-der angezeigten Bewertung widersprechen würde:
-- kein performance_score und keine Gesamtnote für den Ausschnitt
-- keine action_steps und keine nummerierte Top-3-Liste
-- keine Aussage darüber, wie sich der Ausschnitt auf die Gesamtbewertung auswirkt
-
-ERLAUBT und erwünscht:
-- Beobachtungen zu dem, was in diesem Zeitfenster tatsächlich passiert
-- Einzelscores 1–5 für die Dimensionen, die in diesem Ausschnitt überhaupt beurteilbar sind,
-  jeweils mit einem Satz Begründung — ausdrücklich als Ausschnitts-Einschätzung benannt
-- konkrete Verbesserungsvorschläge für genau diese Stelle
-
-Erfinde keine Zeitpunkte, Zahlen oder Messwerte. Gemessene Werte stehen in der Nachricht des
-Nutzers; Pausen unter {PAUSE_THRESHOLD_SEC} Sekunden wurden gar nicht erst gemeldet und
-existieren für dich nicht.
-
-Format: kurze Absätze, Aufzählungen mit "- ", **fett** für wichtige Begriffe. Keine
-Überschriften, keine Tabellen, kein Code, kein JSON.
-""".strip()
-
-
-def segment_system_prompt() -> str:
-    """Urteilsgrundlage des Analysten + eigener Ausgabe-Vertrag.
-
-    Bewusst `load_skill_body()` + `load_reference()` statt `build_system_prompt()`: Letzteres
-    hängt OUTPUT_SCHEMA an, den strikten JSON-Vertrag für den vollen Lauf inklusive
-    performance_score und action_steps. Genau die darf ein Ausschnitt nicht liefern.
-    Ändert jemand die Bewertungsregeln in analyst_eval_skill.md, ändern sie sich hier mit —
-    das ist der Punkt.
-    """
-    teile = [analyst_eval.load_skill_body()]
-    ref = analyst_eval.load_reference()
-    if ref:
-        teile.append(
-            "--- ANGEHÄNGTE REFERENZ: VIDEO-ANALYSE (EDITING + SKRIPT + TECHNIK/AUFTRETEN) ---\n"
-            + ref
-        )
-    teile.append(SEGMENT_VERTRAG)
-    return "\n\n".join(teile)
-
-
-def _pausen_im_fenster(result: AnalystResult, start: float, ende: float) -> list:
-    """Nur die gemessenen Pausen, die in den Ausschnitt fallen.
-
-    Ohne diese Einschränkung nennt das Modell Pausen, die außerhalb des gezeigten Fensters
-    liegen — es sieht sie im Video nicht und würde sie trotzdem als Beobachtung ausgeben.
-    """
-    if not result.speech_stats or not result.speech_stats.pausen:
-        return []
-    return [p for p in result.speech_stats.pausen if p.start_sec >= start and p.end_sec <= ende]
-
-
-def baue_ausschnitt_nachricht(result: AnalystResult, start: float, ende: float, frage: str) -> str:
-    """Die User-Message für die Ausschnitts-Analyse: Fenster, gemessene Fakten, Auftrag."""
-    zeilen = [
-        f"Analysiere den Ausschnitt von Sekunde {start:.1f} bis {ende:.1f} "
-        f"(Gesamtlänge des Videos: {result.duration_sec:.1f} Sekunden).",
-        f"Vom Nutzer gewähltes Format: {result.gewaehltes_format or '(nicht angegeben)'}",
-    ]
-
-    pausen = _pausen_im_fenster(result, start, ende)
-    if pausen:
-        liste = ", ".join(f"{p.start_sec:.1f}–{p.end_sec:.1f}s ({p.dauer_sec:.1f}s)" for p in pausen)
-        zeilen.append(f"\nGemessene Sprechpausen in diesem Fenster: {liste}")
-    else:
-        zeilen.append(
-            f"\nGemessene Sprechpausen in diesem Fenster: keine über {PAUSE_THRESHOLD_SEC} Sekunden."
-        )
-
-    if result.transcript:
-        zeilen.append(f"\nTranskript des GESAMTEN Videos (zur Einordnung):\n{result.transcript}")
-
-    zeilen.append(
-        "\nAuftrag des Nutzers:\n" + (frage.strip() or
-        "Beurteile diesen Ausschnitt nach den Analystenregeln und sag mir konkret, was hier "
-        "besser gehen würde.")
-    )
-    return "\n".join(zeilen)
-
+# ---------- Video-Handle ----------
 
 def _video_pfad(run_dir: Path) -> Path:
     """Die hochgeladene Originaldatei des Laufs (analyst_runs/<id>/raw/<filename>)."""
@@ -284,7 +256,7 @@ def hole_video_handle(run_dir: Path):
     """Gemini-File-Handle für das Video dieses Laufs, mit Wiederverwendung.
 
     Die Files API hält hochgeladene Dateien rund 48 Stunden. Ohne Cache würde jede einzelne
-    Ausschnitts-Frage dasselbe Video erneut hochladen — bei 18 MB und mehr ist das die
+    Chat-Nachricht dasselbe Video erneut hochladen — bei 18 MB und mehr ist das die
     teuerste und langsamste Stelle des ganzen Features.
 
     Kein Ablaufdatum verwalten: Wir versuchen `files.get` und laden bei jedem Fehlschlag neu.
@@ -302,69 +274,75 @@ def hole_video_handle(run_dir: Path):
             pass
 
     handle = gemini_service._upload_video_to_gemini(_video_pfad(run_dir))
-    try:
-        cache.write_text(json.dumps({"name": handle.name}, ensure_ascii=False), encoding="utf-8")
-    except OSError:
-        pass          # Cache ist Beschleunigung, kein Muss
+    _merke(run_dir, {"name": handle.name})
     return handle
 
 
-def stream_ausschnitt(run_dir: Path, result: AnalystResult, start: float, ende: float, frage: str):
-    """Generator wie stream_antwort, aber MIT Video und auf ein Zeitfenster begrenzt.
+def _lies_notiz(run_dir: Path) -> dict:
+    try:
+        return json.loads((run_dir / GEMINI_DATEI_CACHE).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
 
-    Das Zeitfenster wird über VideoMetadata gesetzt, nicht über einen Hinweis im Prompt:
-    Gemini verarbeitet dann nur diesen Abschnitt. Ein Prompt-Hinweis würde das ganze Video
-    abrechnen und das Modell trotzdem über Stellen reden lassen, die nicht gefragt waren.
+
+def _merke(run_dir: Path, neu: dict) -> None:
+    """Notizzettel für File-Handle und Cache. Beschleunigung, kein Muss — Fehler werden
+    geschluckt, im schlimmsten Fall wird beim nächsten Mal neu hochgeladen."""
+    daten = _lies_notiz(run_dir)
+    daten.update(neu)
+    try:
+        (run_dir / GEMINI_DATEI_CACHE).write_text(
+            json.dumps(daten, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+
+def hole_cache(run_dir: Path, system: str, kontext: str, handle) -> str | None:
+    """Expliziter Gemini-Cache aus Systemprompt + Video + Analyse-Kontext, oder None.
+
+    Warum überhaupt: Diese drei Teile sind über alle Turns eines Laufs identisch und machen
+    den Löwenanteil der Tokens aus. Implizites Caching läuft zwar seit Gemini 2.5 automatisch,
+    garantiert aber nichts; explizit ist die Ersparnis zugesichert.
+
+    **Der Cache ist an EIN Modell gebunden.** Läuft der Call auf ein Fallback-Modell, ist der
+    Name dort ungültig — deshalb wird er ausschließlich beim Primärmodell verwendet und die
+    Modellkennung mitgespeichert. Wechselt GEMINI_MODEL, wird neu angelegt.
+
+    Schlägt irgendetwas fehl (Mindest-Tokenzahl unterschritten, Quota, Netz), gibt die Funktion
+    None zurück und der Aufrufer schickt Video und Prompt wie gehabt inline mit. Caching darf
+    den Chat nie blockieren.
     """
-    auftrag = frage.strip() or f"Analysiere den Ausschnitt {start:.1f}–{ende:.1f} s."
-    haenge_nachricht_an(run_dir, "user", f"[Ausschnitt {start:.1f}–{ende:.1f} s] {auftrag}")
-
-    system = segment_system_prompt()
-    nachricht = baue_ausschnitt_nachricht(result, start, ende, frage)
-    handle = hole_video_handle(run_dir)
-
-    video_part = types.Part(
-        file_data=types.FileData(file_uri=handle.uri, mime_type=handle.mime_type),
-        video_metadata=types.VideoMetadata(
-            start_offset=f"{start:.1f}s", end_offset=f"{ende:.1f}s"
-        ),
-    )
-    cfg = types.GenerateContentConfig(system_instruction=system)
-    contents = [{"role": "user", "parts": [video_part, {"text": nachricht}]}]
-
-    letzter_fehler = None
-    for modell in [gemini_service.GEMINI_MODEL] + gemini_service.GEMINI_FALLBACK_MODELS:
-        gesammelt: list[str] = []
+    notiz = _lies_notiz(run_dir)
+    if notiz.get("cache") and notiz.get("cache_modell") == gemini_service.GEMINI_MODEL:
         try:
-            for chunk in gemini_service.client.models.generate_content_stream(
-                model=modell, contents=contents, config=cfg
-            ):
-                stueck = getattr(chunk, "text", None)
-                if stueck:
-                    gesammelt.append(stueck)
-                    yield stueck
-        except Exception as e:  # noqa: BLE001
-            if gesammelt:
-                _abschliessen_ausschnitt(run_dir, "".join(gesammelt), modell, system, nachricht, True)
-                return
-            letzter_fehler = e
-            continue
-        _abschliessen_ausschnitt(run_dir, "".join(gesammelt), modell, system, nachricht)
-        return
+            gemini_service.client.caches.get(name=notiz["cache"])
+            return notiz["cache"]
+        except Exception:  # noqa: BLE001 — abgelaufen oder gelöscht: neu anlegen
+            pass
 
-    raise RuntimeError(f"Ausschnitts-Analyse fehlgeschlagen: {letzter_fehler}")
+    try:
+        cache = gemini_service.client.caches.create(
+            model=gemini_service.GEMINI_MODEL,
+            config=types.CreateCachedContentConfig(
+                display_name=f"analyst-chat-{run_dir.name}",
+                system_instruction=system,
+                contents=[
+                    {"role": "user", "parts": [
+                        types.Part(file_data=types.FileData(
+                            file_uri=handle.uri, mime_type=handle.mime_type)),
+                        {"text": f"Hier ist das Video und die Analyse dazu:\n\n{kontext}"},
+                    ]}
+                ],
+                ttl=CACHE_TTL,
+            ),
+        )
+    except Exception as e:  # noqa: BLE001
+        print(f"  [CHAT] Kein expliziter Cache für {run_dir.name} ({e}) — sende inline.")
+        return None
 
-
-def _abschliessen_ausschnitt(run_dir: Path, antwort: str, modell: str, system: str,
-                             nachricht: str, abgebrochen: bool = False) -> None:
-    haenge_nachricht_an(run_dir, "model", antwort)
-    analyst_prompt_log.log_call(
-        run_dir, call="chat_ausschnitt", recipient="Gemini", model=modell,
-        system_prompt=system, user_message=nachricht, output_raw=antwort,
-        attachments=["Video (Zeitfenster)"],
-        inputs={"abgebrochen": abgebrochen},
-    )
-    schreibe_verlauf_md(run_dir)
+    _merke(run_dir, {"cache": cache.name, "cache_modell": gemini_service.GEMINI_MODEL})
+    return cache.name
 
 
 # ---------- Lesbarer Verlauf ----------
@@ -461,12 +439,20 @@ def schreibe_verlauf_md(run_dir: Path) -> None:
 
 # ---------- Gemini ----------
 
-def _contents(kontext: str, verlauf: list[dict], frage: str) -> list[dict]:
-    """Der Kontext hängt an der ERSTEN Nutzer-Nachricht, nicht an jeder — sonst wird er mit
-    jeder Runde erneut bezahlt. Die gefakte Modell-Antwort danach verankert die Rolle, ohne
-    dass das Modell den Kontext nochmal zusammenfassen will."""
+def _contents(kontext: str, verlauf: list[dict], frage: str, video_part=None) -> list[dict]:
+    """Kontext und Video hängen an der ERSTEN Nutzer-Nachricht, nicht an jeder.
+
+    Innerhalb eines Calls wird das Video damit genau einmal referenziert statt einmal pro
+    Verlaufseintrag. Die gefakte Modell-Antwort danach verankert die Rolle, ohne dass das
+    Modell den Kontext erst zusammenfassen will.
+    """
+    erste_parts: list = []
+    if video_part is not None:
+        erste_parts.append(video_part)
+    erste_parts.append({"text": f"Hier ist das Video und die Analyse dazu:\n\n{kontext}"})
+
     inhalte: list[dict] = [
-        {"role": "user", "parts": [{"text": f"Hier ist die Analyse:\n\n{kontext}"}]},
+        {"role": "user", "parts": erste_parts},
         {"role": "model", "parts": [{"text": "Verstanden. Stell deine Fragen."}]},
     ]
     for n in verlauf[-MAX_VERLAUF:]:
@@ -476,9 +462,65 @@ def _contents(kontext: str, verlauf: list[dict], frage: str) -> list[dict]:
     return inhalte
 
 
+def _stream_mit_fallback(contents, system: str, info: dict, cache_name: str | None = None):
+    """Textstücke vom ersten Modell, das antwortet. Schreibt Metadaten nach `info`.
+
+    Der Cache-Name gilt nur für das Primärmodell (ein Cache ist an ein Modell gebunden) und
+    ersetzt dort die system_instruction — sie steckt bereits im Cache.
+
+    Bricht der Stream ab, NACHDEM schon Text geflossen ist, wird nicht auf ein anderes Modell
+    umgeschaltet: Der Nutzer bekäme den Anfang sonst ein zweites Mal in dieselbe Blase.
+    Abgeschnitten ist besser als doppelt.
+    """
+    letzter_fehler = None
+    for modell in [gemini_service.GEMINI_MODEL] + gemini_service.GEMINI_FALLBACK_MODELS:
+        nutzt_cache = bool(cache_name) and modell == gemini_service.GEMINI_MODEL
+        cfg = (types.GenerateContentConfig(cached_content=cache_name) if nutzt_cache
+               else types.GenerateContentConfig(system_instruction=system))
+        etwas_geflossen = False
+        try:
+            for chunk in gemini_service.client.models.generate_content_stream(
+                model=modell, contents=contents, config=cfg
+            ):
+                verbrauch = getattr(chunk, "usage_metadata", None)
+                if verbrauch is not None:
+                    info["cached_tokens"] = getattr(verbrauch, "cached_content_token_count", None)
+                stueck = getattr(chunk, "text", None)
+                if stueck:
+                    etwas_geflossen = True
+                    info["modell"] = modell
+                    info["cache_genutzt"] = nutzt_cache
+                    yield stueck
+        except Exception as e:  # noqa: BLE001 — jeder Modellfehler soll das nächste Modell probieren
+            if etwas_geflossen:
+                info["abgebrochen"] = True
+                return
+            letzter_fehler = e
+            continue
+        info.setdefault("modell", modell)
+        info.setdefault("cache_genutzt", nutzt_cache)
+        return
+
+    raise RuntimeError(f"Gemini-Chat fehlgeschlagen: {letzter_fehler}")
+
+
 def stream_antwort(run_dir: Path, kontext: str, frage: str):
     """Generator: gibt Textstücke aus, sobald sie kommen, und schreibt am Ende die komplette
     Antwort in den Verlauf.
+
+    **Zweistufig, damit das Video nur mitgeht, wenn es gebraucht wird.**
+    Stufe 1 läuft ohne Video, nur mit der Analyse als Text. Kann das Modell die Frage daraus
+    beantworten, tut es das und der Nutzer sieht die Antwort sofort. Braucht es das Video,
+    gibt es stattdessen VIDEO_MARKER aus — dann läuft Stufe 2 mit Video.
+
+    Die Entscheidung trifft bewusst das Modell und keine Stichwortliste: „schau mal auf die
+    Einblendung bei Sekunde 12" und „warum ist meine Hook nur eine 3" unterscheiden sich nicht
+    zuverlässig an einzelnen Wörtern, und eine Liste geht in beide Richtungen daneben.
+    Kosten der Fehlentscheidung sind asymmetrisch — ein unnötiger Text-Call ist billig, eine
+    geratene Antwort ohne Nachsehen ist falsch. Deshalb sagt die Regel: im Zweifel Video.
+
+    Der Marker erreicht den Nutzer nie: Die ersten Stücke werden gepuffert, bis feststeht,
+    ob ein Marker kommt.
 
     Bewusst ein SYNCHRONER Generator: FastAPI führt synchrone Endpunkte in einem Threadpool
     aus. Als `async` würde der blockierende Gemini-Call den Event-Loop anhalten — bei
@@ -489,47 +531,98 @@ def stream_antwort(run_dir: Path, kontext: str, frage: str):
     """
     haenge_nachricht_an(run_dir, "user", frage)
     verlauf = lade_verlauf(run_dir)[:-1]   # die gerade geschriebene Frage nicht doppelt senden
-    contents = _contents(kontext, verlauf, frage)
-    cfg = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT)
 
-    def _abschliessen(antwort: str, modell: str, abgebrochen: bool = False) -> None:
-        """Antwort persistieren, Lauf protokollieren, lesbaren Verlauf neu erzeugen."""
+    info: dict = {}
+    gesammelt: list[str] = []
+    mit_video = False
+
+    def _abschliessen(system_fuer_log: str) -> None:
+        antwort = "".join(gesammelt)
         haenge_nachricht_an(run_dir, "model", antwort)
         analyst_prompt_log.log_call(
-            run_dir, call="chat", recipient="Gemini", model=modell,
-            system_prompt=SYSTEM_PROMPT, user_message=frage, output_raw=antwort,
-            # Der Analyse-Kontext geht als Gesprächs-Historie mit, nicht in der User-Message.
-            # Ihn hier voll zu loggen würde prompt_log.md mit jedem Turn erneut aufblähen —
-            # deshalb nur seine Größe, der Inhalt steht ohnehin in analysis.json.
+            run_dir, call="chat", recipient="Gemini", model=info.get("modell", ""),
+            system_prompt=system_fuer_log, user_message=frage, output_raw=antwort,
+            attachments=["Video"] if mit_video else [],
+            # Der Analyse-Kontext geht als Historie bzw. über den Cache mit, nicht in der
+            # User-Message. Ihn hier voll zu loggen würde prompt_log.md mit jedem Turn erneut
+            # aufblähen — deshalb nur seine Größe, der Inhalt steht ohnehin in analysis.json.
             inputs={
                 "verlauf_nachrichten": len(verlauf),
                 "kontext_zeichen": len(kontext),
-                "abgebrochen": abgebrochen,
+                "video_mitgeschickt": mit_video,
+                "cache_genutzt": info.get("cache_genutzt", False),
+                "cached_tokens": info.get("cached_tokens"),
+                "abgebrochen": info.get("abgebrochen", False),
             },
         )
         schreibe_verlauf_md(run_dir)
 
-    letzter_fehler = None
-    for modell in [gemini_service.GEMINI_MODEL] + gemini_service.GEMINI_FALLBACK_MODELS:
-        gesammelt: list[str] = []
-        try:
-            for chunk in gemini_service.client.models.generate_content_stream(
-                model=modell, contents=contents, config=cfg
-            ):
-                stueck = getattr(chunk, "text", None)
-                if stueck:
-                    gesammelt.append(stueck)
-                    yield stueck
-        except Exception as e:  # noqa: BLE001 — jeder Modellfehler soll das nächste Modell probieren
-            if gesammelt:
-                # Mitten im Stream abgebrochen: Ein Neustart auf einem anderen Modell würde dem
-                # Nutzer den Anfang ein zweites Mal in dieselbe Blase schreiben. Lieber das
-                # Teilstück behalten und aufhören — abgeschnitten ist besser als doppelt.
-                _abschliessen("".join(gesammelt), modell, abgebrochen=True)
-                return
-            letzter_fehler = e
+    # ---- Stufe 1: ohne Video, mit Anforderungs-Möglichkeit ----
+    system1 = chat_system_prompt(mit_video=False) + "\n\n" + ENTSCHEIDUNGS_REGEL
+    puffer: list[str] = []
+    entschieden = False
+    braucht_video = False
+
+    for stueck in _stream_mit_fallback(_contents(kontext, verlauf, frage), system1, info):
+        if entschieden:
+            gesammelt.append(stueck)
+            yield stueck
             continue
-        _abschliessen("".join(gesammelt), modell)
+        puffer.append(stueck)
+        angefangen = "".join(puffer).lstrip()
+        if len(angefangen) >= len(VIDEO_MARKER):
+            entschieden = True
+            braucht_video = angefangen.startswith(VIDEO_MARKER)
+            if braucht_video:
+                break
+            gesammelt.extend(puffer)
+            yield "".join(puffer)
+            puffer = []
+        elif not VIDEO_MARKER.startswith(angefangen):
+            # Kann kein Marker mehr werden (z.B. „Weil…") → freigeben und normal weiterlaufen
+            entschieden = True
+            gesammelt.extend(puffer)
+            yield "".join(puffer)
+            puffer = []
+
+    if not braucht_video:
+        if puffer:                       # sehr kurze Antwort, Puffer nie freigegeben
+            gesammelt.extend(puffer)
+            yield "".join(puffer)
+        _abschliessen(system1)
         return
 
-    raise RuntimeError(f"Gemini-Chat fehlgeschlagen: {letzter_fehler}")
+    # ---- Stufe 2: mit Video ----
+    try:
+        handle = hole_video_handle(run_dir)
+    except Exception as e:  # noqa: BLE001 — Datei weg, Upload fehlgeschlagen, Quota
+        print(f"  [CHAT] WARN: Video für {run_dir.name} nicht verfügbar: {e}")
+        hinweis = ("Dazu müsste ich mir das Video ansehen — die Datei zu diesem Lauf ist "
+                   "aber nicht mehr verfügbar. Frag mich gern etwas zur bestehenden Bewertung.")
+        gesammelt.append(hinweis)
+        yield hinweis
+        _abschliessen(system1)
+        return
+
+    mit_video = True
+    system2 = chat_system_prompt(mit_video=True)
+    cache_name = hole_cache(run_dir, system2, kontext, handle)
+
+    if cache_name:
+        # Systemprompt, Video und Kontext stecken im Cache → nur noch Verlauf und Frage senden.
+        contents2 = []
+        for n in verlauf[-MAX_VERLAUF:]:
+            rolle = "model" if n.get("rolle") == "model" else "user"
+            contents2.append({"role": rolle, "parts": [{"text": n.get("text", "")}]})
+        contents2.append({"role": "user", "parts": [{"text": frage}]})
+    else:
+        video_part = types.Part(
+            file_data=types.FileData(file_uri=handle.uri, mime_type=handle.mime_type)
+        )
+        contents2 = _contents(kontext, verlauf, frage, video_part)
+
+    for stueck in _stream_mit_fallback(contents2, system2, info, cache_name):
+        gesammelt.append(stueck)
+        yield stueck
+
+    _abschliessen(system2)

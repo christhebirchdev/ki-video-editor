@@ -523,9 +523,6 @@ function ChatPanel({ runId, filename, dauerSec = 0 }) {
   const [laeuft, setLaeuft] = useState(false);
   const [fehler, setFehler] = useState("");
   const [teilantwort, setTeilantwort] = useState("");
-  const [ausschnittOffen, setAusschnittOffen] = useState(false);
-  const [vonSec, setVonSec] = useState("0");
-  const [bisSec, setBisSec] = useState("");
   const endeRef = useRef(null);
   const feldRef = useRef(null);
 
@@ -598,63 +595,6 @@ function ChatPanel({ runId, filename, dauerSec = 0 }) {
       setTeilantwort("");
       setLaeuft(false);
     }
-  }
-
-  // Gemeinsamer Stream-Leser für Chat-Antwort und Ausschnitts-Analyse. Beide liefern
-  // text/plain Stück für Stück und landen im selben Verlauf — nur die URL und der Body
-  // unterscheiden sich.
-  async function streameUndAnhaengen(url, body, optimistischerText) {
-    setFehler("");
-    setNachrichten((n) => [...n, { rolle: "user", text: optimistischerText, ts: new Date().toISOString() }]);
-    setLaeuft(true);
-    setTeilantwort("");
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.detail || `HTTP ${res.status}`);
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let voll = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        voll += decoder.decode(value, { stream: true });
-        setTeilantwort(voll);
-      }
-      setNachrichten((n) => [...n, { rolle: "model", text: voll, ts: new Date().toISOString() }]);
-      try {
-        const frisch = await api("GET", `/api/analyst/${runId}/chat`);
-        if (frisch.nachrichten?.length) setNachrichten(frisch.nachrichten);
-      } catch (_) { /* Anzeige steht, ohne id fehlt nur die Bewertung */ }
-    } catch (e) {
-      setFehler(e.message);
-    } finally {
-      setTeilantwort("");
-      setLaeuft(false);
-    }
-  }
-
-  async function ausschnittAnalysieren() {
-    if (laeuft || !runId) return;
-    const von = parseFloat(vonSec);
-    const bis = parseFloat(bisSec);
-    if (!isFinite(von) || !isFinite(bis) || bis <= von) {
-      setFehler("Bitte einen gültigen Bereich angeben — das Ende muss nach dem Start liegen.");
-      return;
-    }
-    const auftrag = eingabe.trim();
-    setEingabe("");
-    await streameUndAnhaengen(
-      `/api/analyst/${runId}/chat/ausschnitt`,
-      { start_sec: von, end_sec: bis, frage: auftrag },
-      `[Ausschnitt ${von.toFixed(1)}–${bis.toFixed(1)} s] ${auftrag || "Analysiere diese Stelle."}`
-    );
   }
 
   function beiTaste(e) {
@@ -739,51 +679,12 @@ function ChatPanel({ runId, filename, dauerSec = 0 }) {
         <div ref={endeRef} />
       </div>
 
-      {/* Ausschnitts-Analyse: schaut das Video für ein Zeitfenster erneut an. Bewusst über
-          Von/Bis-Felder statt über Freitext-Erkennung — ein Modell, das aus dem Satz die
-          Absicht rät, löst irgendwann versehentlich einen teuren Video-Call aus. */}
-      <div className={"chat-ausschnitt" + (ausschnittOffen ? " ist-offen" : "")}>
-        <button
-          type="button"
-          className="chat-ausschnitt-schalter"
-          onClick={() => setAusschnittOffen((o) => !o)}
-          aria-expanded={ausschnittOffen}
-        >
-          <Ico.film width="14" height="14" />
-          Stelle im Video analysieren
-        </button>
-        {ausschnittOffen && (
-          <div className="chat-ausschnitt-felder">
-            <label>
-              von
-              <input type="number" min="0" step="0.5" value={vonSec}
-                     onChange={(e) => setVonSec(e.target.value)} disabled={laeuft} />
-            </label>
-            <label>
-              bis
-              <input type="number" min="0" step="0.5" value={bisSec}
-                     placeholder={dauerSec ? dauerSec.toFixed(1) : ""}
-                     onChange={(e) => setBisSec(e.target.value)} disabled={laeuft} />
-            </label>
-            <span className="chat-ausschnitt-einheit">Sek.</span>
-            <button type="button" className="chat-ausschnitt-start"
-                    onClick={ausschnittAnalysieren} disabled={laeuft}>
-              Analysieren
-            </button>
-            <div className="chat-ausschnitt-hinweis">
-              Nutzt dieselben Bewertungsregeln wie die Hauptanalyse. Ändert die Gesamtbewertung
-              nicht. Was im Feld unten steht, geht als Auftrag mit.
-            </div>
-          </div>
-        )}
-      </div>
-
       <div className="chat-eingabe">
         <textarea
           ref={feldRef}
           rows={1}
           value={eingabe}
-          placeholder={ausschnittOffen ? "Worauf sollen wir bei der Stelle achten? (optional)" : "Schreibe deine Nachricht…"}
+          placeholder={'Frag nach — z.B. „schau dir die Untertitel nochmal an"'}
           onChange={(e) => { setEingabe(e.target.value); autoResize(e.target); }}
           onKeyDown={beiTaste}
           disabled={laeuft}
@@ -820,6 +721,10 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   const [tick, setTick] = useState(0);                  // erzwingt zeitbasierte Neuberechnung der Balken
   const [videoUrl, setVideoUrl] = useState("");         // lokale Quelle für den Player
   const [videoFehler, setVideoFehler] = useState(false);// Format, das der Browser nicht abspielt
+  const [mini, setMini] = useState(false);              // Player schwebt mit beim Scrollen
+  const [miniAus, setMiniAus] = useState(false);        // vom Nutzer weggeklickt
+  const [slotHoehe, setSlotHoehe] = useState(0);        // hält den Platz, wenn der Player schwebt
+  const slotRef = useRef(null);
   const fileRef = useRef(null);
   const cancelledRef = useRef(false);
   const activePhaseRef = useRef("");                    // stale-freier Vergleich im Poll-Loop
@@ -917,6 +822,32 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   // Player erst nach der Analyse — vorher gibt es kein „analysiertes Video".
   const zeigePlayer = phase === "done" && !!videoUrl;
 
+  // Scrollt der Player aus dem Bild, wandert er als kleiner Schwebe-Player mit nach unten.
+  // Wichtig: Es ist DASSELBE <video>-Element, nur der Rahmen wechselt die Klasse. Würde man
+  // ein zweites rendern, würde die Wiedergabe beim Umschalten von vorn starten.
+  useEffect(() => {
+    if (!zeigePlayer) { setMini(false); setMiniAus(false); return; }
+    const el = slotRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const obs = new IntersectionObserver(
+      ([eintrag]) => {
+        if (!eintrag.isIntersecting && eintrag.boundingClientRect.top < 0) {
+          // Höhe festhalten, bevor der Rahmen aus dem Fluss geht — sonst springt die Seite.
+          setSlotHoehe(el.offsetHeight || 0);
+          setMini(true);
+        } else if (eintrag.isIntersecting) {
+          setMini(false);
+          setMiniAus(false);   // wieder oben: Schwebe-Player darf beim nächsten Mal erneut kommen
+        }
+      },
+      { threshold: 0 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [zeigePlayer]);
+
+  const schwebt = mini && !miniAus;
+
   return (
     <AdminCtx.Provider value={{ admin: !!adminPw, password: adminPw, runId }}>
       {error && (
@@ -927,8 +858,14 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       )}
 
       {/* Eingabe */}
-      <Card icon={<Ico.upload />} title="Video-Quelle" sub="Lade dein Video hoch">
-        <div className={"analyst-quelle" + (zeigePlayer ? " hat-player" : "")}>
+      <Card
+        icon={zeigePlayer ? <Ico.film /> : <Ico.upload />}
+        title={zeigePlayer ? "Analysiertes Video" : "Video-Quelle"}
+        sub={zeigePlayer ? (analysisFile?.name || "") : "Lade dein Video hoch"}
+      >
+        {/* Nach der Analyse verschwindet der Upload-Bereich komplett — es gibt nichts mehr
+            hochzuladen. Für einen neuen Durchlauf gibt es unten „Neue Analyse". */}
+        {!zeigePlayer && (
           <div className="analyst-quelle-eingabe">
             <input
               ref={fileRef}
@@ -958,31 +895,44 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
               </div>
             )}
           </div>
+        )}
 
-          {/* Player nach der Analyse. <video controls> bringt Abspielen, Pausieren, Scrubbing,
-              Lautstärke und Vollbild mit — inklusive Tastatur- und Screenreader-Bedienung. */}
-          {zeigePlayer && (
-            <div className="analyst-player">
-              <div className="analyst-player-titel">Analysiertes Video</div>
-              {videoFehler ? (
-                <div className="analyst-player-hinweis">
-                  Dieses Format kann der Browser nicht abspielen (z.B. MKV oder AVI).
-                  Die Analyse ist davon nicht betroffen.
-                </div>
-              ) : (
-                <div className="analyst-player-rahmen">
-                  <video
-                    src={videoUrl}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    onError={() => setVideoFehler(true)}
-                  />
-                </div>
-              )}
+        {/* Player nach der Analyse. <video controls> bringt Abspielen, Pausieren, Scrubbing,
+            Lautstärke und Vollbild mit — inklusive Tastatur- und Screenreader-Bedienung. */}
+        {zeigePlayer && (
+          videoFehler ? (
+            <div className="analyst-player-hinweis">
+              Dieses Format kann der Browser nicht abspielen (z.B. MKV oder AVI).
+              Die Analyse ist davon nicht betroffen.
             </div>
-          )}
-        </div>
+          ) : (
+            <div
+              className="analyst-player-slot"
+              ref={slotRef}
+              style={schwebt && slotHoehe ? { height: slotHoehe } : undefined}
+            >
+              <div className={"analyst-player-rahmen" + (schwebt ? " ist-mini" : "")}>
+                <video
+                  src={videoUrl}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  onError={() => setVideoFehler(true)}
+                />
+                {schwebt && (
+                  <button
+                    type="button"
+                    className="analyst-mini-zu"
+                    onClick={() => setMiniAus(true)}
+                    aria-label="Schwebenden Player ausblenden"
+                  >
+                    <Ico.x width="13" height="13" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        )}
       </Card>
 
       {/* Analyse-Umfang + Start-Button */}
