@@ -71,8 +71,13 @@ class QualityMetrics(BaseModel):
 # ---------- V2: schlanke Bewertung (Scores + 1-Satz-Begründungen) ----------
 
 class HookEval(BaseModel):
-    """Hook getrennt nach Sprech- und Text-Hook (4-Faktoren-Rubrik, 1–5)."""
-    sprech_hook_score: int = 0
+    """Hook getrennt nach Sprech- und Text-Hook (4-Faktoren-Rubrik, 1–5).
+
+    sprech_hook_score ist nullable: In einem Video ohne gesprochenes Wort gibt es keinen Sprech-Hook,
+    den man bewerten könnte. Eine 1 hieße „schlecht gemacht", null heißt „nicht bewertbar" — das ist
+    der Unterschied zwischen einem Mangel und einer Formatentscheidung (Feedback Run 08e908d7).
+    """
+    sprech_hook_score: Optional[int] = 0
     sprech_hook_grund: str = ""
     text_hook_vorhanden: bool = False
     text_hook_score: Optional[int] = None
@@ -95,8 +100,11 @@ class StrukturEval(BaseModel):
 
 
 class ScoreProbleme(BaseModel):
-    """Score 1–5 + nur stark auffällige Punkte (Frontend: Hover-Detail)."""
-    score: int = 0
+    """Score 1–5 + nur stark auffällige Punkte (Frontend: Hover-Detail).
+
+    score ist nullable — siehe HookEval: bei sprechqualitaet ohne gesprochenes Wort bedeutet null
+    „nicht bewertbar", nicht „schlecht". Das Frontend zeigt dafür „–"."""
+    score: Optional[int] = 0
     probleme: list[str] = Field(default_factory=list)
 
 

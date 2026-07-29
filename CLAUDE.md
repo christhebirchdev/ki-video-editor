@@ -49,13 +49,60 @@ Bildbeschreibung lokal lief. Beschreibung und Bewertung laufen heute beide über
 ### Was bewusst im Code steht statt im Prompt
 
 Diese Regeln haben als Prompt-Anweisung nachweislich nicht zuverlässig gegriffen. Sie zurück in den
-Prompt zu verschieben ist ein Rückschritt, kein Refactoring:
+Prompt zu verschieben ist ein Rückschritt, kein Refactoring.
 
-- `verteile_empfehlungen()` — Top-3-`action_steps` **strikt nach frühestem Zeitpunkt im Video**, Rest nach
-  `weitere_empfehlungen`. Gebündelt wird nur bei gleichem Label *und* gleicher Anweisung (Label allein
-  führte zu Fehlmerges).
+**Alle laufen in `analyst_eval.nachbearbeiten()`** — die eine Stelle, an der die Nachbearbeitung steht.
+Beide Engines (V1 und V2) rufen nur diese Funktion. Die Reihenfolge dort ist nicht beliebig: erst die
+Urteils-Korrekturen, dann die Eingriffe in `empfehlungen`, `verteile_empfehlungen()` zuletzt.
+
+- `erzwinge_nutzer_format()` — die Format-Auswahl des Nutzers überschreibt das Modell-Feld.
 - `bereinige_fremd_texthook()` — bei Reaction-Format ohne eigene Texthook: Score hart auf 0. Gemini
   unterscheidet eingebrannten Fremdtext visuell nicht vom eigenen Overlay.
+- `neutralisiere_stumme_scores()` — kein Transkript → `sprech_hook_score` und `sprechqualitaet.score`
+  auf `None` („nicht bewertbar"), nicht auf 0/1. Beide Felder sind deshalb `Optional[int]`, das
+  Frontend zeigt dafür „–". Ein stummes Format ist eine Entscheidung, kein Mangel (Feedback 08e908d7).
+- `entferne_bestaetigungen()` — Empfehlungen, die den Ist-Zustand bestätigen („die Pause unbedingt
+  behalten"), fliegen raus. Sie verbrannten regelmäßig einen der nur drei Top-Plätze (Feedback 10ff4193).
+  Die Phrasenliste ist bewusst eng: „Lass den Zuschauer raten" ist eine echte Handlung.
+- `erzwinge_anlauf_schnitt()` — `sprechbeginn_sec > 0.8` und Format ≠ Reaction → Schnitt-Empfehlung auf
+  Sekunde 0. Die Regel stand im Skill und feuerte nicht (Feedback a4fbb8ae, Sprechbeginn 0.98 s).
+- `verteile_empfehlungen()` — Top-3-`action_steps` **strikt nach frühestem Zeitpunkt im Video**, Rest nach
+  `weitere_empfehlungen`. Gebündelt wird nur bei gleichem Label *und* gleicher Anweisung (Label allein
+  führte zu Fehlmerges). **Bekannte Grenze:** Bei Sprechpausen greift die Bündelung faktisch nie, weil
+  das Modell pro Pause individuellen Freitext schreibt. Der geplante Fix ist ein eigenes Schema-Feld
+  `pausen_urteile` (siehe offene Punkte), nicht noch eine Prompt-Regel.
+
+**`PAUSE_THRESHOLD_SEC = 0.8` in `services/analyst_speech.py` nicht zurücksetzen.** Bei 0.5 s landeten
+regelmäßig Pausen von 0.5–0.6 s als Schnitt-Empfehlung im Output, die beim Zuschauen niemand wahrnimmt
+(Feedback 25b8b2f6 und 093dc5a7). Die Schwelle wird über `pausen_txt()` im Prompt mitgenannt — sonst rät
+das Modell an Stellen herum, die gar nicht gemeldet wurden.
+
+### Prompt-Kanon: jede Regel genau einmal
+
+Die Empfehlungs-Regeln standen dreimal fast wortgleich (Skill, V2-Override, JSON-Vertrag). Redundanz
+erzeugt Varianten im Output. Seit 2026-07-29 gilt:
+
+- Die **kanonische Fassung lebt im Skill** (`## Empfehlungen — die kanonische Regel`).
+- V2-Override und `OUTPUT_SCHEMA` **verweisen nur** darauf. Der Override enthält ausschließlich, was
+  V2-spezifisch ist (Video sichtbar, echte Zeitpunkte, Format-Ausnahmen).
+- Dasselbe gilt für die Texthook-Längenregel: nur im Skill, gilt für Bewertung *und* Vorschläge.
+- Tests in `tests/test_analyst.py` schlagen an, wenn eine Regel wieder doppelt auftaucht.
+
+**Untertitel vs. Texthook** wird am WORTLAUT entschieden, nicht an der Darstellung: Bildtext, der
+(nahezu) so im Transkript vorkommt, ist Untertitel — auch wenn er statisch stehen bleibt oder oben im
+Bild steht. Die alte Regel hing an „wechselt mit der Sprache" und versagte bei statischen
+Untertitel-Blöcken (Feedback 25b8b2f6). Greift auch das nicht, ist der nächste Schritt ein
+Nutzer-Auswahlfeld im Frontend — nicht noch eine Prompt-Runde.
+
+### Änderungen an der Nachbearbeitung gegen echte Läufe prüfen
+
+```
+python3 tools/replay_nachbearbeitung.py [run-id ...]
+```
+
+Schickt die gespeicherten rohen `empfehlungen` aus `analyst_runs/*/analysis.json` durch die aktuelle
+`nachbearbeiten()`-Kette und zeigt den Diff — ohne einen einzigen API-Call. Prompt-Änderungen lassen
+sich damit NICHT prüfen (dafür braucht es einen echten Lauf), alles danach schon.
 
 ---
 
@@ -72,7 +119,7 @@ Python-Dateien. `admin_password` ist absichtlich `""` (fail closed) und kommt au
 
 **`PROMPT_VERSION` in `services/analyst_eval.py` bei inhaltlichen Prompt-Änderungen hochzählen.**
 Der Wert wird an jedes gespeicherte Feedback gestempelt (`analyst_runs/<id>/feedback.jsonl`). Ohne
-Erhöhung ist altes Feedback später nicht von neuem unterscheidbar. Aktuell: `"2026-07-22"`.
+Erhöhung ist altes Feedback später nicht von neuem unterscheidbar. Aktuell: `"2026-07-29"`.
 
 **Die Determinismus-Zeilen in `services/whisper_service.py` nicht „aufräumen".** `temperature=0.0`,
 `condition_on_previous_text=False` und `beam_size=5` gehören zusammen und sind einzeln begründet
@@ -120,13 +167,13 @@ uvicorn main:app --host 127.0.0.1 --port 8001 --workers 1     # ohne --reload
 Ein Worker, weil die Analyst-Warteschlange ein prozess-lokaler Semaphore ist
 (`analyst_engine._SLOTS`). Mehrere Worker heben die Begrenzung faktisch auf.
 
-Tests für den Analyst: `venv/bin/python -m pytest tests/test_analyst.py -q` → 43 Tests.
+Tests für den Analyst: `venv/bin/python -m pytest tests/test_analyst.py -q` → 59 Tests.
 
 **`pytest` ohne Argument läuft derzeit nicht.** Es bricht schon beim Einsammeln ab (`Interrupted:
 1 error during collection`) und führt dann *keinen einzigen* Test aus — `tests/test_models.py` und
 `tests/test_services.py` importieren `TakeAnalysis` und `CutDecision`, die es seit Commit `a44ae5c`
 (2026-06-10) nicht mehr in `models/analysis.py` gibt. Reine Editor-Altlast, der Analyst ist nicht
-betroffen. Wichtig zu wissen, weil ein grünes „43/43" **nicht** heißt, dass die Suite läuft.
+betroffen. Wichtig zu wissen, weil ein grünes „59/59" **nicht** heißt, dass die Suite läuft.
 
 ---
 
@@ -174,6 +221,11 @@ im Code, angeblich tote `cut_engine_v2`). Doku altert, Code nicht.
 - Gemini-Analysedauer schwankt stark (35–177 s bei ~gleichem Video), Ursache vermutlich
   Rate-Limiting. Ungeklärt: Free- oder Paid-Tier des API-Keys.
 - Block B (Login pro Kunde, Kundenprofile, Verlaufs-Kontext) — nicht begonnen.
+- **Offene Feedback-Fixes** (aus der Auswertung vom 2026-07-29, von Chris noch auszuarbeiten):
+  `docs/offene-fixes-analyst.md` — P2 Redundanz-Check mit Schwelle, P4 `pausen_urteile` als Schema-Feld,
+  P10 Texthook-Empfehlung erzwingen wenn Score 0, P11 `performance_score` aus Funnel-Gewichten,
+  P12 Sprech-Hook-Redundanz in Gegenrichtung, P14 Framing/Untertitel-Qualität als Prüfpunkte,
+  P15 Feedback-Speicherung on-blur statt on-change.
 - `tests/test_models.py` und `tests/test_services.py` reparieren oder entfernen (siehe „Lokal
   starten"). Editor-Thema, blockiert aber die gesamte Testsuite.
 

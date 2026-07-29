@@ -24,7 +24,7 @@ from services import analyst_prompt_log
 # Version der Bewertungslogik (Skill + Schema + Nachbearbeitung). Wird an jedes gespeicherte
 # Feedback gestempelt: Feedback zu einer alten Prompt-Version ist für spätere Auswertungen sonst
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
-PROMPT_VERSION = "2026-07-22"
+PROMPT_VERSION = "2026-07-29"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -38,6 +38,7 @@ REFERENCE_PATH = SKILL_PATH.with_name("analyst_video_reference.md")
 from services.analyst_quality import (
     LOUDNESS_OPTIMAL_HIGH, LOUDNESS_OPTIMAL_LOW, LOUDNESS_TOO_QUIET,
 )
+from services.analyst_speech import PAUSE_THRESHOLD_SEC
 
 METRICS_GUIDE = (
     "Richtwerte (intern, Frames max 640px): Schärfe (Laplacian-Varianz) <50 unscharf, "
@@ -138,13 +139,133 @@ def erzwinge_nutzer_format(parsed: AnalystEvaluationV2, result: AnalystResult) -
     return parsed
 
 
+# Formulierungen, die den Ist-Zustand BESTÄTIGEN, statt eine Änderung zu verlangen. Das Modell legt
+# sie regelmäßig unter `empfehlungen` ab statt unter `staerken` und verbrennt damit einen der nur drei
+# Top-Plätze (Feedback Run 10ff4193: „handlungsempfehlungen sollen immer zur veränderung beitragen und
+# nicht das bestehende gut reden"; Run f0ea9f9a dasselbe). Bewusst eine enge Phrasenliste statt einer
+# allgemeinen „lassen/behalten"-Regel: „Lass den Zuschauer raten" ist eine echte Handlung.
+_BESTAETIGUNG = re.compile(
+    r"\bbeibehalten\b"
+    r"|\b(behalte|behalten|belassen)\b"
+    r"|\b(so|drin|dabei|stehen|unverändert)\s+lassen\b"
+    r"|\b(im|beim)\s+(video|schnitt|schnittprogramm|bild)\s+lassen\b"
+    r"|\bbestehen\s+lassen\b"
+    r"|\bnicht\s+(raus)?schneiden\b"
+    r"|\bnicht\s+(ändern|verändern|anfassen|entfernen|kürzen)\b",
+    re.IGNORECASE,
+)
+
+
+def entferne_bestaetigungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Empfehlungen ohne Handlung rauswerfen. Lieber zwei echte Schritte als drei mit einem Füller."""
+    if parsed.empfehlungen:
+        parsed.empfehlungen = [
+            e for e in parsed.empfehlungen if not _BESTAETIGUNG.search(e.anweisung or "")
+        ]
+    return parsed
+
+
+# Ab wann der Start als „Anlauf" gilt: Atmen, Einrichten, Denkpause vor dem ersten Wort.
+ANLAUF_SCHWELLE_SEC = 0.8
+
+ANLAUF_HINWEIS = (
+    "Schneide den Anlauf am Anfang weg — dein erstes Wort kommt erst bei Sekunde {sek}. "
+    "Lass das Video direkt mit dem gesprochenen Satz starten, damit die Hook sofort sitzt."
+)
+
+
+def erzwinge_anlauf_schnitt(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
+    """Verzögerter Sprechbeginn → Schnitt-Empfehlung auf Sekunde 0 erzwingen.
+
+    Warum im Code: Die Regel steht seit Langem im Skill („Hook-Start"), feuerte aber nicht
+    zuverlässig (Feedback Run a4fbb8ae, sprechbeginn 0.98s: „die sprechpause am anfang wurde nicht
+    empfohlen rauszuschneiden. das hätte ich mir hier gewünscht."). Der Messwert liegt vor und das
+    Urteil ist eindeutig — damit ist es Arithmetik, kein Urteil, und gehört hierher.
+
+    Bei Reaction NICHT: Dort misst `sprechbeginn_sec` das eingeblendete Fremdvideo, und die
+    Übergangspause davor trägt den Formatwechsel.
+    """
+    stats = getattr(result, "speech_stats", None)
+    if not stats:
+        return parsed
+    beginn = getattr(stats, "sprechbeginn_sec", 0.0) or 0.0
+    ist_reaction = (getattr(result, "gewaehltes_format", "") or "").strip().lower() == "reaction"
+    schon_da = any((e.gruppe or "").strip().lower() == "anlauf" for e in parsed.empfehlungen)
+    if beginn <= ANLAUF_SCHWELLE_SEC or ist_reaction or schon_da:
+        return parsed
+    parsed.empfehlungen.insert(0, Empfehlung(
+        zeitpunkt_sek=0.0, gruppe="anlauf",
+        # :g statt round(): „Sekunde 1" statt „Sekunde 1.0", aber „Sekunde 1,4" bleibt genau.
+        anweisung=ANLAUF_HINWEIS.format(sek=f"{round(beginn, 1):g}"),
+    ))
+    return parsed
+
+
+STUMM_HINWEIS = (
+    "In diesem Video wird nicht gesprochen. Das ist eine Entscheidung fürs Format und kein Fehler — "
+    "der Sprech-Hook wird deshalb nicht bewertet."
+)
+
+
+def neutralisiere_stumme_scores(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
+    """Kein gesprochenes Wort → Sprech-Hook und Sprechqualität auf „nicht bewertbar" (null).
+
+    Vorher gab es dafür 1/5 bzw. 0/5 plus den Tipp „sprich trotz des stummen Formats einen Satz ein"
+    (Run 08e908d7). Chris: „wenn es gar kein gesprochenes wort gibt, ist das ein zeichen dafür, dass
+    auch kein gesprochenes wort sinn und zweck war." Eine 1 heißt „schlecht gemacht", null heißt
+    „gab es nicht" — nur das Zweite stimmt hier.
+    """
+    if (result.transcript or "").strip() or getattr(result, "speech_stats", None):
+        return parsed
+    parsed.hook.sprech_hook_score = None
+    parsed.hook.sprech_hook_grund = STUMM_HINWEIS
+    parsed.sprechqualitaet.score = None
+    parsed.sprechqualitaet.probleme = []
+    return parsed
+
+
+def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
+    """Alle deterministischen Korrekturen in fester Reihenfolge — die eine Stelle, an der sie stehen.
+
+    Reihenfolge ist nicht beliebig: erst die Urteils-Korrekturen (Format, Texthook, stumme Scores),
+    dann die Eingriffe in `empfehlungen` (filtern, ergänzen), und `verteile_empfehlungen` als
+    Letztes — es liest die fertige Liste und schneidet die Top 3 ab.
+    """
+    parsed = erzwinge_nutzer_format(parsed, result)
+    parsed = bereinige_fremd_texthook(parsed, result)
+    parsed = neutralisiere_stumme_scores(parsed, result)
+    parsed = entferne_bestaetigungen(parsed)
+    parsed = erzwinge_anlauf_schnitt(parsed, result)
+    return verteile_empfehlungen(parsed)
+
+
 def pausen_txt(stats) -> str:
     """Pausen MIT Position rendern. Ohne Position kann das Modell eine gemessene Dauer
-    keiner Stelle zuordnen — es fusioniert dann Zahl und Ort zu einer erfundenen Behauptung."""
+    keiner Stelle zuordnen — es fusioniert dann Zahl und Ort zu einer erfundenen Behauptung.
+
+    Die Schwelle wird mitgenannt, damit das Modell weiß, dass kürzere Lücken bewusst gar nicht
+    gemeldet werden — sonst rät es an Stellen herum, die nicht in der Liste stehen.
+    """
     pausen = getattr(stats, "pausen", None) or []
     if not pausen:
-        return "keine Pausen >0.5s gemessen"
-    return " | ".join(f"{p.dauer_sec}s @ {p.start_sec}–{p.end_sec}s" for p in pausen)
+        return f"keine Pausen >{PAUSE_THRESHOLD_SEC}s gemessen (Messschwelle: {PAUSE_THRESHOLD_SEC}s)"
+    return (
+        " | ".join(f"{p.dauer_sec}s @ {p.start_sec}–{p.end_sec}s" for p in pausen)
+        + f"  (Messschwelle: {PAUSE_THRESHOLD_SEC}s — kürzere Lücken werden bewusst nicht gemeldet)"
+    )
+
+def stats_txt(stats) -> str:
+    """Sprachstatistik für den Prompt. EINE Fassung für V1 und V2 — die beiden Renderings standen
+    vorher wortgleich in analyst_eval und analyst_gemini_eval und liefen bei jeder Änderung auseinander."""
+    if not stats:
+        return "Keine Sprache erkannt."
+    return (
+        f"{stats.wort_anzahl} Wörter, {stats.wpm} WPM, {stats.filler_count} Füllwörter, "
+        f"{stats.pausen_count} Pausen >{PAUSE_THRESHOLD_SEC}s, "
+        f"Sprechbeginn bei {getattr(stats, 'sprechbeginn_sec', 0.0)}s\n"
+        f"PAUSEN (Position im Video): {pausen_txt(stats)}"
+    )
+
 
 OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese Felder, nichts davor/danach:
 {
@@ -154,10 +275,10 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "performance_score": <int 0-100>,
   "funnel": "<TOFU | MOFU | BOFU | Mischung>",
   "hook": {
-    "sprech_hook_score": <int 1-5>,
+    "sprech_hook_score": <int 1-5, oder null wenn im Video niemand spricht — siehe „Videos ohne gesprochenes Wort">,
     "sprech_hook_grund": "<1-2 Sätze>",
     "text_hook_vorhanden": <true|false>,
-    "text_hook_score": <int 0-5; 0 wenn keine statische Text-Hook vorhanden (nur Untertitel zählen nicht)>,
+    "text_hook_score": <int 0-5; 0 wenn in der Eröffnung kein nicht-gesprochener Bildtext zu sehen ist (Untertitel zählen nie)>,
     "text_hook_grund": "<1-2 Sätze; bei score 0 die Ansage + Tipp (3 Varianten über Instagram-Testreel testen)>"
   },
   "struktur": {
@@ -165,19 +286,17 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
     "elemente": {"hook": <bool>, "bridge": <bool>, "mid": <bool>, "peak": <bool>, "cta": <bool>},
     "kommentar": "<1-2 Sätze>"
   },
-  "sprechqualitaet": {"score": <int 1-5>, "probleme": ["<nur stark Auffälliges, je 1-2 Sätze, sonst []>"]},
+  "sprechqualitaet": {"score": <int 1-5, oder null wenn niemand spricht>, "probleme": ["<nur stark Auffälliges, je 1-2 Sätze, sonst []>"]},
   "schnitt_pacing": {"score": <int 1-5>, "kommentar": "<1-2 Sätze, format-bewusst>"},
   "spannungsbogen": {"score": <int 1-5>, "kommentar": "<1-2 Sätze>"},
   "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur Auffälliges, je 1-2 Sätze, sonst []>"]},
   "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],
   "top_tipps": ["<3-5 wichtigste Hebel, je 1-2 Sätze, nach Wirkung priorisiert>"],
-  "empfehlungen": [{"zeitpunkt_sek": <float: die Sekunde im Video, auf die sich die Handlung bezieht — Richtwert, ±1–2 s>, "anweisung": "<EINE konkrete Handlung in SUPER EINFACHER Sprache, kein Fachjargon; wenn eine Einblendung: sag ob VOLLBILD oder KLEINE Einblendung im laufenden Bild, z.B. Woosh-Sound für 2s einfügen / kleine Einblendung mit Foto vom Hof / hier schneiden>", "gruppe": "<Label NUR für die WÖRTLICH GLEICHE Handlung an mehreren Stellen — z.B. dieselbe Sprechpause bei Sek. 3, 15, 24. Dann allen Einträgen dasselbe Label UND denselben anweisung-Text geben; sie werden zu EINEM Schritt. KEINE Kategorie: verschiedene Einblendungen (Gehirn-Symbol vs. Telefon vs. Folgen-Knopf) sind NICHT dieselbe Handlung → jeweils EIGENES Label, auch wenn alle 'Einblendung' sind. Im Zweifel eigenes Label.>"}]
+  "empfehlungen": [{"zeitpunkt_sek": <float: die Sekunde im Video, auf die sich die Handlung bezieht — Richtwert, ±1–2 s>, "anweisung": "<EINE konkrete Handlung, die etwas VERÄNDERT, in SUPER EINFACHER Sprache>", "gruppe": "<Label nur für die WÖRTLICH GLEICHE Handlung an mehreren Stellen, sonst leer>"}]
 }
 
-REGELN empfehlungen: EINE flache Liste mit ALLEN Empfehlungen (3–10), in beliebiger Reihenfolge.
-Sortieren, Auswählen und Zusammenfassen übernimmt das System — mach das NICHT selbst und teile die
-Liste nicht auf. Deine einzige Aufgabe dabei: `zeitpunkt_sek` als Zahl setzen und über `gruppe` sagen,
-welche Einträge dieselbe Handlung an verschiedenen Stellen sind.
+Inhaltliche Regeln zu `empfehlungen` stehen im Abschnitt „Empfehlungen — die kanonische Regel" oben
+und gelten unverändert; hier steht nur das Datenformat.
 staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Ergebnis zuerst."""
 
 
@@ -278,14 +397,6 @@ def build_user_message(result: AnalystResult) -> str:
             if _gaze_away else "Blick überwiegend in die Kamera (Hinweis: nur grobe Szenen-Schätzung, kein dedizierter Blick-Pass)."
         )
 
-    stats = result.speech_stats
-    stats_txt = (
-        f"{stats.wort_anzahl} Wörter, {stats.wpm} WPM, {stats.filler_count} Füllwörter, "
-        f"{stats.pausen_count} Pausen >0.5s, Sprechbeginn bei {getattr(stats, 'sprechbeginn_sec', 0.0)}s\n"
-        f"PAUSEN (Position im Video): {pausen_txt(stats)}"
-        if stats else "Keine Sprache erkannt."
-    )
-
     qm = result.quality_metrics
     if qm:
         audio_txt = (
@@ -309,7 +420,7 @@ def build_user_message(result: AnalystResult) -> str:
         f"TEXT-HOOK-KANDIDAT (Overlay der Eröffnung): {text_hook}\n\n"
         f"BLICKKONTAKT (ganzes Video, dedizierter Gemini-Pass): {blick_txt}\n\n"
         f"TRANSKRIPT:\n{result.transcript or '(leer)'}\n\n"
-        f"SPRACHSTATISTIK: {stats_txt}\n\n"
+        f"SPRACHSTATISTIK: {stats_txt(result.speech_stats)}\n\n"
         f"MESSWERTE (intern, NICHT im Output nennen):\n{metrics_txt}"
     )
 
@@ -331,11 +442,7 @@ def evaluate(result: AnalystResult, run_dir=None) -> AnalystEvaluationV2:
         messages=[{"role": "user", "content": user}],
     )
     raw = msg.content[0].text
-    parsed = verteile_empfehlungen(
-        bereinige_fremd_texthook(
-            erzwinge_nutzer_format(AnalystEvaluationV2(**_extract_json(raw)), result), result
-        )
-    )
+    parsed = nachbearbeiten(AnalystEvaluationV2(**_extract_json(raw)), result)
     analyst_prompt_log.log_call(
         run_dir, call="eval_v1", recipient="Claude", model=settings.claude_model,
         system_prompt=system, user_message=user, output_raw=raw, output_parsed=parsed,

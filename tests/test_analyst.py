@@ -18,11 +18,25 @@ def test_speech_stats_empty():
 
 
 def test_speech_stats_fillers_und_pausen():
-    words = [_w("Hallo", 0.0, 0.4), _w("ähm", 0.5, 0.8), _w("Welt", 1.5, 1.9), _w("heute", 2.0, 2.4)]
+    words = [_w("Hallo", 0.0, 0.4), _w("ähm", 0.5, 0.8), _w("Welt", 1.9, 2.3), _w("heute", 2.4, 2.8)]
     st = compute_speech_stats(words)
     assert st.wort_anzahl == 4
     assert st.filler_count == 1 and st.filler_words == ["ähm"]
-    assert st.pausen_count == 1 and st.laengste_pause_sec == pytest.approx(0.7)
+    assert st.pausen_count == 1 and st.laengste_pause_sec == pytest.approx(1.1)
+
+
+def test_kurze_luecken_werden_nicht_als_pause_gemeldet():
+    """P5: Lücken unter 0.8s nimmt der Zuschauer nicht wahr — sie dürfen keine Schnitt-Empfehlung
+    auslösen. Vorher lag die Schwelle bei 0.5s; Chris zu Run 25b8b2f6: „die sprechpause bei sek 3
+    und sek 7 in ordnung. das hätte ich nicht als handlungsempfehlung gegeben.\""""
+    from services.analyst_speech import PAUSE_THRESHOLD_SEC
+    assert PAUSE_THRESHOLD_SEC == 0.8
+    # 0.7s Lücke = früher gemeldet, heute nicht mehr
+    st = compute_speech_stats([_w("a", 0.0, 1.0), _w("b", 1.7, 2.0)])
+    assert st.pausen_count == 0 and st.pausen == []
+    # 0.9s Lücke = weiterhin gemeldet
+    st2 = compute_speech_stats([_w("a", 0.0, 1.0), _w("b", 1.9, 2.2)])
+    assert st2.pausen_count == 1
 
 
 def test_speech_stats_no_pause_no_filler():
@@ -33,21 +47,25 @@ def test_speech_stats_no_pause_no_filler():
 def test_speech_stats_pausen_behalten_ihre_position():
     """Regression: Die Position der Pause darf nicht wegaggregiert werden — ohne sie
     ordnet das Modell die gemessene Dauer einer geratenen Stelle zu (Run a2808a62)."""
-    words = [_w("a", 0.0, 1.0), _w("b", 4.1, 4.5), _w("c", 5.2, 5.6)]
+    words = [_w("a", 0.0, 1.0), _w("b", 4.1, 4.5), _w("c", 5.6, 6.0)]
     st = compute_speech_stats(words)
     assert st.pausen_count == 2
     assert [(p.start_sec, p.end_sec, p.dauer_sec) for p in st.pausen] == [
         (1.0, 4.1, 3.1),   # die lange Pause ist bei Sek. 1–4.1, nicht "irgendwo"
-        (4.5, 5.2, 0.7),
+        (4.5, 5.6, 1.1),
     ]
     assert st.laengste_pause_sec == pytest.approx(3.1)
 
 
-def test_pausen_txt_rendert_position_in_den_prompt():
+def test_pausen_txt_rendert_position_und_schwelle_in_den_prompt():
     from services.analyst_eval import pausen_txt
     st = compute_speech_stats([_w("a", 0.0, 1.0), _w("b", 4.1, 4.5)])
-    assert pausen_txt(st) == "3.1s @ 1.0–4.1s"
-    assert pausen_txt(compute_speech_stats([_w("a", 0.0, 0.3), _w("b", 0.4, 0.7)])) == "keine Pausen >0.5s gemessen"
+    assert pausen_txt(st).startswith("3.1s @ 1.0–4.1s")
+    # Die Schwelle muss im Prompt stehen, sonst rät das Modell an Stellen herum, die gar nicht
+    # gemeldet wurden ("da war doch bestimmt eine Pause").
+    assert "Messschwelle: 0.8s" in pausen_txt(st)
+    leer = pausen_txt(compute_speech_stats([_w("a", 0.0, 0.3), _w("b", 0.4, 0.7)]))
+    assert "keine Pausen >0.8s gemessen" in leer
 
 
 # ---------- Format-Auswahl (Befund 0: bindend statt Modell-Rateversuch) ----------
@@ -208,6 +226,188 @@ def test_altes_schema_ohne_empfehlungen_bleibt_unveraendert():
         action_steps=[{"zeitpunkt": "0:03", "anweisung": "alt"}]
     ))
     assert [s.anweisung for s in ev.action_steps] == ["alt"]
+
+
+# ---------- P3: Empfehlungen müssen etwas verändern ----------
+
+def test_bestaetigungen_fliegen_aus_den_empfehlungen():
+    """Feedback Run 10ff4193: „handlungsempfehlungen sollen immer zur veränderung beitragen und nicht
+    das bestehende gut reden." Die Sätze unten sind wörtlich aus echten Läufen."""
+    from services.analyst_eval import entferne_bestaetigungen
+    ev = entferne_bestaetigungen(_ev(
+        (30.0, "Die Atempause bei Sekunde 30 ist dramaturgisch super – diese Pause unbedingt im Schnitt behalten.", ""),
+        (18.0, "Die Sprechpause von einer halben Sekunde bewusst im Video lassen, damit die Botschaft wirkt.", ""),
+        (3.0, "Schneide den Versprecher raus.", ""),
+    ))
+    assert [e.zeitpunkt_sek for e in ev.empfehlungen] == [3.0]
+
+
+def test_filter_trifft_keine_echten_handlungen():
+    """Gegenprobe: Der Filter darf keine Handlung wegwerfen, nur weil „lassen" darin vorkommt."""
+    from services.analyst_eval import entferne_bestaetigungen
+    ev = entferne_bestaetigungen(_ev(
+        (2.0, "Lass den Zuschauer hier einen Moment raten, bevor du auflöst.", ""),
+        (5.0, "Blende eine Grafik ein, die das Wort Vertrauen verstärkt.", ""),
+        (9.0, "Kürze die lange Pause auf eine halbe Sekunde.", ""),
+    ))
+    assert len(ev.empfehlungen) == 3
+
+
+# ---------- P6: Anlauf am Anfang wegschneiden (Messwert statt Prompt-Bitte) ----------
+
+def _stats(sprechbeginn):
+    from models.analyst import SpeechStats
+    return SpeechStats(wort_anzahl=10, sprech_dauer_sec=20.0, wpm=120.0, filler_count=0,
+                       filler_words=[], pausen_count=0, laengste_pause_sec=0.0,
+                       sprechbeginn_sec=sprechbeginn)
+
+
+def test_verzoegerter_sprechbeginn_erzwingt_anlauf_schnitt():
+    """Feedback Run a4fbb8ae (sprechbeginn 0.98s): „die sprechpause am anfang wurde nicht empfohlen
+    rauszuschneiden. das hätte ich mir hier gewünscht." Regel stand im Skill, feuerte nicht."""
+    from services.analyst_eval import erzwinge_anlauf_schnitt
+    ev = erzwinge_anlauf_schnitt(_ev((23.0, "Foto einblenden", "foto")),
+                                 _result(gewaehltes_format="Talking Head", speech_stats=_stats(0.98)))
+    assert ev.empfehlungen[0].zeitpunkt_sek == 0.0
+    assert ev.empfehlungen[0].gruppe == "anlauf" and "Sekunde 1." in ev.empfehlungen[0].anweisung
+
+
+def test_reaction_bekommt_keinen_anlauf_schnitt():
+    """Bei Reaction misst sprechbeginn das Fremdvideo — die Übergangspause trägt den Formatwechsel."""
+    from services.analyst_eval import erzwinge_anlauf_schnitt
+    ev = erzwinge_anlauf_schnitt(_ev((23.0, "Foto einblenden", "foto")),
+                                 _result(gewaehltes_format="Reaction", speech_stats=_stats(18.0)))
+    assert all(e.gruppe != "anlauf" for e in ev.empfehlungen)
+
+
+def test_sofortiger_sprechbeginn_erzwingt_nichts():
+    from services.analyst_eval import erzwinge_anlauf_schnitt
+    ev = erzwinge_anlauf_schnitt(_ev((23.0, "Foto einblenden", "foto")),
+                                 _result(gewaehltes_format="Talking Head", speech_stats=_stats(0.2)))
+    assert len(ev.empfehlungen) == 1
+
+
+# ---------- P9: Videos ohne gesprochenes Wort ----------
+
+def test_stummes_video_bekommt_keine_sprech_scores():
+    """Feedback Run 08e908d7: sprech_hook 1/5 und sprechqualitaet 1/5 für ein Video, in dem bewusst
+    nicht gesprochen wird. null heißt „nicht bewertbar", 1 hieße „schlecht gemacht"."""
+    from models.analyst import AnalystEvaluationV2, HookEval, ScoreProbleme
+    from services.analyst_eval import neutralisiere_stumme_scores
+    ev = neutralisiere_stumme_scores(
+        AnalystEvaluationV2(hook=HookEval(sprech_hook_score=1, sprech_hook_grund="Kein Text gesprochen."),
+                            sprechqualitaet=ScoreProbleme(score=1, probleme=["Kein Ton."])),
+        _result(transcript="", speech_stats=None),
+    )
+    assert ev.hook.sprech_hook_score is None and ev.sprechqualitaet.score is None
+    assert ev.sprechqualitaet.probleme == [] and "kein Fehler" in ev.hook.sprech_hook_grund
+
+
+def test_video_mit_sprache_behaelt_seine_scores():
+    from models.analyst import AnalystEvaluationV2, HookEval, ScoreProbleme
+    from services.analyst_eval import neutralisiere_stumme_scores
+    ev = neutralisiere_stumme_scores(
+        AnalystEvaluationV2(hook=HookEval(sprech_hook_score=4), sprechqualitaet=ScoreProbleme(score=3)),
+        _result(transcript="Hallo Welt", speech_stats=_stats(0.1)),
+    )
+    assert ev.hook.sprech_hook_score == 4 and ev.sprechqualitaet.score == 3
+
+
+# ---------- Nachbearbeitung als Kette ----------
+
+def test_nachbearbeiten_laeuft_in_der_richtigen_reihenfolge():
+    """Integration: Bestätigung fliegt raus, Anlauf kommt rein, und erst danach wird sortiert —
+    sonst landet der erzwungene Schritt nicht auf Platz 1."""
+    from services.analyst_eval import nachbearbeiten
+    ev = nachbearbeiten(
+        _ev((30.0, "Die Pause unbedingt behalten.", ""),
+            (12.0, "Blende ein Foto ein.", "foto"),
+            (40.0, "Kürze das Ende.", "ende")),
+        _result(gewaehltes_format="Talking Head", speech_stats=_stats(1.4)),
+    )
+    assert ev.action_steps[0].zeitpunkt == "ca. Sek. 0"        # Anlauf zuerst
+    assert "Anlauf" in ev.action_steps[0].anweisung
+    assert len(ev.action_steps) == 3 and ev.weitere_empfehlungen == []
+    assert all("behalten" not in s.anweisung for s in ev.action_steps)
+
+
+# ---------- Prompt-Regeln: vorhanden, eindeutig, nicht doppelt ----------
+
+def test_untertitel_regel_entscheidet_am_wortlaut_nicht_an_der_darstellung():
+    """P1, Feedback Run 25b8b2f6: Statische Untertitel-Blöcke wurden als Texthook bewertet. Die alte
+    Regel hing an „wechselt mit der Sprache" — genau das Merkmal fehlte dort."""
+    from services.analyst_eval import load_skill_body
+    skill = load_skill_body()
+    assert "Kommt ein Bildtext (nahezu) genauso im TRANSKRIPT vor, sind das UNTERTITEL" in skill
+    assert "Untertitel müssen\nweder wechseln noch unten stehen" in skill
+    # Untertitel dürfen nie Auslöser einer Texthook-Empfehlung sein
+    assert "NIE zum Gegenstand einer\nTexthook-Empfehlung" in skill
+    # die alte, zu enge Definition ist raus
+    assert "wechselt mit der Sprache" not in skill
+    assert "wechselnde Zeile in der unteren Bildhälfte" not in skill
+
+
+def test_texthook_laengenregel_gilt_auch_fuer_die_bewertung():
+    """P13: Die 9-Wörter-Regel galt nur für Vorschläge. Chris zu Run 25b8b2f6: „die texthook oben ist
+    etwas zu lang. sie sollte im besten fall nie länger als 7-9 wörter sein.\""""
+    from services.analyst_eval import load_skill_body
+    skill = load_skill_body()
+    assert "gilt für die BEWERTUNG der vorhandenen genauso wie für jeden VORSCHLAG" in skill
+    assert "höchstens text_hook_score 3" in skill
+
+
+def test_laengenregel_steht_nur_einmal():
+    """Prompt-Hygiene: Die Regel stand zusätzlich als „HARTE REGEL Texthook-Länge" im V2-Override.
+    Zwei Fassungen derselben Regel driften auseinander und erzeugen Varianten im Output."""
+    from services.analyst_eval import load_skill_body
+    from services.analyst_gemini_eval import _user_message
+    override = _user_message(_result(gewaehltes_format="Talking Head"), "hybrid")
+    assert "HARTE REGEL Texthook-Länge" not in override
+    assert load_skill_body().count("LÄNGE der Text-Hook") == 1
+
+
+def test_reaction_blick_auf_laptop_ist_kein_ablesen():
+    """P7, Feedback Run 093dc5a7: „er schaut sich das fremdvideo am laptop an" — der Pflicht-Blickcheck
+    hatte keine Reaction-Ausnahme und überschrieb die anderen Reaction-Regeln."""
+    from services.analyst_gemini_eval import _user_message
+    txt = _user_message(_result(gewaehltes_format="Reaction"), "hybrid")
+    assert "Laptop, Handy oder einen zweiten Bildschirm" in txt and "FUNKTIONAL" in txt
+    assert "Die unten stehende Blickkontakt-Pflicht gilt hier NUR" in txt
+    # Talking Head behält den Pflicht-Check ohne Ausnahme
+    th = _user_message(_result(gewaehltes_format="Talking Head"), "hybrid")
+    assert "PFLICHT Blickkontakt" in th and "FUNKTIONAL" not in th
+
+
+def test_einblendungen_geben_den_zweck_vor_nicht_das_motiv():
+    """P8, Feedback Run 093dc5a7: „ich verbinde selbstbewusstsein nicht mit einem gehirn symbol"."""
+    from services.analyst_eval import load_skill_body
+    skill = load_skill_body()
+    assert "den ZWECK vorgeben, nicht das Motiv" in skill
+    assert "bis zu 3 Motiv-Optionen" in skill
+
+
+def test_empfehlungsregeln_stehen_nur_an_einer_stelle():
+    """Prompt-Hygiene: Die Empfehlungs-Regeln standen 3× fast wortgleich (Skill, V2-Override,
+    JSON-Vertrag). Redundanz erzeugt Varianten — die kanonische Fassung lebt jetzt im Skill."""
+    from services.analyst_eval import OUTPUT_SCHEMA, load_skill_body
+    from services.analyst_gemini_eval import _user_message
+    skill = load_skill_body()
+    override = _user_message(_result(gewaehltes_format="Talking Head"), "hybrid")
+    assert "Empfehlungen — die kanonische Regel" in skill
+    # Override und Schema verweisen nur noch
+    assert "kanonische Regel" in override and "kanonische Regel" in OUTPUT_SCHEMA
+    for wiederholung in ("KEINE Kategorie", "Im Zweifel eigenes Label", "Sortieren, Priorisieren"):
+        assert wiederholung not in override, f"{wiederholung!r} steht doppelt im Override"
+
+
+def test_stumme_videos_regel_ersetzt_die_alte_score_0_regel():
+    """P9: Die alte Zeile „Keine Sprache erkannt → score 0" hat den Fehler selbst produziert."""
+    from services.analyst_eval import OUTPUT_SCHEMA, load_skill_body
+    skill = load_skill_body()
+    assert "## Videos ohne gesprochenes Wort" in skill
+    assert "Keine Sprache erkannt → score 0" not in skill
+    assert "Empfiehl NICHT,\netwas einzusprechen" in skill
+    assert "oder null wenn im Video niemand spricht" in OUTPUT_SCHEMA
 
 
 # ---------- Lautheit: empirischer Bereich statt geratenem Richtwert ----------

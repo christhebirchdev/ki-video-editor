@@ -376,7 +376,9 @@ function ScoreChip({ label, score, detail }) {
         )}
       </div>
       <div className="sc-row">
-        <RatingDots value={score || 0} />
+        {/* score === null heißt "nicht bewertbar" (z.B. Sprech-Hook in einem Video ohne Sprache).
+            Dann gar keine Punkte zeigen — 0 von 5 gefüllten Punkten liest sich wie eine 0-Wertung. */}
+        {score != null && <RatingDots value={score} />}
         <span className="sc-num">{score != null ? `${score}/5` : "–"}</span>
       </div>
     </div>

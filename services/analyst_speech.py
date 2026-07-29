@@ -5,7 +5,11 @@ from models.analysis import WhisperWord
 from models.analyst import Pause, SpeechStats
 from services.claude_service import _is_filler
 
-PAUSE_THRESHOLD_SEC = 0.5
+# Ab wann eine Sprechlücke überhaupt als Pause gemeldet wird. War 0.5s — damit landeten regelmäßig
+# Pausen von 0.5–0.6s als Schnitt-Empfehlung im Output, die der Nutzer beim Zuschauen gar nicht
+# wahrnimmt (Feedback Runs 25b8b2f6 „sek 3 und sek 7 in ordnung" und 093dc5a7 „nehme ich persönlich
+# keine sprechpause wahr"). Unterhalb dieser Schwelle ist eine Lücke Atmen, kein Loch.
+PAUSE_THRESHOLD_SEC = 0.8
 
 
 def compute_speech_stats(words: list[WhisperWord]) -> Optional[SpeechStats]:

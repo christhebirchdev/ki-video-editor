@@ -24,17 +24,6 @@ from services import analyst_eval, analyst_prompt_log, analyst_vlm, gemini_servi
 from services.analyst_vlm import _generate  # generate_content mit Modell-Fallback
 
 
-def _stats_txt(result: AnalystResult) -> str:
-    s = result.speech_stats
-    if not s:
-        return "Keine Sprache erkannt."
-    return (
-        f"{s.wort_anzahl} Wörter, {s.wpm} WPM, {s.filler_count} Füllwörter, "
-        f"{s.pausen_count} Pausen >0.5s, Sprechbeginn bei {getattr(s, 'sprechbeginn_sec', 0.0)}s\n"
-        f"PAUSEN (Position im Video): {analyst_eval.pausen_txt(s)}"
-    )
-
-
 def _metrics_txt(result: AnalystResult) -> str:
     qm = result.quality_metrics
     if not qm:
@@ -107,6 +96,11 @@ def _format_instruction(result: AnalystResult) -> str:
             "- Ist der Einstieg des Fremdvideos laut, schrill oder lustig, ist das eine Eigenschaft des "
             "ZITIERTEN Materials. Es darf in staerken/probleme auftauchen, aber nicht als Leistung oder "
             "Schwäche des Protagonisten.\n"
+            "- BLICK: Dass er auf Laptop, Handy oder einen zweiten Bildschirm schaut, ist im Reaction-Format "
+            "FUNKTIONAL — dort läuft das Video, auf das er reagiert. Das ist KEIN Ablesen und KEIN Mangel: "
+            "nicht in visuelle_aesthetik.probleme, nicht in sprechqualitaet.probleme, keine Empfehlung "
+            "dazu, kein Abzug. Die unten stehende Blickkontakt-Pflicht gilt hier NUR für den Fall, dass er "
+            "erkennbar einen Text abliest (Augen wandern zeilenweise, ohne Bezug zum eingeblendeten Video).\n"
         )
     return txt
 
@@ -141,13 +135,18 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "oder einen separaten „dedizierten Blick-Pass\" — die gibt es hier nicht; (c) Warnungen vor "
             "„Gemma-OCR-Fehlern\" — du liest Bildtext selbst direkt ab.\n"
             "NUTZE aktiv deinen visuellen Vorteil (das ist der Mehrwert): beurteile Blickrichtung (in die "
-            "Linse vs. Ablesen nach unten/zur Seite), statische Text-Overlays vs. mitlaufende Untertitel, "
-            "Schnitt/Pacing, Effekte/Zooms und Mimik aus dem bewegten Bild selbst.\n"
+            "Linse vs. Ablesen nach unten/zur Seite), Bildtext, Schnitt/Pacing, Effekte/Zooms und Mimik "
+            "aus dem bewegten Bild selbst.\n"
+            "BILDTEXT: Du liest jeden Bildtext direkt ab — gleiche ihn mit dem TRANSKRIPT unten ab. Was dort "
+            "(nahezu) wortgleich vorkommt, sind UNTERTITEL und nie die Texthook, auch wenn der Text statisch "
+            "stehen bleibt oder oben im Bild steht. Details in der Regel „UNTERTITEL sind KEIN Text-Hook“ "
+            "im System-Prompt.\n"
             + _format_instruction(result) +
-            "PFLICHT Blickkontakt: Beurteile den Blick IMMER. Geht er auffällig oft nach unten/zur Seite "
-            "(Ablesen/Teleprompter), MUSS das (a) in visuelle_aesthetik.probleme stehen UND (b) als konkreter "
-            "top_tipp: die betroffenen Stellen mit B-Roll/Einblendung überdecken und den Blick in die Linse "
-            "richten. Liegt der Blick überwiegend in der Linse, sag das positiv und zieh keinen Abzug.\n"
+            "PFLICHT Blickkontakt (Ausnahmen im Format-Block oben beachten): Beurteile den Blick IMMER. Geht "
+            "er auffällig oft nach unten/zur Seite (Ablesen/Teleprompter), MUSS das (a) in "
+            "visuelle_aesthetik.probleme stehen UND (b) als konkreter top_tipp: die betroffenen Stellen mit "
+            "B-Roll/Einblendung überdecken und den Blick in die Linse richten. Liegt der Blick überwiegend "
+            "in der Linse, sag das positiv und zieh keinen Abzug.\n"
             "HOOK-REDUNDANZ-CHECK (Pflicht): Vergleiche den Sprech-Hook — die ersten Worte des PROTAGONISTEN "
             "ab protagonist_ab_sek, nicht zwingend der Anfang des Transkripts — mit dem Text-Overlay der "
             "Eröffnung (Text-Hook). Sind sie wörtlich gleich oder "
@@ -157,8 +156,9 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "aufnehmen: das Text-Overlay am Anfang für eine zweite, überraschende Ebene nutzen (offene Frage oder "
             "konkreter Fakt) statt den gesprochenen Satz zu wiederholen.\n"
             "HOOK-VERBESSERUNG (nutze dieses Framework, wenn Sprech- oder Text-Hook schwach ist, fehlt oder "
-            "redundant): Eine Hook wirkt auf 3 Ebenen — (1) TEXT-HOOK (Bildschirmtext, 3–9 Wörter, max. 2 "
-            "Zeilen, für einen 13-Jährigen SOFORT verständlich, kein Fachwort — greift die, die ohne Ton "
+            "redundant): Eine Hook wirkt auf 3 Ebenen — (1) TEXT-HOOK (Bildschirmtext, Länge nach der Regel "
+            "„LÄNGE der Text-Hook“ im System-Prompt, für einen 13-Jährigen SOFORT verständlich, kein "
+            "Fachwort — greift die, die ohne Ton "
             "scrollen); (2) SPRECH-HOOK (erster gesprochener Satz — muss Neugier wecken ODER einen Pain Point "
             "treffen); (3) REGIE (Energie in der Stimme + ein visueller Bruch der Erwartung, markenkonform). "
             "Eine starke Hook hat: ein krasses/kontroverses Statement, wirkt „wie ein Unfall“ (zwingt zum "
@@ -169,9 +169,6 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "passend zum echten Thema DIESES Videos (nicht generisch), damit der Nutzer sie per Instagram-"
             "Testreel gegeneinander testen kann. Formuliere die Empfehlung ausdrücklich mit dem Wort "
             "„Texthook“ (bzw. „Sprechhook“) — diese Begriffe sind unseren Kunden bekannt und sollen genutzt werden.\n"
-            "HARTE REGEL Texthook-Länge: JEDE vorgeschlagene Texthook-Variante hat MAXIMAL 9 Wörter (ideal 3–6), "
-            "höchstens 2 Zeilen. Zähle die Wörter jeder Variante; ist eine länger als 9 Wörter, kürze sie. "
-            "Ganze Sätze oder Erklärungen sind KEINE Texthooks.\n"
             + _texthook_instruction(result) +
             "AUDIO-QUALITÄT (Pflicht, gut hinhören): Die Messwerte (LUFS) sagen NICHTS über Störgeräusche — das "
             "musst du HÖREN. Achte gezielt auf Hintergrundrauschen, Brummen, Hall oder Übersteuerung. Ist der "
@@ -192,22 +189,12 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "KONKRETES Beispiel in Anführungszeichen, das zum tatsächlichen Thema DIESES Videos passt — "
             "keine generischen Platzhalter wie „Wie ich es geschafft habe\".\n"
             "- Jede Begründung und jeder Tipp nennt das WARUM (die Wirkung beim Zuschauer), nicht nur das WAS.\n\n"
-            "EMPFEHLUNGEN (Pflicht): Fülle `empfehlungen` mit ALLEN konkreten Handlungsempfehlungen (3–10) an "
-            "ECHTEN Zeitpunkten aus dem Video — du SIEHST es, setz `zeitpunkt_sek` auf die Sekunde als Zahl "
-            "(z. B. 3.0; Richtwert, ±1–2 s). Jede Anweisung in super einfacher Sprache, KEIN Fachjargon "
-            "(nicht „Endcard/CTA/B-Roll“ ohne Erklärung; „Hook/Texthook/Sprechhook“ sind aber erlaubt und "
-            "sollen genutzt werden, wenn du eine Hook empfiehlst), genau EINE Handlung. Bei einer Einblendung sag "
-            "IMMER, ob VOLLBILD oder KLEINE Einblendung im laufenden Bild. Lieber wenige klare Schritte — "
-            "der Nutzer soll nicht überfordert werden. Ist die WÖRTLICH GLEICHE Handlung an mehreren Stellen "
-            "nötig (z. B. dieselbe Sprechpause bei Sek. 3, 15, 24), gib diesen Einträgen dasselbe `gruppe`-Label "
-            "UND denselben anweisung-Text — sie werden zu EINEM Schritt zusammengefasst. `gruppe` ist KEINE "
-            "Kategorie: verschiedene Einblendungen (Gehirn, Telefon, Folgen-Knopf) = verschiedene Handlungen → "
-            "jeweils EIGENES Label. Im Zweifel eigenes Label.\n"
-            "Sortieren, Priorisieren und Aufteilen macht das System. Gib EINE flache Liste ab, in beliebiger "
-            "Reihenfolge — wähle nicht selbst aus und teile nichts auf.\n\n"
+            "EMPFEHLUNGEN: Es gilt der Abschnitt „Empfehlungen — die kanonische Regel“ aus dem System-Prompt, "
+            "unverändert. V2-spezifisch kommt nur dazu: Du SIEHST das Video — setz `zeitpunkt_sek` auf die "
+            "ECHTE Sekunde, an der die Stelle im Bild liegt (z. B. 3.0), nicht auf einen geratenen Wert.\n\n"
             f"{head}\n\n"
             f"TRANSKRIPT (Whisper, verlässlicher Wortlaut):\n{result.transcript or '(leer)'}\n\n"
-            f"SPRACHSTATISTIK: {_stats_txt(result)}\n\n"
+            f"SPRACHSTATISTIK: {analyst_eval.stats_txt(result.speech_stats)}\n\n"
             f"MESSWERTE (intern, NICHT im Output nennen):\n{_metrics_txt(result)}"
         )
     # pure
@@ -231,14 +218,7 @@ def _evaluate(video_path: Path, result: AnalystResult, mode: str, run_dir=None) 
         temperature=0.0,
     )
     raw = (_generate([video_file, user], cfg, f"analyst_eval_{mode}").text or "")
-    parsed = analyst_eval.verteile_empfehlungen(
-        analyst_eval.bereinige_fremd_texthook(
-            analyst_eval.erzwinge_nutzer_format(
-                AnalystEvaluationV2(**analyst_eval._extract_json(raw)), result
-            ),
-            result,
-        )
-    )
+    parsed = analyst_eval.nachbearbeiten(AnalystEvaluationV2(**analyst_eval._extract_json(raw)), result)
     analyst_prompt_log.log_call(
         run_dir, call=f"eval_{mode}", recipient="Gemini",
         # Das Modell, das TATSÄCHLICH geantwortet hat — nicht „ggf. Fallback". Sonst lässt sich ein
