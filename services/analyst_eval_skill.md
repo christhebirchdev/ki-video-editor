@@ -114,6 +114,19 @@ stoppen. Eine Text-Hook wäre ein zusätzlicher Satz, der zuspitzt oder eine Fra
 Tipp: erstelle mindestens 3 verschiedene Text-Hook-Varianten und teste sie über die
 Testreel-Funktion von Instagram gegeneinander."
 
+GESTALTUNG der Text-Hook — sie wird mitbewertet, nicht nur der Wortlaut.
+Eine inhaltlich gute Hook, die gestalterisch nicht funktioniert, stoppt niemanden. Prüfe:
+- **Größe:** Sie muss ins Bild passen, ohne das Gesicht zu überdecken. Bildschirmfüllender Text
+  wirkt laut und unprofessionell, nicht auffällig.
+- **Farbe und Kontrast:** lesbar, aber im Gesamtbild ruhig. Grelles Neon ohne Bezug zum Look des
+  Videos wirkt billig.
+- **Einblendungsdauer:** mindestens 5 Sekunden. Wer scrollt, braucht Zeit zum Lesen — kürzer ist
+  die Hook praktisch nicht vorhanden.
+- **Position:** oberes Drittel, mit deutlichem Abstand zum oberen Rand. Ganz oben überdeckt die
+  Oberfläche der Plattform (Instagram) den Text.
+Score-Wirkung: Sind Wortlaut und Länge in Ordnung, die Gestaltung aber nicht → höchstens 3, und
+die Gestaltung im `text_hook_grund` benennen. Sind beide schwach → höchstens 2.
+
 LÄNGE der Text-Hook — gilt für die BEWERTUNG der vorhandenen genauso wie für jeden VORSCHLAG:
 3–9 Wörter (ideal 3–6), höchstens 2 Zeilen. Wer scrollt, liest nur einen Blick lang. Eine vorhandene
 Text-Hook über 9 Wörter ist in dieser Zeit nicht erfassbar → höchstens text_hook_score 3 und die Länge
@@ -263,6 +276,8 @@ oder „Andere" bewertest du den Ausschnitt nach dem, was das Format braucht, un
 - Einstellung: Brustbild bis Taille (Medium Close-up). Zu weit weg (Totale) oder zu nah (nur Gesicht) = Abzug.
 - Kamera auf Augenhöhe und frontal. Blick von oben/unten wirkt distanziert.
 - Kopfraum: ca. 10–15 % Luft über dem Kopf — genug Platz für eine Texthook, die NICHT auf der Stirn klebt.
+  Deutlich MEHR Luft (Kopf sitzt tief im Bild) ist genauso ein Mangel wie zu wenig: Das Gesicht wird
+  klein, das Bild wirkt zufällig statt komponiert.
   Angeschnittener Kopf oder halbes leeres Bild darüber = Abzug.
 - Person mittig; das Kinn liegt auf der vertikalen Bildmitte oder knapp darüber, damit die Untertitel
   direkt darunter Platz haben. Das Gesicht füllt etwa ein Drittel der Bildhöhe.
@@ -271,6 +286,19 @@ oder „Andere" bewertest du den Ausschnitt nach dem, was das Format braucht, un
 **2. Licht.** Weiches, gleichmäßiges Licht von vorn/seitlich, keine harten Schatten unter Augen und Nase,
 keine ausgebrannten Stellen auf der Haut. Farbige Akzente im Hintergrund geben Tiefe. Die Person muss
 sich klar vom Hintergrund abheben; ein leicht unscharfer Hintergrund hilft dabei.
+
+ANKER für `visuelle_aesthetik.score` — ohne diese Stufen landet fast jedes Video bei 3.
+Über 35 gespeicherte Läufe wurde NIE unter 3 bewertet; 3 war faktisch die Untergrenze. Das ist
+keine Aussage über die Videos, sondern eine fehlende Kalibrierung. Nutze die ganze Skala:
+- **5** — komponiert: Kopfraum stimmt, ruhiger Hintergrund, scharf und sauber belichtet.
+- **4** — gut, ein Punkt schwächer (z.B. leicht unruhiger Hintergrund).
+- **3** — funktional: nichts stört massiv, aber auch nichts ist bewusst gestaltet.
+- **2** — MEHRERE sichtbare Mängel bei Bildaufbau oder Technik: deutlich zu viel oder zu wenig
+  Kopfraum, unscharfe oder rauschige Aufnahme, unruhiger Hintergrund, schiefe Kamera.
+- **1** — das Bild schadet dem Video: sehr unscharf, stark unter- oder überbelichtet, Motiv
+  angeschnitten.
+Zwei erkennbare Mängel sind eine 2, nicht eine 3. Ein Mangel, der beim ersten Hinsehen auffällt,
+ist keine „funktionale" Ästhetik.
 
 **3. Technische Bildqualität.** Scharf (mindestens 1080p — Haare und Stoffstruktur erkennbar), rauschfrei
 auch in dunklen Bereichen, flüssige Bewegung ohne Schlieren bei Gesten. Nutze den Schärfe-Messwert:

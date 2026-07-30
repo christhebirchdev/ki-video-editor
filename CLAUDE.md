@@ -278,6 +278,34 @@ Urteils-Korrekturen, dann die Eingriffe in `empfehlungen`, `verteile_empfehlunge
   gedeckelt, konnte das Modell davon nichts wissen und hat keine Varianten geliefert. Im Lauf
   5502bb37 hat genau diese Lücke die wichtigste Empfehlung verschluckt — falscher Score 4 →
   Varianten unterdrückt → keine Texthook-Empfehlung im Output.
+- `bildwerte_belastbar()` + `metrics_txt()` — **genullte Bildmesswerte werden NICHT als Messung in
+  den Prompt geschrieben.** `v2_hybrid` zieht keine Frames, deshalb bleiben Schärfe, Helligkeit und
+  Kontrast auf `0.0`. Die als Fakt zu senden — direkt gefolgt von „bei diesen Zahlen sind sie
+  verlässlicher als dein Seheindruck" — hat im Lauf c12db030 jede Bildqualitäts-Kritik unterdrückt.
+  Sind alle drei 0, entfällt die Bildzeile samt Bild-Richtwerten und stattdessen steht dort:
+  beurteile das Bild aus dem Video. Eine Stelle für beide Engines, damit v1 und v2 nicht
+  auseinanderlaufen.
+- `_texthook_anweisung(varianten, vorhanden)` — **zwei Fassungen.** „Blende eine Texthook ein" ist
+  falsch, wenn eine existiert (Lauf c12db030: `text_hook_vorhanden=true` und trotzdem diese
+  Aufforderung auf Platz 1). Bei `vorhanden=True` lautet sie „Überarbeite deine bestehende
+  Texthook" und nennt die Gestaltungspunkte.
+- `_TEXTHOOK_THEMA` — Regex, die eine Texthook-Empfehlung erkennt, **auch ohne das Wort „Texthook"**.
+  Im selben Lauf hieß der doppelte Schritt „Ändere den Text auf dem Bildschirm so, dass …" und
+  rutschte durch den alten Wortfilter; im Output standen zwei Empfehlungen zur selben Sache.
+  Der Filter läuft jetzt immer, nicht nur wenn Varianten vorliegen.
+- `erzwinge_aesthetik_empfehlung()` — **Ästhetik-Score unter 3 erzwingt EINEN gebündelten Tipp auf
+  Sekunde 0** (Vorgabe Chris). Bild- und Aufbau-Probleme gelten fürs ganze Video und haben keinen
+  frühen Zeitpunkt; bei Sortierung strikt nach Zeit erreichten sie die Top 3 nie.
+  **Kein Bruch der Sortierregel:** wie Anlauf-, Texthook- und Sprechhook-Schritt läuft er über
+  `zeitpunkt_sek = 0.0`. `verteile_empfehlungen` bleibt unverändert.
+  **1..2, nicht `< 3`:** 0 ist der Pydantic-Default bei Altläufen, kein Urteil — dieselbe Falle wie
+  beim Sprech-Hook.
+  **Bekannte Grenze:** Vier Null-Sekunden-Schritte, drei Plätze. Ästhetik wird zuletzt eingefügt und
+  landet dann in `weitere_empfehlungen` — die Hooks behalten Vorrang.
+  **Wichtig für die Wirksamkeit:** Über 35 gespeicherte Läufe wurde `visuelle_aesthetik` **nie unter
+  3** bewertet (Verteilung 3×20, 4×11, 5×4). Die Regel bleibt wirkungslos, solange das Modell die
+  Skala nicht nach unten nutzt — deshalb stehen im Skill jetzt Anker für 1 und 2. Ob das reicht,
+  zeigt erst ein echter Lauf.
 - `verteile_empfehlungen()` — Top-3-`action_steps` **strikt nach frühestem Zeitpunkt im Video**, Rest nach
   `weitere_empfehlungen`. Gebündelt wird nur bei gleichem Label *und* gleicher Anweisung (Label allein
   führte zu Fehlmerges). **Bekannte Grenze:** Bei Sprechpausen greift die Bündelung faktisch nie, weil

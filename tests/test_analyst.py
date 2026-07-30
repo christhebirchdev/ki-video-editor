@@ -1187,3 +1187,142 @@ def test_sprechhook_abschnitt_wiederholt_die_redundanz_regel_nicht():
     s = load_skill_body()
     assert "Am stärksten ERGÄNZT er die Text-Hook" not in s
     assert "siehe die Redundanz-Regel unten" in s
+
+
+# ---------- Fixes aus Lauf c12db030 ----------
+
+def test_genullte_bildwerte_gelten_nicht_als_messung():
+    """Kern-Bug c12db030: v2_hybrid zieht keine Frames, Schärfe/Helligkeit/Kontrast bleiben 0.0.
+    Die als Fakt zu senden — direkt gefolgt von „verlässlicher als dein Seheindruck" — hat die
+    Bildkritik komplett unterdrückt."""
+    from models.analyst import QualityMetrics
+    from services.analyst_eval import bildwerte_belastbar
+    assert bildwerte_belastbar(QualityMetrics(lufs_integrated=-14.5)) is False
+    assert bildwerte_belastbar(QualityMetrics(schaerfe_avg=120.0, helligkeit_avg=110.0,
+                                             kontrast_avg=45.0)) is True
+    assert bildwerte_belastbar(None) is False
+
+
+def test_prompt_nennt_keine_bildzahlen_wenn_nicht_gemessen():
+    from models.analyst import QualityMetrics
+    from services.analyst_eval import metrics_txt
+    txt = metrics_txt(QualityMetrics(lufs_integrated=-14.5, loudness_range=3.5, true_peak_db=-0.5))
+    assert "Schärfe avg" not in txt
+    assert "KEINE Messwerte vor" in txt
+    assert "-14.5 LUFS" in txt                     # Audio bleibt, das ist echt gemessen
+    assert "Laplacian" not in txt                  # auch die Bild-Richtwerte sind sinnlos
+
+
+def test_prompt_nennt_bildzahlen_wenn_gemessen():
+    from models.analyst import QualityMetrics
+    from services.analyst_eval import metrics_txt
+    txt = metrics_txt(QualityMetrics(schaerfe_avg=120.0, schaerfe_min=80.0, helligkeit_avg=110.0,
+                                     kontrast_avg=45.0, lufs_integrated=-30.0))
+    assert "Schärfe avg 120.0" in txt and "KEINE Messwerte" not in txt
+
+
+def test_v2_override_macht_kopfraum_und_bildqualitaet_zur_pflicht():
+    """Die Kopfraum-Regel stand im Skill und feuerte nicht — beim Blickkontakt gibt es eine
+    ausdrückliche Pflicht, hier fehlte sie (Feedback c12db030)."""
+    from services.analyst_gemini_eval import _user_message
+    o = _user_message(_result(gewaehltes_format="Talking Head"), "hybrid")
+    assert "PFLICHT Bildaufbau und Bildqualität" in o
+    assert "KOPFRAUM" in o and "BILDQUALITÄT" in o
+    # Der Zielwert steht nur im Skill, der Override verweist — keine zweite Ausformulierung
+    assert "10–15" not in o
+
+
+def test_texthook_empfehlung_ist_optimierung_wenn_eine_existiert():
+    """c12db030: text_hook_vorhanden=true und trotzdem „Blende eine Texthook ein" auf Platz 1."""
+    from services.analyst_eval import _texthook_anweisung
+    neu = _texthook_anweisung([], vorhanden=False)
+    opt = _texthook_anweisung([], vorhanden=True)
+    assert "Blende" in neu
+    assert "Blende" not in opt and "Überarbeite" in opt
+    # Die Gestaltungs-Punkte aus Chris' Feedback gehören in die Optimierungs-Fassung
+    for punkt in ("5 Sekunden", "oberen Drittel", "grell"):
+        assert punkt in opt
+
+
+def test_doppelte_texthook_empfehlung_wird_erkannt_ohne_das_wort_texthook():
+    """Der Doppel-Schritt in c12db030 hieß „Ändere den Text auf dem Bildschirm so, dass …" —
+    er enthielt keines der Hook-Wörter und rutschte durch den Filter."""
+    from services.analyst_eval import _TEXTHOOK_THEMA
+    assert _TEXTHOOK_THEMA.search("Ändere den Text auf dem Bildschirm so, dass er neu ist.")
+    assert _TEXTHOOK_THEMA.search("Kürze die Texthook.")
+    assert not _TEXTHOOK_THEMA.search("Schneide die Sprechpause bei Sekunde 3 raus.")
+
+
+def _ev_aesthetik(score, probleme=None):
+    from models.analyst import AnalystEvaluationV2, ScoreProbleme
+    return AnalystEvaluationV2(
+        visuelle_aesthetik=ScoreProbleme(score=score, probleme=probleme or []))
+
+
+def test_schwache_aesthetik_erzwingt_einen_gebuendelten_tipp():
+    """Vorgabe Chris: Fällt die visuelle Ästhetik unter 3, muss ein gebündelter Tipp in die Top 3.
+    Bild-Probleme gelten fürs ganze Video und erreichten die zeitlich sortierte Top 3sonst nie."""
+    from services.analyst_eval import erzwinge_aesthetik_empfehlung
+    ev = erzwinge_aesthetik_empfehlung(_ev_aesthetik(
+        2, ["Kopf sitzt zu tief im Bild", "Aufnahme ist unscharf"]))
+    schritte = [e for e in ev.empfehlungen if e.gruppe == "aesthetik"]
+    assert len(schritte) == 1                       # EIN gebündelter Schritt, nicht zwei
+    assert schritte[0].zeitpunkt_sek == 0.0         # so erreicht er die Top 3 ohne Sortier-Ausnahme
+    assert "Kopf sitzt zu tief im Bild" in schritte[0].anweisung
+    assert "unscharf" in schritte[0].anweisung
+
+
+def test_aesthetik_score_3_erzwingt_nichts():
+    """„unter 3" heißt 1 oder 2. Bei 3 würde in fast jedem Lauf ein Tipp einen Top-Platz belegen."""
+    from services.analyst_eval import erzwinge_aesthetik_empfehlung
+    assert erzwinge_aesthetik_empfehlung(_ev_aesthetik(3)).empfehlungen == []
+
+
+def test_aesthetik_score_0_ist_kein_urteil():
+    """0 ist der Pydantic-Default bei Altläufen und Teil-Antworten, keine schwache Ästhetik —
+    dieselbe Falle wie beim Sprech-Hook. Dieser Test hat den Fehler beim Bauen gefangen."""
+    from services.analyst_eval import erzwinge_aesthetik_empfehlung
+    assert erzwinge_aesthetik_empfehlung(_ev_aesthetik(0)).empfehlungen == []
+
+
+def test_aesthetik_tipp_wird_nicht_verdoppelt():
+    from models.analyst import Empfehlung
+    from services.analyst_eval import erzwinge_aesthetik_empfehlung
+    ev = _ev_aesthetik(2, ["unscharf"])
+    ev.empfehlungen.append(Empfehlung(zeitpunkt_sek=0.0, gruppe="aesthetik", anweisung="Schon da."))
+    assert len(erzwinge_aesthetik_empfehlung(ev).empfehlungen) == 1
+
+
+def test_aesthetik_ohne_benannte_probleme_erfindet_keine_details():
+    from services.analyst_eval import erzwinge_aesthetik_empfehlung
+    ev = erzwinge_aesthetik_empfehlung(_ev_aesthetik(2))
+    assert len(ev.empfehlungen) == 1
+    assert "10–15" in ev.empfehlungen[0].anweisung   # nur der Bereich, keine erfundene Beobachtung
+
+
+def test_skill_bewertet_die_gestaltung_der_texthook():
+    """Der Skill prüfte nur Wortlaut, Länge und Redundanz — nicht Größe, Farbe, Dauer, Position."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "GESTALTUNG der Text-Hook" in s
+    assert "mindestens 5 Sekunden" in s
+    assert "oberes Drittel" in s
+    assert "Plattform (Instagram)" in s
+
+
+def test_aesthetik_skala_hat_anker_fuer_1_und_2():
+    """Über 35 gespeicherte Läufe wurde visuelle_aesthetik NIE unter 3 bewertet — 3 war faktisch
+    die Untergrenze. Ohne Anker für 1 und 2 bleibt Chris' Top-3-Regel („unter 3") wirkungslos,
+    weil der Auslöser nie eintritt."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "ANKER für `visuelle_aesthetik.score`" in s
+    assert "Zwei erkennbare Mängel sind eine 2, nicht eine 3" in s
+    assert "zu viel oder zu wenig\n  Kopfraum" in s
+
+
+def test_kopfraum_regel_nennt_auch_zu_viel_luft():
+    """Chris: „der platz zwischen kopf und oberen rand ist zu groß". Die alte Regel nannte nur
+    den Zielwert, nicht die Abweichung nach oben."""
+    from services.analyst_eval import load_skill_body
+    assert "Deutlich MEHR Luft" in load_skill_body()

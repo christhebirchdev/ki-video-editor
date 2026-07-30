@@ -26,7 +26,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-07-30"
+PROMPT_VERSION = "2026-07-30b"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -42,14 +42,63 @@ from services.analyst_quality import (
 )
 from services.analyst_speech import PAUSE_THRESHOLD_SEC
 
-METRICS_GUIDE = (
-    "Richtwerte (intern, Frames max 640px): Schärfe (Laplacian-Varianz) <50 unscharf, "
-    "50–150 mäßig, >300 knackig. Helligkeit (0–255) Ziel ~90–160. Kontrast (Std) <30 flau. "
+_AUDIO_GUIDE = (
     f"Lautheit: optimaler Bereich {LOUDNESS_OPTIMAL_LOW} bis {LOUDNESS_OPTIMAL_HIGH} LUFS "
     f"(empirisch festgelegt). Innerhalb DIESES Bereichs ODER lauter (höherer LUFS-Wert, also näher an 0) "
     f"ist der Ton NICHT zu leise — dann keinen „zu leise\"-Hinweis geben und keinen Abzug. Erst deutlich "
     f"unter {LOUDNESS_TOO_QUIET} LUFS ist der Ton wirklich zu leise. True Peak > -1 dBFS = Clipping-Gefahr."
 )
+
+_BILD_GUIDE = (
+    "Richtwerte Bild (intern, Frames max 640px): Schärfe (Laplacian-Varianz) <50 unscharf, "
+    "50–150 mäßig, >300 knackig. Helligkeit (0–255) Ziel ~90–160. Kontrast (Std) <30 flau. "
+)
+
+METRICS_GUIDE = _BILD_GUIDE + _AUDIO_GUIDE
+
+# Wird ausgegeben, wenn es KEINE Bildmesswerte gibt. Ohne diesen Satz stand im Prompt
+# „Schärfe avg 0.0, Helligkeit avg 0.0, Kontrast avg 0.0" als FAKT, direkt gefolgt von der
+# Anweisung, den Messwerten mehr zu glauben als dem eigenen Seheindruck (Lauf c12db030).
+# Ergebnis: Das Modell kritisierte die Bildqualität gar nicht mehr.
+KEINE_BILDWERTE_HINWEIS = (
+    "Für das BILD liegen in diesem Modus KEINE Messwerte vor. Beurteile Schärfe, Belichtung, "
+    "Rauschen und Bildqualität ausschließlich aus dem Video, das du siehst — hier gilt dein "
+    "Seheindruck, nicht eine Zahl."
+)
+
+
+def bildwerte_belastbar(qm) -> bool:
+    """Sind die Bildmesswerte echte Messungen oder nur Defaults?
+
+    `v2_hybrid` zieht keine Frames, deshalb bleiben Schärfe, Helligkeit und Kontrast auf 0.0.
+    Drei Nullen gleichzeitig sind keine dunkle, flaue, unscharfe Aufnahme — sie sind „nicht
+    gemessen". Diese Unterscheidung an EINER Stelle, damit v1 und v2 sie nicht auseinanderlaufen.
+    """
+    if qm is None:
+        return False
+    return not (
+        (qm.schaerfe_avg or 0) == 0
+        and (qm.helligkeit_avg or 0) == 0
+        and (qm.kontrast_avg or 0) == 0
+    )
+
+
+def metrics_txt(qm) -> str:
+    """Messwert-Block für den Prompt — Bildzeile nur, wenn wirklich gemessen wurde."""
+    if qm is None:
+        return "Keine Messwerte verfügbar."
+    audio = (
+        f"Lautheit {qm.lufs_integrated} LUFS, Loudness Range {qm.loudness_range} LU, "
+        f"True Peak {qm.true_peak_db} dBFS"
+        if qm.lufs_integrated is not None else "kein Audio messbar"
+    )
+    if bildwerte_belastbar(qm):
+        return (
+            f"Bild: Schärfe avg {qm.schaerfe_avg} (min {qm.schaerfe_min}), "
+            f"Helligkeit avg {qm.helligkeit_avg}, Kontrast avg {qm.kontrast_avg}. "
+            f"Audio: {audio}.\n{METRICS_GUIDE}"
+        )
+    return f"Audio: {audio}.\n{_AUDIO_GUIDE}\n{KEINE_BILDWERTE_HINWEIS}"
 
 
 TOP_ACTION_STEPS = 3
@@ -397,15 +446,41 @@ def gueltige_texthook_varianten(varianten: list[str]) -> list[str]:
     return [v.strip() for v in varianten if v and len(v.split()) <= TEXTHOOK_MAX_WOERTER]
 
 
-def _texthook_anweisung(varianten: list[str]) -> str:
-    """Kanonische Texthook-Empfehlung, mit den geprüften Varianten als Beispiele."""
+def _texthook_anweisung(varianten: list[str], vorhanden: bool = False) -> str:
+    """Kanonische Texthook-Empfehlung, mit den geprüften Varianten als Beispiele.
+
+    Zwei Fassungen, weil „Blende eine Texthook ein" faktisch falsch ist, wenn eine existiert:
+    Im Lauf c12db030 war `text_hook_vorhanden=true` (neongrüner Text am Anfang) und auf Platz 1
+    stand trotzdem die Aufforderung, eine einzublenden — Feedback: „die empfehlung oben müsste als
+    optimierung formuliert sein und nicht so als gäbe es keine texthook."
+    """
+    liste = " | ".join(f"„{v}“" for v in varianten) if varianten else ""
+    if vorhanden:
+        text = (
+            "Überarbeite deine bestehende Texthook — Wortlaut UND Gestaltung: höchstens 9 Wörter, "
+            "nicht bildschirmfüllend, Farbe passend zum Look statt grell, mindestens 5 Sekunden "
+            "sichtbar, und im oberen Drittel mit Abstand zum Rand, damit die Instagram-Oberfläche "
+            "sie nicht überdeckt."
+        )
+        if liste:
+            text += f" Diese Varianten kannst du über die Testreel-Funktion gegeneinander testen: {liste}"
+        return text
     if not varianten:
         return TEXTHOOK_EMPFEHLUNG
-    liste = " | ".join(f"„{v}“" for v in varianten)
     return (
         f"Blende in den ersten 3 Sekunden eine Texthook ein — kurzer Text im Bild, der neugierig macht. "
         f"Teste diese Varianten über die Testreel-Funktion von Instagram gegeneinander: {liste}"
     )
+
+
+# Erkennt eine Empfehlung, die inhaltlich die Texthook behandelt. Bewusst breiter als „texthook":
+# Im Lauf c12db030 lautete der doppelte Schritt „Ändere den Text auf dem Bildschirm so, dass …" —
+# er enthielt keines der Hook-Wörter und rutschte durch den Filter, sodass ZWEI Empfehlungen zur
+# selben Sache im Output standen.
+_TEXTHOOK_THEMA = re.compile(
+    r"text-?hook|text auf dem bildschirm|bildschirmtext|text im bild|eingeblendeten text|overlay",
+    re.IGNORECASE,
+)
 
 
 def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
@@ -442,20 +517,69 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
     if th is None or th > HOOK_SCHWACH_SCORE:
         return parsed
     varianten = gueltige_texthook_varianten(parsed.texthook_varianten)
-    if varianten:  # eigene Formulierungen des Modells zur Texthook ersetzen, nicht ergänzen
-        parsed.empfehlungen = [
-            e for e in parsed.empfehlungen
-            if "texthook" not in (e.anweisung or "").lower()
-            and "text-hook" not in (e.anweisung or "").lower()
-        ]
+    vorhanden = bool(parsed.hook.text_hook_vorhanden)
+    # Eigene Formulierungen des Modells zur Texthook ERSETZEN, nicht ergänzen — sonst stehen zwei
+    # Empfehlungen zur selben Sache. Der Filter läuft jetzt immer, nicht nur bei Varianten: Im Lauf
+    # c12db030 gab es keine Varianten-Ersetzung, aber trotzdem eine Modell-eigene Texthook-Empfehlung.
+    parsed.empfehlungen = [e for e in parsed.empfehlungen
+                           if not _TEXTHOOK_THEMA.search(e.anweisung or "")]
     # `geklemmt` gehört gleichberechtigt neben `th == 0`: Wurde der Score erst im Code gedeckelt
     # (Fremd-Texthook oder gemessene Redundanz), konnte das Modell davon nichts wissen und hat
     # entsprechend keine Varianten geliefert. Im Lauf 5502bb37 hat genau diese Lücke die wichtigste
     # Empfehlung verschluckt: falscher Score 4 → Varianten unterdrückt → keine Texthook-Empfehlung.
     geklemmt = bool(getattr(parsed.hook, "text_hook_score_geklemmt", False))
-    if varianten or ((th == 0 or geklemmt) and fehlt("texthook", "text-hook")):
+    if varianten or th == 0 or geklemmt or vorhanden:
         parsed.empfehlungen.insert(0, Empfehlung(
-            zeitpunkt_sek=0.0, gruppe="texthook", anweisung=_texthook_anweisung(varianten)))
+            zeitpunkt_sek=0.0, gruppe="texthook",
+            anweisung=_texthook_anweisung(varianten, vorhanden)))
+    return parsed
+
+
+AESTHETIK_SCHWACH_SCORE = 3   # „unter 3" → 1 oder 2 lösen aus (Vorgabe Chris)
+
+
+def erzwinge_aesthetik_empfehlung(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Fällt die visuelle Ästhetik unter 3, MUSS ein gebündelter Tipp in die Top 3 (Vorgabe Chris).
+
+    Warum überhaupt: Bild- und Aufbau-Probleme gelten für das ganze Video und haben damit keinen
+    frühen Zeitpunkt — bei einer Sortierung strikt nach frühestem Zeitpunkt erreichten sie die
+    Top 3 nie. Feedback c12db030: „solche sachen müssen auch als prio mit aufgenommen werden,
+    neben den hooks und ersten sekunden des videos."
+
+    Warum kein Bruch der Sortierregel: Der Schritt liegt auf Sekunde 0, genau wie die
+    Hook- und Anlauf-Schritte. `verteile_empfehlungen` bleibt unverändert „strikt nach frühestem
+    Zeitpunkt" — es kommt nur ein weiterer Null-Sekunden-Schritt hinzu.
+
+    Bekannte Grenze, bewusst so: Feuern alle vier Null-Sekunden-Schritte (Anlauf, Texthook,
+    Sprechhook, Ästhetik), passen sie nicht in drei Plätze. Dieser hier wird zuletzt eingefügt und
+    landet dann in `weitere_empfehlungen` — die Hooks behalten Vorrang („neben den Hooks").
+
+    EIN gebündelter Schritt, nicht einer pro Problem: Mehrere Einzeltipps würden die Top 3 allein
+    füllen — derselbe Effekt, der bei Pausen (25b8b2f6) und Einblendungen (3185d209) schon
+    aufgetreten ist.
+    """
+    # 1..2, nicht <3: 0 ist kein gültiger Ästhetik-Score, sondern der Pydantic-Default bei
+    # Altläufen und Teil-Antworten — dieselbe Falle wie beim Sprech-Hook (siehe
+    # erzwinge_hook_empfehlungen). Aus einem Default eine „schwache Ästhetik" zu machen wäre erfunden.
+    score = parsed.visuelle_aesthetik.score
+    if score is None or not (1 <= score < AESTHETIK_SCHWACH_SCORE):
+        return parsed
+    if any(e.gruppe == "aesthetik" for e in parsed.empfehlungen):
+        return parsed
+
+    probleme = [p.strip().rstrip(".") for p in (parsed.visuelle_aesthetik.probleme or []) if p.strip()]
+    if probleme:
+        anweisung = (
+            "Bring das Bild in Ordnung, bevor du am Inhalt feilst — diese Punkte fallen sofort auf: "
+            + "; ".join(probleme) + "."
+        )
+    else:
+        # Kein Problem benannt, Score aber schwach: kein erfundenes Detail, nur der Bereich.
+        anweisung = (
+            "Bring das Bild in Ordnung: Achte auf den Abstand zwischen Kopf und oberem Bildrand "
+            "(etwa 10–15 % Luft), einen ruhigen Hintergrund und eine scharfe, gut belichtete Aufnahme."
+        )
+    parsed.empfehlungen.append(Empfehlung(zeitpunkt_sek=0.0, gruppe="aesthetik", anweisung=anweisung))
     return parsed
 
 
@@ -541,6 +665,9 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = baue_einblendungs_schritt(parsed)
     parsed = erzwinge_hook_empfehlungen(parsed)
     parsed = erzwinge_anlauf_schnitt(parsed, result)
+    # NACH den Hook- und Anlauf-Schritten: Alle vier liegen auf Sekunde 0, die Einfügereihenfolge
+    # entscheidet damit über die Reihenfolge im Output. Ästhetik zuletzt — die Hooks behalten Vorrang.
+    parsed = erzwinge_aesthetik_empfehlung(parsed)
     parsed = berechne_performance_score(parsed)
     return verteile_empfehlungen(parsed)
 
@@ -710,20 +837,10 @@ def build_user_message(result: AnalystResult) -> str:
             if _gaze_away else "Blick überwiegend in die Kamera (Hinweis: nur grobe Szenen-Schätzung, kein dedizierter Blick-Pass)."
         )
 
-    qm = result.quality_metrics
-    if qm:
-        audio_txt = (
-            f"Lautheit {qm.lufs_integrated} LUFS, Loudness Range {qm.loudness_range} LU, "
-            f"True Peak {qm.true_peak_db} dBFS"
-            if qm.lufs_integrated is not None else "kein Audio messbar"
-        )
-        metrics_txt = (
-            f"Bild: Schärfe avg {qm.schaerfe_avg} (min {qm.schaerfe_min}), "
-            f"Helligkeit avg {qm.helligkeit_avg}, Kontrast avg {qm.kontrast_avg}. "
-            f"Audio: {audio_txt}.\n{METRICS_GUIDE}"
-        )
-    else:
-        metrics_txt = "Keine Messwerte verfügbar — Videoqualität nur grob aus Bild-Fakten ableiten."
+    # Dieselbe Entscheidung wie im V2-Pfad: genullte Bildwerte sind keine Messung (siehe
+    # bildwerte_belastbar). V1 zieht zwar Frames, aber ein abgebrochener Frame-Pass hinterlässt
+    # dieselben Nullen — die Unterscheidung gehört hier genauso hin.
+    messwerte = metrics_txt(result.quality_metrics)
 
     return (
         f"Video: {result.filename}, Länge {result.duration_sec:.1f}s, {result.scene_count} Szenen.\n\n"
@@ -734,7 +851,7 @@ def build_user_message(result: AnalystResult) -> str:
         f"BLICKKONTAKT (ganzes Video, dedizierter Gemini-Pass): {blick_txt}\n\n"
         f"TRANSKRIPT:\n{result.transcript or '(leer)'}\n\n"
         f"SPRACHSTATISTIK: {stats_txt(result.speech_stats)}\n\n"
-        f"MESSWERTE (intern, NICHT im Output nennen):\n{metrics_txt}"
+        f"MESSWERTE (intern, NICHT im Output nennen):\n{messwerte}"
     )
 
 

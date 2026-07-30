@@ -25,19 +25,10 @@ from services.analyst_vlm import _generate  # generate_content mit Modell-Fallba
 
 
 def _metrics_txt(result: AnalystResult) -> str:
-    qm = result.quality_metrics
-    if not qm:
-        return "Keine Messwerte verfügbar."
-    audio = (
-        f"Lautheit {qm.lufs_integrated} LUFS, Loudness Range {qm.loudness_range} LU, "
-        f"True Peak {qm.true_peak_db} dBFS"
-        if qm.lufs_integrated is not None else "kein Audio messbar"
-    )
-    return (
-        f"Bild: Schärfe avg {qm.schaerfe_avg} (min {qm.schaerfe_min}), "
-        f"Helligkeit avg {qm.helligkeit_avg}, Kontrast avg {qm.kontrast_avg}. "
-        f"Audio: {audio}.\n{analyst_eval.METRICS_GUIDE}"
-    )
+    # Eine Stelle für die Entscheidung „sind Bildwerte echte Messungen?" — v2 zieht keine Frames,
+    # dort stehen Schärfe/Helligkeit/Kontrast auf 0.0. Die als Fakt zu senden hat im Lauf c12db030
+    # die Bildkritik komplett unterdrückt (siehe analyst_eval.bildwerte_belastbar).
+    return analyst_eval.metrics_txt(result.quality_metrics)
 
 
 def _format_instruction(result: AnalystResult) -> str:
@@ -142,6 +133,13 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "stehen bleibt oder oben im Bild steht. Details in der Regel „UNTERTITEL sind KEIN Text-Hook“ "
             "im System-Prompt.\n"
             + _format_instruction(result) +
+            "PFLICHT Bildaufbau und Bildqualität: Beurteile IMMER (a) den KOPFRAUM — den Abstand "
+            "zwischen Kopf und oberem Bildrand, Zielwert und Begründung stehen im System-Prompt unter "
+            "„Kopfraum“; deutlich mehr Luft wirkt verloren, deutlich weniger gedrängt — und (b) die "
+            "technische BILDQUALITÄT aus dem bewegten Bild (Schärfe, Rauschen, Belichtung). Ist eines "
+            "davon auffällig, MUSS es in visuelle_aesthetik.probleme stehen. Beides zu übergehen ist "
+            "ein Fehler: Ohne diese Pflicht wurden Kopfraum und Bildqualität übersprungen, obwohl "
+            "beide im Bild klar erkennbar waren (Lauf c12db030).\n"
             "PFLICHT Blickkontakt (Ausnahmen im Format-Block oben beachten): Beurteile den Blick IMMER. Geht "
             "er auffällig oft nach unten/zur Seite (Ablesen/Teleprompter), MUSS das (a) in "
             "visuelle_aesthetik.probleme stehen UND (b) als konkreter top_tipp: die betroffenen Stellen mit "
