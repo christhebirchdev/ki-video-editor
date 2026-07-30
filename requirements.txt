@@ -4,18 +4,27 @@ python-multipart==0.0.12
 pydantic==2.9.0
 pydantic-settings==2.5.2
 python-dotenv==1.0.1
-# Untergrenze bewusst 2.8.0, nicht 1.0.0: Der V1.1-Chat nutzt types.ThinkingConfig
-# (thinking_level) und die explizite Cache-API (client.caches). Beides gibt es in 1.x nicht —
-# mit der alten Untergrenze konnte der Container eine SDK-Version bekommen, unter der der Chat
-# lokal läuft und auf dem Server abstürzt. Lokal geprüft mit 2.8.0.
-google-genai>=2.8.0
+# Exakt gepinnt, nicht ">=": Der V1.1-Chat nutzt types.ThinkingConfig(thinking_level) und die
+# explizite Cache-API (client.caches) — beides gibt es in 1.x nicht. Mit der alten Untergrenze
+# ">=1.0.0" konnte der Container eine SDK-Version bekommen, unter der der Chat lokal läuft und
+# auf dem Server abstürzt. 2.8.0 ist die lokal verifizierte Version.
+google-genai==2.8.0
 anthropic==0.39.0
 assemblyai==0.35.0
-faster-whisper>=1.0.0
+faster-whisper==1.2.1
 jinja2==3.1.4
 aiofiles==24.1.0
 pytest==8.3.3
 pytest-asyncio==0.24.0
-httpx==0.27.2
-scenedetect>=0.6.4
-opencv-python-headless>=4.9
+# 0.28.1 statt 0.27.2: google-genai 2.x verlangt httpx>=0.28.1 — mit dem alten Pin scheiterte
+# der Docker-Build an einem Abhängigkeitskonflikt (Deploy 2026-07-29). Lokal ist ebenfalls
+# 0.28.1 installiert; der alte Pin beschrieb die laufende Umgebung schon nicht mehr.
+httpx==0.28.1
+
+# Exakt gepinnt statt ">=" (2026-07-29): Diese beiden tragen den Analyst-Bildpfad —
+# analyst_frames.py (Keyframes) und analyst_quality.py (Schärfe/Helligkeit/Kontrast), deren
+# Messwerte in die Bewertung eingehen. Eine freie Untergrenze hätte beim nächsten Rebuild
+# opencv 5.x gezogen (lokal verifiziert läuft 4.13). Ein Major-Sprung in der Bildmessung ist
+# kein Nebeneffekt eines Deploys — der gehört bewusst getestet und einzeln hochgezogen.
+scenedetect==0.7
+opencv-python-headless==4.13.0.92

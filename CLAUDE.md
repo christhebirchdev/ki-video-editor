@@ -329,6 +329,26 @@ Bewertung feuert dann auf Phantompausen.
 
 ## Deploy
 
+**`requirements.txt` ist exakt gepinnt — bitte so lassen.** Am 2026-07-29 ist ein Deploy im
+Docker-Build gescheitert: `google-genai>=1.0.0` durfte auf 2.x springen, das verlangt
+`httpx>=0.28.1`, und `httpx==0.27.2` war hart gepinnt → Abhängigkeitskonflikt. Aufgefallen ist
+es erst auf dem Server, weil das lokale venv längst von der Datei abgewichen war (lokal
+`httpx 0.28.1` und `anthropic 0.109`, in der Datei `0.27.2` und `0.39.0`).
+
+Zweite Falle desselben Vorfalls: **Jede Änderung an `requirements.txt` baut den pip-Layer neu**,
+und dabei springen alle `>=`-Pakete auf den aktuellen Stand. `opencv-python-headless>=4.9`
+hätte 5.x gezogen — das trägt über `analyst_frames.py` und `analyst_quality.py` die
+Bildmessung, die in die Bewertung eingeht. Ein Major-Sprung dort ist kein Nebeneffekt eines
+Deploys. Deshalb sind `opencv-python-headless`, `scenedetect`, `faster-whisper`, `httpx` und
+`google-genai` jetzt exakt gepinnt.
+
+Vor einem Deploy mit geänderten Abhängigkeiten: Auflösung in einer **frischen** Umgebung
+prüfen, nicht im gewachsenen venv — das verdeckt genau diese Konflikte:
+
+```
+python3 -m venv /tmp/pruef && /tmp/pruef/bin/pip install --dry-run -r requirements.txt
+```
+
 **Push auf `main` = Deploy.** `.github/workflows/deploy.yml` läuft auf einem self-hosted GitHub-Runner,
 der **auf dem VPS selbst** liegt, und führt dort aus:
 
