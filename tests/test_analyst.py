@@ -673,7 +673,9 @@ def test_sprechhook_hat_eigene_massstaebe():
     from services.analyst_eval import load_skill_body
     skill = load_skill_body()
     assert "Die 9-Wörter-Grenze gilt für ihn\nNICHT" in skill
-    assert "Den Abzug bekommt im Zweifel die TEXT-HOOK" in skill
+    # Formulierung am 2026-07-30 geschärft: „im Zweifel die TEXT-HOOK" war unbestimmt und stand in
+    # Widerspruch zum Sprech-Hook-Abzug fürs Vorlesen. Jetzt zwei getrennte Folgen einer Regel.
+    assert "Für die Doppelung zahlt die TEXT-HOOK" in skill
 
 
 def test_aesthetik_referenz_gilt_nur_fuer_talking_head():
@@ -997,3 +999,191 @@ def test_feedback_ohne_field_id_abgelehnt(client, monkeypatch):
     r = client.post(f"/api/analyst/{run_id}/feedback",
                     json={"password": settings.admin_password, "field_id": "  "})
     assert r.status_code == 422
+
+
+# ---------- Redundanz Text-Hook / Sprech-Hook (Feedback 5502bb37) ----------
+
+def _hook_lauf(wortlaut: str, transkript: str, text_score: int = 4, sprech_score: int = 4):
+    """Minimaler Lauf zum Prüfen der Redundanz-Klemme."""
+    from models.analyst import AnalystEvaluationV2, AnalystResult, HookEval
+    ev = AnalystEvaluationV2(
+        hook=HookEval(
+            sprech_hook_score=sprech_score, sprech_hook_grund="Guter Einstieg.",
+            text_hook_vorhanden=True, text_hook_score=text_score,
+            text_hook_wortlaut=wortlaut, text_hook_grund="Zieht Blicke an.",
+        ),
+    )
+    res = AnalystResult(id="x", filename="v.mp4", duration_sec=30.0, scene_count=0,
+                        scenes=[], transcript=transkript, gewaehltes_format="Andere")
+    return ev, res
+
+
+def test_vorgelesene_texthook_klemmt_beide_hook_scores():
+    """Eine ECHTE Text-Hook, die zu Beginn mitgesprochen wird: Doppelung zahlt die Text-Hook,
+    die verschenkten Eröffnungssekunden zahlt der Sprech-Hook. Die Regel stand im Skill und griff
+    im Lauf 5502bb37 nicht — ob zwei Textstellen übereinstimmen, ist aber Stringvergleich."""
+    from services.analyst_eval import bereinige_redundante_texthook
+    ev, res = _hook_lauf("Du verlierst tausende Euro Umsatz",
+                         "Du verlierst tausende Euro Umsatz, wenn du beide Leads gleich behandelst.")
+    n = bereinige_redundante_texthook(ev, res)
+    assert n.hook.text_hook_score == 2
+    assert n.hook.sprech_hook_score == 3
+    assert n.hook.text_hook_score_geklemmt is True
+
+
+def test_grafik_text_klemmt_nur_den_sprech_hook(monkeypatch):
+    """Fall 5502bb37 nach der neuen Regel: „Inbound vs. Outbound" ist grafischer Inhalt, das Modell
+    meldet text_hook_vorhanden=false mit Score 0 — trotzdem MUSS der Sprech-Hook den Abzug fürs
+    Vorlesen bekommen. Genau das ginge verloren, wäre die Prüfung an text_hook_vorhanden gekoppelt."""
+    from services.analyst_eval import bereinige_redundante_texthook
+    ev, res = _hook_lauf("Inbound vs. Outbound",
+                         "Inbound vs. Outbound, wer beide gleich behandelt, verliert am Ende beide.")
+    ev.hook.text_hook_vorhanden = False          # grafischer Inhalt
+    ev.hook.text_hook_score = 0
+    n = bereinige_redundante_texthook(ev, res)
+    assert n.hook.text_hook_score == 0           # 0 ist schon das Minimum, nicht angehoben
+    assert n.hook.sprech_hook_score == 3         # der eigentliche Punkt
+
+
+def test_geklemmter_score_erzwingt_beide_hook_empfehlungen():
+    """Der eigentliche Schaden im Lauf: Score 4 → Varianten unterdrückt → KEINE Texthook-Empfehlung.
+    Nach der Klemme müssen beide Empfehlungen stehen, obwohl das Modell keine Varianten lieferte."""
+    from models.analyst import AnalystResult
+    from services.analyst_eval import nachbearbeiten
+    ev, res = _hook_lauf("Du verlierst tausende Euro Umsatz",
+                         "Du verlierst tausende Euro Umsatz, wenn du beide Leads gleich behandelst.")
+    assert ev.texthook_varianten == []          # so kam es aus dem Modell
+    n = nachbearbeiten(ev, res)
+    texte = " ".join(s.anweisung.lower() for s in n.action_steps + n.weitere_empfehlungen)
+    assert "texthook" in texte
+    assert "ersten gesprochenen satz" in texte
+
+
+def test_begruendung_wird_ersetzt_und_widerspricht_sich_nicht():
+    """Angehängt statt ersetzt läse der Kunde „zieht Blicke an … verschenkst eine Hook-Ebene"."""
+    from services.analyst_eval import bereinige_redundante_texthook
+    ev, res = _hook_lauf("Inbound vs. Outbound",
+                         "Inbound vs. Outbound, wer beide gleich behandelt, verliert beide.")
+    n = bereinige_redundante_texthook(ev, res)
+    assert "Zieht Blicke an" not in (n.hook.text_hook_grund or "")
+    assert "Guter Einstieg" not in (n.hook.sprech_hook_grund or "")
+
+
+def test_ohne_redundanz_bleiben_die_scores_stehen():
+    from services.analyst_eval import bereinige_redundante_texthook
+    ev, res = _hook_lauf("Du verlierst tausende Euro",
+                         "Inbound und Outbound sind zwei völlig verschiedene Welten.")
+    n = bereinige_redundante_texthook(ev, res)
+    assert n.hook.text_hook_score == 4
+    assert n.hook.sprech_hook_score == 4
+    assert n.hook.text_hook_score_geklemmt is False
+
+
+def test_ohne_zitierten_wortlaut_wird_nicht_geraten():
+    """Kein Zitat → kein Check. Ein Treffer auf gut Glück wäre schlimmer als keiner."""
+    from services.analyst_eval import bereinige_redundante_texthook
+    ev, res = _hook_lauf("", "Inbound vs. Outbound, wer beide gleich behandelt, verliert beide.")
+    n = bereinige_redundante_texthook(ev, res)
+    assert n.hook.text_hook_score == 4
+
+
+def test_einzelwort_loest_keine_klemme_aus():
+    """Ein einzelnes Wort trifft im Transkript zu leicht zufällig zu."""
+    from services.analyst_eval import bereinige_redundante_texthook
+    ev, res = _hook_lauf("Outbound", "Inbound vs. Outbound, wer beide gleich behandelt, verliert.")
+    n = bereinige_redundante_texthook(ev, res)
+    assert n.hook.text_hook_score == 4
+
+
+def test_klemme_erhoeht_nie_einen_score():
+    """Eine schwach bewertete Hook darf durch die Klemme nicht besser werden."""
+    from services.analyst_eval import bereinige_redundante_texthook
+    ev, res = _hook_lauf("Inbound vs. Outbound",
+                         "Inbound vs. Outbound, wer beide gleich behandelt, verliert beide.",
+                         text_score=1, sprech_score=2)
+    n = bereinige_redundante_texthook(ev, res)
+    assert n.hook.text_hook_score == 1
+    assert n.hook.sprech_hook_score == 2
+
+
+def test_redundanz_nur_in_der_eroeffnung():
+    """Steht der Bildtext erst spät im Transkript, ist die Hook nicht verschenkt."""
+    from services.analyst_eval import bereinige_redundante_texthook
+    spaet = " ".join(["füllwort"] * 30) + " Inbound vs. Outbound"
+    ev, res = _hook_lauf("Inbound vs. Outbound", spaet)
+    n = bereinige_redundante_texthook(ev, res)
+    assert n.hook.text_hook_score == 4
+
+
+def test_skill_verbietet_lesbarkeit_als_hook_begruendung():
+    """Das Modell begründete Score 4 mit „ohne Ton verständlich" und „zieht Blicke an" — das ist
+    Lesbarkeit, nicht Hook-Wirkung. Ohne diese Regel im Skill darf es das."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body().lower()
+    assert "ohne ton verständlich" in s
+    assert "zieht blicke an" in s
+    # Der Trennstrich ist „Teil des grafischen Inhalts" (Chris), nicht eine Liste verbotener
+    # Textsorten — eine Liste bleibt immer lückenhaft, die Regel generalisiert.
+    assert "spaltenüberschrift einer vergleichsgrafik" in s
+
+
+def test_skill_verlangt_den_zitierten_wortlaut():
+    from services.analyst_eval import OUTPUT_SCHEMA
+    assert "text_hook_wortlaut" in OUTPUT_SCHEMA
+
+
+# ---------- Prompt-Hygiene: Hook-Regeln stehen genau einmal ----------
+
+def _skill_abschnitte() -> list[str]:
+    """Skill grob in Absätze zerlegen — Absatz = Block zwischen Leerzeilen."""
+    from services.analyst_eval import load_skill_body
+    return [a for a in load_skill_body().split("\n\n") if a.strip()]
+
+
+def test_redundanz_regel_steht_genau_einmal():
+    """CLAUDE.md: „jede Regel genau einmal". Am 2026-07-30 stand die Zuweisung des Abzugs in ZWEI
+    Abschnitten mit gegenläufiger Aussage („Abzug bekommt die TEXT-HOOK" vs. Abzug beim Sprech-Hook).
+    Der vorhandene Hygiene-Test deckte nur Pausen und Varianten ab — deshalb fiel es nicht auf."""
+    treffer = [a for a in _skill_abschnitte() if "zahlt die TEXT-HOOK" in a or "zahlt der SPRECH-HOOK" in a]
+    assert len(treffer) == 1, f"Redundanz-Zuweisung in {len(treffer)} Abschnitten statt einem"
+    assert "KANONISCHE Fassung" in treffer[0]
+
+
+def test_redundanz_regel_weist_den_abzug_widerspruchsfrei_zu():
+    """Beide Folgen müssen im selben Block stehen UND getrennt benannt sein: Doppelung → Text-Hook,
+    verschenkte Eröffnungssekunden → Sprech-Hook. Ohne die Trennung liest das Modell zwei Regeln."""
+    block = next(a for a in _skill_abschnitte() if "KANONISCHE Fassung" in a)
+    assert "Für die Doppelung zahlt die TEXT-HOOK" in block
+    assert "Für verschenkte Eröffnungssekunden zahlt der SPRECH-HOOK" in block
+    assert "nicht für die Doppelung" in block
+
+
+def test_fehl_kriterien_stehen_genau_einmal():
+    treffer = [a for a in _skill_abschnitte() if "zieht Blicke an" in a]
+    assert len(treffer) == 1, "Fehl-Kriterien mehrfach im Skill"
+
+
+def test_grafik_pruefschritt_geht_den_anderen_regeln_vor():
+    """Ohne ausdrückliche Vorrangregel bleibt unbestimmt, was bei Text gilt, der Grafik-Inhalt UND
+    mitgesprochen ist — genau der Fall aus Lauf 5502bb37."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "geht allen anderen Text-Hook-Regeln VOR" in s
+    assert "grafischen Inhalt" in s
+
+
+def test_score_0_hat_zwei_begruendungs_fassungen():
+    """„Es gibt keine Text-Hook im Bild" wäre bei Grafik-Text faktisch falsch — Text WAR sichtbar."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "Es gibt keine Text-Hook im Bild" in s
+    assert "gehört zu deiner Grafik" in s
+
+
+def test_sprechhook_abschnitt_wiederholt_die_redundanz_regel_nicht():
+    """Der Halbsatz „Am stärksten ERGÄNZT er die Text-Hook, statt sie zu wiederholen" war die dritte
+    Nennung derselben Idee. Er verweist jetzt nur noch."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "Am stärksten ERGÄNZT er die Text-Hook" not in s
+    assert "siehe die Redundanz-Regel unten" in s

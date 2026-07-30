@@ -26,7 +26,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-07-29b"
+PROMPT_VERSION = "2026-07-30"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -130,6 +130,84 @@ def bereinige_fremd_texthook(parsed: AnalystEvaluationV2, result: AnalystResult)
         parsed.hook.text_hook_vorhanden = False
         parsed.hook.text_hook_score = 0
         parsed.hook.text_hook_grund = FREMD_TEXTHOOK_HINWEIS
+        parsed.hook.text_hook_score_geklemmt = True
+    return parsed
+
+
+# Wie viele Wörter am Transkript-Anfang als „Eröffnung" gelten. 15 Wörter sind bei ~140 WPM
+# gut 6 Sekunden — der Bereich, in dem eine Hook wirkt.
+REDUNDANZ_FENSTER_WOERTER = 15
+
+# Deckel bei gemessener Redundanz. Die Texthook zahlt mehr: Sie hat den knapperen Platz und muss
+# genau das liefern, was das Gesprochene noch nicht abdeckt (Regel steht so im Skill).
+# Der Sprech-Hook hat die Eröffnung verschenkt, kann sich danach aber fangen — deshalb 3, nicht 2.
+REDUNDANZ_DECKEL_TEXT = 2
+REDUNDANZ_DECKEL_SPRECH = 3
+
+REDUNDANZ_TEXT_HINWEIS = (
+    "Dein Bildtext wird in den ersten Sekunden fast wörtlich mitgesprochen. Damit verschenkst du eine "
+    "komplette Hook-Ebene: Der Text soll etwas liefern, was das Gesprochene noch NICHT sagt — eine "
+    "Zuspitzung, eine Zahl, eine offene Frage. Doppelt gesagt wirkt beides schwächer."
+)
+
+REDUNDANZ_SPRECH_HINWEIS = (
+    "Deine ersten Worte lesen den Bildtext vor. Genau die wertvollsten Sekunden gehen so ohne "
+    "Gegenwert weg — die Neugier entsteht erst danach. Steig direkt mit dem ein, was für den "
+    "Zuschauer auf dem Spiel steht."
+)
+
+_WORTZEICHEN = re.compile(r"[^\wäöüß ]+", re.IGNORECASE)
+
+
+def _normalisiert(text: str) -> str:
+    """Kleinschreibung, ohne Satzzeichen, einfache Leerzeichen — für den Textvergleich."""
+    return " ".join(_WORTZEICHEN.sub(" ", (text or "").lower()).split())
+
+
+def bereinige_redundante_texthook(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
+    """Liest der Sprecher die Texthook zu Beginn vor, ist das eine verschenkte Hook-Ebene.
+
+    Warum im Code und nicht (nur) im Prompt: Die Regel „Redundanz Sprech-Hook = Text-Hook ist eine
+    SCHWÄCHE" steht seit Längerem im Skill — und griff im Lauf 5502bb37 nicht. Das Modell gab beiden
+    Hooks eine 4, obwohl das Transkript wörtlich mit der Bildüberschrift beginnt
+    („Inbound vs. Outbound, wer beide gleich behandelt…"). Der Grund: Die Regel setzt voraus, dass
+    das Modell die Überlappung ERKENNT. Ob zwei Textstellen übereinstimmen, ist aber keine
+    Ermessensfrage, sondern ein Stringvergleich — und der gehört damit hierher.
+
+    Gemessen wird gegen `text_hook_wortlaut` — das Feld führt den ERÖFFNUNGS-BILDTEXT, auch wenn er
+    nicht als Hook zählt. Ohne Zitat kein Check; das ist Absicht, geraten wird hier nicht.
+
+    **Bewusst NICHT an `text_hook_vorhanden` gekoppelt.** Grafischer Inhalt (Spaltenüberschrift einer
+    Vergleichsgrafik) wird laut Skill als „keine Text-Hook" mit Score 0 gemeldet — würde die Prüfung
+    das verlangen, entfiele genau im Fall 5502bb37 der Sprech-Hook-Abzug für das Vorlesen. Die
+    Text-Klemme greift dann ohnehin nicht (0 ist bereits das Minimum), die Sprech-Klemme sehr wohl.
+
+    Beide Scores werden nur gedeckelt, nie erhöht. Die Deckel lösen zugleich die vorhandenen
+    Erzwingungen aus: Sprech-Score ≤3 triggert die Sprechhook-Empfehlung,
+    `text_hook_score_geklemmt` die Texthook-Empfehlung.
+    """
+    wortlaut = _normalisiert(getattr(parsed.hook, "text_hook_wortlaut", ""))
+    if len(wortlaut.split()) < 2:
+        return parsed          # nichts zitiert oder zu kurz für einen belastbaren Vergleich
+
+    eroeffnung = " ".join(_normalisiert(getattr(result, "transcript", "")).split()[:REDUNDANZ_FENSTER_WOERTER])
+    if not eroeffnung or wortlaut not in eroeffnung:
+        return parsed
+
+    alt_text = parsed.hook.text_hook_score
+    if alt_text is not None and alt_text > REDUNDANZ_DECKEL_TEXT:
+        parsed.hook.text_hook_score = REDUNDANZ_DECKEL_TEXT
+        parsed.hook.text_hook_score_geklemmt = True
+        # ERSETZEN, nicht anhängen — wie bei bereinige_fremd_texthook. Die alte Begründung lobte
+        # genau das, was hier abgewertet wird; aneinandergehängt liest der Kunde einen Widerspruch
+        # („zieht Blicke an" … „verschenkst eine Hook-Ebene").
+        parsed.hook.text_hook_grund = REDUNDANZ_TEXT_HINWEIS
+
+    alt_sprech = parsed.hook.sprech_hook_score
+    if alt_sprech is not None and alt_sprech > REDUNDANZ_DECKEL_SPRECH:
+        parsed.hook.sprech_hook_score = REDUNDANZ_DECKEL_SPRECH
+        parsed.hook.sprech_hook_grund = REDUNDANZ_SPRECH_HINWEIS
+
     return parsed
 
 
@@ -370,7 +448,12 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
             if "texthook" not in (e.anweisung or "").lower()
             and "text-hook" not in (e.anweisung or "").lower()
         ]
-    if varianten or (th == 0 and fehlt("texthook", "text-hook")):
+    # `geklemmt` gehört gleichberechtigt neben `th == 0`: Wurde der Score erst im Code gedeckelt
+    # (Fremd-Texthook oder gemessene Redundanz), konnte das Modell davon nichts wissen und hat
+    # entsprechend keine Varianten geliefert. Im Lauf 5502bb37 hat genau diese Lücke die wichtigste
+    # Empfehlung verschluckt: falscher Score 4 → Varianten unterdrückt → keine Texthook-Empfehlung.
+    geklemmt = bool(getattr(parsed.hook, "text_hook_score_geklemmt", False))
+    if varianten or ((th == 0 or geklemmt) and fehlt("texthook", "text-hook")):
         parsed.empfehlungen.insert(0, Empfehlung(
             zeitpunkt_sek=0.0, gruppe="texthook", anweisung=_texthook_anweisung(varianten)))
     return parsed
@@ -450,6 +533,8 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     """
     parsed = erzwinge_nutzer_format(parsed, result)
     parsed = bereinige_fremd_texthook(parsed, result)
+    # Nach der Fremd-Texthook: Ist der Score dort schon auf 0, gibt es hier nichts mehr zu deckeln.
+    parsed = bereinige_redundante_texthook(parsed, result)
     parsed = neutralisiere_stumme_scores(parsed, result)
     parsed = entferne_bestaetigungen(parsed)
     parsed = baue_pausen_schritt(parsed)
@@ -500,6 +585,7 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
     "sprech_hook_grund": "<1-2 Sätze>",
     "text_hook_vorhanden": <true|false>,
     "text_hook_score": <int 0-5; 0 wenn in der Eröffnung kein nicht-gesprochener Bildtext zu sehen ist (Untertitel zählen nie)>,
+    "text_hook_wortlaut": "<PFLICHT wenn text_hook_vorhanden=true: der Text WÖRTLICH, den du als Text-Hook bewertest. Leer bei false. Kein Kommentar, nur der Wortlaut>",
     "text_hook_grund": "<1-2 Sätze; bei score 0 die Ansage + Tipp (3 Varianten über Instagram-Testreel testen)>"
   },
   "struktur": {

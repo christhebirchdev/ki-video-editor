@@ -82,6 +82,16 @@ class HookEval(BaseModel):
     text_hook_vorhanden: bool = False
     text_hook_score: Optional[int] = None
     text_hook_grund: Optional[str] = None
+    # Wortlaut des Textes, den das Modell als Text-Hook wertet — PFLICHT wenn vorhanden.
+    # Zwei Gründe: (1) Ohne Zitat ist eine Fehlklassifikation unsichtbar. Im Lauf 5502bb37 wertete
+    # das Modell die Spaltenüberschrift einer Vergleichsgrafik als Texthook mit Score 4; im Output
+    # stand nur eine Begründung, nicht WAS bewertet wurde. (2) Bei v2_hybrid ist `scenes` leer, der
+    # Bildtext steht also nirgends im Ergebnis — ohne dieses Feld kann der Code die Redundanz zum
+    # Transkript nicht messen.
+    text_hook_wortlaut: str = ""
+    # True, wenn der Score erst NACH dem Modell-Call im Code geklemmt wurde. Das Modell konnte davon
+    # nichts wissen, also muss die Empfehlung dazu erzwungen werden (siehe erzwinge_hook_empfehlungen).
+    text_hook_score_geklemmt: bool = False
 
 
 class StrukturElemente(BaseModel):

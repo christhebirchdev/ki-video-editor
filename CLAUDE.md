@@ -260,6 +260,24 @@ Urteils-Korrekturen, dann die Eingriffe in `empfehlungen`, `verteile_empfehlunge
   Spannungsbogen/Struktur/Schnitt (je 10). Nicht bewertbare Dimensionen (None) fallen raus, ihr Gewicht
   verteilt sich proportional um. Vorher bestimmte das Modell den Wert frei — über 11 Läufe kam fünfmal
   exakt 68 heraus. Nach dem Umbau liegt die Spanne derselben Läufe bei 45–96.
+- `bereinige_redundante_texthook()` — liest der Sprecher den Bildtext zu Beginn vor, ist die
+  Text-Hook verschenkt: Score auf höchstens 2, Sprech-Hook auf höchstens 3, beide Begründungen
+  werden **ersetzt** (nicht ergänzt — sonst liest der Kunde „zieht Blicke an … verschenkst eine
+  Hook-Ebene" in einem Absatz). Gemessen wird `hook.text_hook_wortlaut` gegen die ersten 15 Wörter
+  des Transkripts.
+  Warum im Code: Die Regel „Redundanz Sprech-Hook = Text-Hook ist eine SCHWÄCHE" stand längst im
+  Skill und griff im Lauf 5502bb37 nicht — das Modell gab beiden Hooks eine 4, obwohl das
+  Transkript wörtlich mit der Bildüberschrift beginnt. Die Regel setzt voraus, dass das Modell die
+  Überlappung *erkennt*; ob zwei Textstellen übereinstimmen, ist aber Stringvergleich.
+  **Ohne zitierten Wortlaut kein Check** — geraten wird nicht. Deshalb ist
+  `hook.text_hook_wortlaut` im Schema Pflicht, wenn eine Text-Hook erkannt wurde; bei `v2_hybrid`
+  ist `scenes` leer, der Bildtext steht also sonst nirgends im Ergebnis. Altläufe haben das Feld
+  nicht und bleiben dadurch unverändert.
+- `erzwinge_hook_empfehlungen()` — zusätzlich zu `text_hook_score == 0` löst jetzt auch
+  `hook.text_hook_score_geklemmt` die Texthook-Empfehlung aus. Grund: Wurde der Score erst im Code
+  gedeckelt, konnte das Modell davon nichts wissen und hat keine Varianten geliefert. Im Lauf
+  5502bb37 hat genau diese Lücke die wichtigste Empfehlung verschluckt — falscher Score 4 →
+  Varianten unterdrückt → keine Texthook-Empfehlung im Output.
 - `verteile_empfehlungen()` — Top-3-`action_steps` **strikt nach frühestem Zeitpunkt im Video**, Rest nach
   `weitere_empfehlungen`. Gebündelt wird nur bei gleichem Label *und* gleicher Anweisung (Label allein
   führte zu Fehlmerges). **Bekannte Grenze:** Bei Sprechpausen greift die Bündelung faktisch nie, weil

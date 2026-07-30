@@ -51,6 +51,35 @@ Anker: 5 = alle 4 stark; 4 = stark, einer schwächer; 3 = funktional aber generi
 2 = schwach; 1 = kein Hook/abschreckend.
 Grund = 1–2 Sätze mit dem ausschlaggebenden Faktor (das WARUM, nicht nur das WAS).
 
+WAS EINE TEXT-HOOK IST — Position allein genügt NICHT.
+Eine Text-Hook ist Text, der ZUSÄTZLICH über das Video gelegt wird, um beim Scrollen zu stoppen.
+Sie muss eine BEHAUPTUNG, ein VERSPRECHEN, einen KONFLIKT oder eine OFFENE FRAGE setzen.
+
+ERSTER PRÜFSCHRITT — gehört der Text zum grafischen Inhalt?
+Gehört der Text zu einem grafischen Element des Videos — Vergleichstabelle, Diagramm, Chart,
+Liste, Zeitleiste —, dann ist er INHALT und keine Text-Hook. Unabhängig von Position und Größe,
+und unabhängig davon, ob er auch gesprochen wird. Er wäre auch ohne Hook-Absicht da.
+Anker: Spaltenüberschrift einer Vergleichsgrafik („Inbound vs. Outbound"), Tabellenkopf,
+Achsen- und Legendenbeschriftung, Rubrik-/Kapiteltitel („Tipp 3", „Teil 1/3"), Namens- und
+Rollenschilder, Produktnamen.
+Trifft das zu → `text_hook_vorhanden=false`, `text_hook_score=0`, und `text_hook_grund` nutzt die
+Fassung „Bildtext vorhanden, aber keine Hook" (siehe unten bei Score 0). Sag NICHT, es sei kein
+Text im Bild gewesen — er war sichtbar, er zählt nur nicht.
+Dieser Prüfschritt geht allen anderen Text-Hook-Regeln VOR: Ist der Text grafischer Inhalt, ist
+0 bereits das Minimum und die Redundanz-Regel wird nicht mehr angewandt.
+
+BEWERTUNGSMASSSTAB, wenn es eine echte Text-Hook ist:
+Gewertet wird ausschließlich Spannung/Neugier, Relevanz für die Zielgruppe (emotional oder
+finanziell), Konkretheit. Kannst du keinen dieser drei Punkte am Wortlaut belegen: höchstens 2.
+NICHT zulässig als Begründung für Score 4 oder 5: „ohne Ton verständlich", „macht den Kern sofort
+klar", „zieht Blicke an", „gut lesbar", „sorgt für Orientierung", „passt zum Thema". Das ist
+Lesbarkeit und Einordnung, nicht Hook-Wirkung.
+
+`text_hook_wortlaut`: Trage IMMER den Eröffnungs-Bildtext wörtlich ein, den du gesehen hast —
+auch dann, wenn er nach dem ersten Prüfschritt nicht als Hook zählt. Das Feld dokumentiert, WAS
+im Bild stand, nicht nur was du als Hook gewertet hast. Nur wenn gar kein Bildtext zu sehen war,
+bleibt es leer.
+
 UNTERTITEL sind KEIN Text-Hook. Erkenne sie an ZWEI Merkmalen, die BEIDE zutreffen müssen:
 1. Der Wortlaut kommt (nahezu) genauso im TRANSKRIPT vor, UND
 2. der Text LÄUFT MIT: über das Video hinweg kommen laufend neue Blöcke, die das jeweils gerade
@@ -68,12 +97,22 @@ Stehen Untertitelspur UND ein eigener Titeltext im Bild, ist allein der Titeltex
 Die Untertitelspur bewertest du nie als Text-Hook und machst sie NIE zum Gegenstand einer
 Texthook-Empfehlung — sie wiederholt das Gesprochene per Definition, daraus folgt kein
 Redundanz-Vorwurf.
-Ist in der Eröffnung kein nicht-gesprochener Bildtext zu sehen → text_hook_vorhanden=false,
-**text_hook_score=0** (nicht null), und text_hook_grund benennt es KLAR + gibt den Tipp: „Es gibt keine
-Text-Hook im Bild — Untertitel zählen nicht, egal ob sie mitlaufen oder stehen bleiben. Damit verschenkst du eine der stärksten
-Ebenen, um Zuschauer beim Scrollen zu stoppen. Tipp: erstelle mindestens 3 verschiedene Text-Hook-Varianten
-und teste sie über die Testreel-Funktion von Instagram gegeneinander." Score 0 heißt: fehlt komplett — das ist bewusst eine harte Bewertung, weil die
-Text-Hook einer der wichtigsten Hebel für die Klickrate ist.
+SCORE 0 — zwei Fassungen für `text_hook_grund`, je nachdem WARUM keine Hook da ist.
+Score 0 heißt in beiden Fällen dasselbe: dir fehlt eine Text-Hook. Das ist bewusst hart, weil die
+Text-Hook einer der wichtigsten Hebel für die Klickrate ist. Nur die Erklärung unterscheidet sich —
+eine falsche Erklärung kostet Glaubwürdigkeit.
+
+(a) Gar kein nicht-gesprochener Bildtext in der Eröffnung → text_hook_vorhanden=false, score 0:
+„Es gibt keine Text-Hook im Bild — Untertitel zählen nicht, egal ob sie mitlaufen oder stehen
+bleiben. Damit verschenkst du eine der stärksten Ebenen, um Zuschauer beim Scrollen zu stoppen.
+Tipp: erstelle mindestens 3 verschiedene Text-Hook-Varianten und teste sie über die
+Testreel-Funktion von Instagram gegeneinander."
+
+(b) Bildtext war da, gehört aber zum grafischen Inhalt (erster Prüfschritt) → score 0:
+„Der Text im Bild gehört zu deiner Grafik — er beschriftet den Inhalt, statt beim Scrollen zu
+stoppen. Eine Text-Hook wäre ein zusätzlicher Satz, der zuspitzt oder eine Frage offen lässt.
+Tipp: erstelle mindestens 3 verschiedene Text-Hook-Varianten und teste sie über die
+Testreel-Funktion von Instagram gegeneinander."
 
 LÄNGE der Text-Hook — gilt für die BEWERTUNG der vorhandenen genauso wie für jeden VORSCHLAG:
 3–9 Wörter (ideal 3–6), höchstens 2 Zeilen. Wer scrollt, liest nur einen Blick lang. Eine vorhandene
@@ -84,8 +123,8 @@ SPRECH-HOOK — eigene Maßstäbe, NICHT die der Text-Hook:
 Ein Sprech-Hook ist in der Regel deutlich LÄNGER als eine Text-Hook. Die 9-Wörter-Grenze gilt für ihn
 NICHT — bewerte ihn nie als „zu lang", nur weil er ein ganzer Satz ist.
 Stark ist er, wenn er mindestens eines davon tut: Neugier wecken, emotional treffen, oder den Zuschauer
-direkt ansprechen („du"). Am stärksten ERGÄNZT er die Text-Hook, statt sie zu wiederholen — zusammen
-decken beide Ebenen mehr ab als jede für sich.
+direkt ansprechen („du"). Zum Verhältnis von Sprech- und Text-Hook siehe die Redundanz-Regel unten
+— nicht hier wiederholen.
 
 VORSCHLÄGE für eine bessere Text-Hook gehören ausschließlich in das Feld `texthook_varianten` —
 bis zu 3, je HÖCHSTENS 9 Wörter, jede mit einer anderen Mechanik (Provokation / Neugierlücke /
@@ -100,13 +139,24 @@ Hook-Kalibrierung (aus echten Beobachtungen):
 - Leere Hype-Wörter ohne konkreten Inhalt sind SCHWACH (Score ~2). Negativ-Beispiel Sprech-Hook:
   „Das ist ein unfassbar spannender Glaubenssatz." → sagt statt zu zeigen, kein konkreter Open Loop,
   reines Adjektiv-Hype („unfassbar spannend") → niedrig bewerten.
-- REDUNDANZ Sprech-Hook = Text-Hook ist eine SCHWÄCHE, keine Stärke (Referenz S3) — das gilt NUR für
-  echte Text-Hooks. Untertitel sind davon ausgenommen (siehe „UNTERTITEL sind KEIN Text-Hook").
+- REDUNDANZ Sprech-Hook = Text-Hook ist eine SCHWÄCHE, keine Stärke (Referenz S3). Dies ist die
+  KANONISCHE Fassung dieser Regel — sie steht nur hier, andere Abschnitte verweisen darauf.
+  Sie gilt NUR für echte Text-Hooks: Untertitel sind ausgenommen (siehe „UNTERTITEL sind KEIN
+  Text-Hook"), grafischer Inhalt ebenfalls (dort ist der Score bereits 0, siehe erster Prüfschritt).
   Sagen beide (nahezu) dasselbe, schließt sich der Open Loop sofort doppelt und eine Ebene ist verschenkt.
-  **Den Abzug bekommt im Zweifel die TEXT-HOOK** — sie hat den knapperen Platz und muss genau das liefern,
+  Zwei Folgen, klar getrennt:
+  **(1) Für die Doppelung zahlt die TEXT-HOOK.** Sie hat den knapperen Platz und muss genau das liefern,
   was das Gesprochene noch nicht abdeckt. Die Doppelung im text_hook_grund ausdrücklich benennen.
-  Negativ-Beispiel: Sprech-Hook „Die Gesundheit eines Kindes beginnt vor der Schwangerschaft" +
+  **(2) Für verschenkte Eröffnungssekunden zahlt der SPRECH-HOOK.** Verbraucht der gesprochene
+  Einstieg die ersten Sekunden damit, den Bildtext VORZULESEN, und setzt die Neugier erst danach
+  ein, verliert auch der Sprech-Hook Punkte — nicht für die Doppelung, sondern dafür, dass die
+  wertvollsten Sekunden ohne Gegenwert weggehen. Im sprech_hook_grund benennen und einen Einstieg
+  empfehlen, der direkt sagt, was auf dem Spiel steht.
+  Negativ-Beispiel zu (1): Sprech-Hook „Die Gesundheit eines Kindes beginnt vor der Schwangerschaft" +
   fast identischer Text-Overlay „Die Gesundheit deines Kindes beginnt lange vor der Schwangerschaft".
+  Negativ-Beispiel zu (2): Bildtext „Inbound vs. Outbound" + gesprochener Start „Inbound vs. Outbound,
+  wer beide gleich behandelt, verliert am Ende beide" → die ersten drei Wörter sind verschenkt.
+  Besser: „Wenn du Inbound- und Outbound-Leads gleich behandelst, verlierst du tausende Euro Umsatz."
 - Wortlaut-Quelle: Gemmas text_overlays kann OCR-Fehler enthalten (z.B. „Ich bin kein Geld" statt
   „Ich bin kein Geldmensch"). Für GESPROCHENEN Text gilt das TRANSKRIPT als verlässlicher Wortlaut.
 
