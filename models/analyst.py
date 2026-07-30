@@ -79,6 +79,15 @@ class HookEval(BaseModel):
     """
     sprech_hook_score: Optional[int] = 0
     sprech_hook_grund: str = ""
+    # Die Frage, die der Hook offen lässt — PFLICHT, in EINEM Satz.
+    # Zweck: „erzeugt Neugier" ist eine Behauptung, die über jeden Text aufgestellt werden kann und
+    # die das Modell nicht falsifizieren muss. Eine formulierbare offene Frage ist dagegen prüfbar:
+    # Gibt es keine, gibt es keinen Haken. Anlass: Hooks wurden gut bewertet, obwohl sie
+    # nachweislich nicht neugierig machten.
+    sprech_hook_offene_frage: str = ""
+    # Welche Mechanik der Hook nutzt — einer der Werte aus HOOK_MECHANIKEN. „keine" heißt:
+    # Es ist eine Aussage, kein Hook.
+    sprech_hook_mechanik: str = ""
     text_hook_vorhanden: bool = False
     text_hook_score: Optional[int] = None
     text_hook_grund: Optional[str] = None
@@ -89,6 +98,8 @@ class HookEval(BaseModel):
     # Bildtext steht also nirgends im Ergebnis — ohne dieses Feld kann der Code die Redundanz zum
     # Transkript nicht messen.
     text_hook_wortlaut: str = ""
+    text_hook_offene_frage: str = ""   # wie sprech_hook_offene_frage, für die Text-Hook
+    text_hook_mechanik: str = ""       # wie sprech_hook_mechanik, für die Text-Hook
     # True, wenn der Score erst NACH dem Modell-Call im Code geklemmt wurde. Das Modell konnte davon
     # nichts wissen, also muss die Empfehlung dazu erzwungen werden (siehe erzwinge_hook_empfehlungen).
     text_hook_score_geklemmt: bool = False
@@ -205,6 +216,20 @@ DIMENSIONEN = (
 # die wirklich schwach sind; der Code baut daraus die Empfehlung.
 # Grund (Lauf 4e56336e): Die feste Empfehlung nannte alle Gestaltungspunkte, auch die intakten —
 # „bei tipp 2 hätte nur die textinhaltsanpassung gereicht. optisch ist die texthook in ordnung."
+# Womit ein Hook arbeitet. Die Liste diente bisher nur den VORSCHLÄGEN (`texthook_varianten`);
+# sie auch für die BEWERTUNG zu verlangen macht das Urteil prüfbar: Wer keine Mechanik benennen
+# kann, hat keinen Hook vor sich, sondern eine Aussage.
+HOOK_MECHANIKEN = (
+    "provokation",     # widerspricht dem, was die Zielgruppe glaubt
+    "neugierluecke",   # lässt bewusst offen, was der Zuschauer wissen will
+    "zahl",            # konkrete Zahl oder konkreter Pain Point
+    "erwartungsbruch", # das Gegenteil dessen, was man erwartet
+    "pov",             # versetzt den Zuschauer in eine Lage
+    "konflikt",        # zwei Seiten, ein Widerspruch, ein Fehler mit Folgen
+    "versprechen",     # ein konkretes Ergebnis in Aussicht
+    "keine",           # nichts davon — dann ist es eine Aussage, kein Hook
+)
+
 TEXTHOOK_MANGEL_ARTEN = (
     "wortlaut",    # sagt inhaltlich zu wenig, macht nicht neugierig
     "laenge",      # zu viele Wörter

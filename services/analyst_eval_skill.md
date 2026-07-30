@@ -45,18 +45,19 @@ Short-Form-Performance = CTR × Watchtime.
 Gewichte Hook und Watchtime im performance_score (0–100) am höchsten.
 
 ## Hook (immer anwenden)
-Bewerte getrennt:
-- sprech_hook = die ersten 1–2 Sätze des Transkripts (Kandidat ist markiert).
-- text_hook = das Text-Overlay der ERÖFFNUNG (nur wenn vorhanden/erkannt).
-Beide 1–5 nach 4 Faktoren: (1) Scroll-Stop/Pattern-Interrupt, (2) Open Loop/Spannung,
-(3) Zielgruppen-Relevanz, (4) Spezifität & Klarheit.
-Anker: 5 = alle 4 stark; 4 = stark, einer schwächer; 3 = funktional aber generisch;
-2 = schwach; 1 = kein Hook/abschreckend.
-Grund = 1–2 Sätze mit dem ausschlaggebenden Faktor (das WARUM, nicht nur das WAS).
+Zwei Hooks, gleiches Gewicht, gleiche Anforderungen:
+- **sprech_hook** = die ersten 1–2 Sätze, die der PROTAGONIST sagt.
+- **text_hook** = Text, der ZUSÄTZLICH über die Eröffnung gelegt wird.
 
-WAS EINE TEXT-HOOK IST — Position allein genügt NICHT.
-Eine Text-Hook ist Text, der ZUSÄTZLICH über das Video gelegt wird, um beim Scrollen zu stoppen.
-Sie muss eine BEHAUPTUNG, ein VERSPRECHEN, einen KONFLIKT oder eine OFFENE FRAGE setzen.
+Arbeite in dieser Reihenfolge: **A** was ist da → **B** zählt es als Hook → **C** wie stark ist es
+→ **D** was empfiehlst du. Vergib den Score erst in Schritt C, nicht vorher.
+
+### A — Was ist da
+`text_hook_wortlaut`: den Eröffnungs-Bildtext IMMER wörtlich eintragen, auch wenn er nach B nicht
+als Hook zählt. Das Feld dokumentiert, WAS im Bild stand. Nur wenn gar kein Bildtext zu sehen war,
+bleibt es leer.
+
+### B — Zählt es als Hook
 
 ERSTER PRÜFSCHRITT — gehört der Text zum grafischen Inhalt?
 Gehört der Text zu einem grafischen Element des Videos — Vergleichstabelle, Diagramm, Chart,
@@ -70,25 +71,6 @@ Fassung „Bildtext vorhanden, aber keine Hook" (siehe unten bei Score 0). Sag N
 Text im Bild gewesen — er war sichtbar, er zählt nur nicht.
 Dieser Prüfschritt geht allen anderen Text-Hook-Regeln VOR: Ist der Text grafischer Inhalt, ist
 0 bereits das Minimum und die Redundanz-Regel wird nicht mehr angewandt.
-
-BEWERTUNGSMASSSTAB, wenn es eine echte Text-Hook ist — `text_hook_score` bewertet INHALT UND
-GESTALTUNG, nicht nur den Wortlaut.
-- Inhalt: Spannung/Neugier, Relevanz für die Zielgruppe (emotional oder finanziell), Konkretheit.
-  Kannst du keinen dieser drei Punkte am Wortlaut belegen: höchstens 2.
-- Gestaltung: Größe, Farbe, Lesbarkeit, Einblendungsdauer, Position (Details unten).
-**Für eine 4 oder 5 müssen BEIDE Seiten tragen.** Ist der Wortlaut stark, die Gestaltung aber
-schwach — zu groß, grell, schlecht lesbar, zu kurz, am Rand klebend —, ist der Score höchstens 3.
-Kannst du die Gestaltung nicht positiv belegen, ist sie nicht gut, sondern unbeurteilt: dann 3.
-Trage jeden schwachen Aspekt in `texthook_maengel` ein — daraus baut das System die Empfehlung, und
-zwar NUR aus dem, was du meldest. Ist die Gestaltung in Ordnung, lass das Feld leer.
-NICHT zulässig als Begründung für Score 4 oder 5: „ohne Ton verständlich", „macht den Kern sofort
-klar", „zieht Blicke an", „gut lesbar", „sorgt für Orientierung", „passt zum Thema". Das ist
-Lesbarkeit und Einordnung, nicht Hook-Wirkung.
-
-`text_hook_wortlaut`: Trage IMMER den Eröffnungs-Bildtext wörtlich ein, den du gesehen hast —
-auch dann, wenn er nach dem ersten Prüfschritt nicht als Hook zählt. Das Feld dokumentiert, WAS
-im Bild stand, nicht nur was du als Hook gewertet hast. Nur wenn gar kein Bildtext zu sehen war,
-bleibt es leer.
 
 UNTERTITEL sind KEIN Text-Hook. Erkenne sie an ZWEI Merkmalen, die BEIDE zutreffen müssen:
 1. Der Wortlaut kommt (nahezu) genauso im TRANSKRIPT vor, UND
@@ -125,54 +107,62 @@ stoppen. Eine Text-Hook wäre ein zusätzlicher Satz, der zuspitzt oder eine Fra
 Tipp: erstelle mindestens 3 verschiedene Text-Hook-Varianten und teste sie über die
 Testreel-Funktion von Instagram gegeneinander."
 
-GESTALTUNG der Text-Hook — sie wird mitbewertet, nicht nur der Wortlaut.
-Eine inhaltlich gute Hook, die gestalterisch nicht funktioniert, stoppt niemanden. Prüfe:
-- **Größe:** Sie muss ins Bild passen, ohne das Gesicht zu überdecken. Bildschirmfüllender Text
-  wirkt laut und unprofessionell, nicht auffällig. Als sichtbarer Anhaltspunkt: Eine Textzeile
-  sollte nicht höher sein als der Kopf des Sprechers im Bild.
-  Beurteile die Größe ausschließlich an dem, was du im Bild SIEHST. Nenne KEINE Schriftgrößen-Werte
-  aus einem Schnittprogramm (kein „Größe 14", keine Punktangaben) — die kannst du im gerenderten
-  Video nicht ablesen, und eine Zahl, die du nicht prüfen kannst, ist erfunden.
-- **Farbe und Kontrast:** lesbar, aber im Gesamtbild ruhig. Grelles Neon ohne Bezug zum Look des
-  Videos wirkt billig.
-- **Einblendungsdauer:** mindestens 5 Sekunden. Wer scrollt, braucht Zeit zum Lesen — kürzer ist
-  die Hook praktisch nicht vorhanden.
-- **Position:** oberes Drittel, mit deutlichem Abstand zum oberen Rand. Ganz oben überdeckt die
-  Oberfläche der Plattform (Instagram) den Text.
-Benenne jeden schwachen Punkt im `text_hook_grund` und trage ihn in `texthook_maengel` ein.
-Die Score-Wirkung steht oben im Bewertungsmaßstab — hier nicht wiederholen.
+### C — Wie stark ist der Hook (gilt für BEIDE Hooks)
+
+**Der Kerntest, vor allen anderen: Öffnet er, oder beschreibt er?**
+Ein Hook öffnet eine Lücke, die der Zuschauer geschlossen haben will. Eine Zusammenfassung des
+Inhalts schließt sie sofort — sie sagt, worum es geht, und nimmt damit den Grund zum Bleiben.
+- beschreibt (schwach): „In diesem Video zeige ich dir drei Fehler beim Lead-Kontakt."
+- öffnet (stark): „Der dritte Fehler kostet dich am meisten Geld — und fast alle machen ihn."
+
+**PFLICHT `*_offene_frage`:** Formuliere in EINEM Satz die Frage, die der Hook offen lässt und die
+der Zuschauer beantwortet haben will. **Kannst du keine formulieren, gibt es keinen Haken →
+höchstens 2**, egal wie sauber und fehlerfrei der Text ist.
+
+**PFLICHT `*_mechanik`:** Womit arbeitet der Hook? Genau einer dieser Werte:
+`provokation` (widerspricht dem, was die Zielgruppe glaubt) · `neugierluecke` · `zahl` (konkrete
+Zahl oder konkreter Pain Point) · `erwartungsbruch` · `pov` · `konflikt` · `versprechen` ·
+`keine`. **Trifft `keine` zu, ist es eine Aussage und kein Hook → höchstens 2.**
+
+Dazu diese Kriterien:
+- **Einsatz:** Was gewinnt oder verliert der Zuschauer? Ohne erkennbaren Einsatz bleibt es
+  Information statt Sog. „Verlierst du tausende Euro Umsatz" hat Einsatz, „geht es um Leads" nicht.
+- **Trennschärfe:** Ein Hook für alle stoppt niemanden. Er muss die Zielgruppe treffen UND andere
+  aussortieren. Je klarer erkennbar ist, für wen das gilt, desto stärker.
+- **Konkretheit:** Leere Hype-Wörter ohne Inhalt sind schwach. Negativ-Beispiel: „Das ist ein
+  unfassbar spannender Glaubenssatz" — sagt statt zu zeigen, reines Adjektiv-Hype → ~2.
+
+**Anker:** 5 = öffnet klar, Mechanik trägt, Einsatz und Zielgruppe erkennbar. 4 = stark, ein Punkt
+schwächer. 3 = ein Haken ist DA, wirkt aber generisch. 2 = kein Haken formulierbar, oder reine
+Beschreibung, oder leere Hype-Wörter. 1 = schreckt ab.
+**Kein Haken in den ersten zwei Sätzen = höchstens 2.** Beginnt das Video mit Kontext, Begrüßung
+oder Themenankündigung, hookt es nicht — „verständlich gesprochen" und „passt zum Thema" sind
+keine Hook-Kriterien.
+
+`*_grund` = 1–2 Sätze mit dem ausschlaggebenden Punkt (das WARUM, nicht nur das WAS).
+
+**NUR FÜR DIE TEXT-HOOK**, zusätzlich zu den Kriterien oben: `text_hook_score` bewertet Inhalt UND
+GESTALTUNG. **Für eine 4 oder 5 müssen BEIDE Seiten tragen.** Ist der Wortlaut stark, die
+Gestaltung aber schwach — zu groß, grell, schlecht lesbar, zu kurz, am Rand klebend —, höchstens 3.
+Kannst du die Gestaltung nicht positiv belegen, ist sie nicht gut, sondern unbeurteilt: dann 3.
+Trage jeden schwachen Aspekt in `texthook_maengel` ein — daraus baut das System die Empfehlung,
+und zwar NUR aus dem, was du meldest. Ist die Gestaltung in Ordnung, lass das Feld leer.
+NICHT zulässig als Begründung für 4 oder 5: „ohne Ton verständlich", „zieht Blicke an",
+„gut lesbar", „sorgt für Orientierung", „passt zum Thema" — das ist Lesbarkeit, nicht Hook-Wirkung.
 
 LÄNGE der Text-Hook — gilt für die BEWERTUNG der vorhandenen genauso wie für jeden VORSCHLAG:
 3–9 Wörter (ideal 3–6), höchstens 2 Zeilen. Wer scrollt, liest nur einen Blick lang. Eine vorhandene
 Text-Hook über 9 Wörter ist in dieser Zeit nicht erfassbar → höchstens text_hook_score 3 und die Länge
 im text_hook_grund benennen. Ganze Sätze oder Erklärungen sind keine Text-Hooks.
 
-SPRECH-HOOK — eigene Maßstäbe, NICHT die der Text-Hook:
+**NUR FÜR DEN SPRECH-HOOK** — eigene Maßstäbe, NICHT die der Text-Hook:
 Ein Sprech-Hook ist in der Regel deutlich LÄNGER als eine Text-Hook. Die 9-Wörter-Grenze gilt für ihn
 NICHT — bewerte ihn nie als „zu lang", nur weil er ein ganzer Satz ist.
 Stark ist er, wenn er mindestens eines davon tut: Neugier wecken, emotional treffen, oder den Zuschauer
 direkt ansprechen („du"). Zum Verhältnis von Sprech- und Text-Hook siehe die Redundanz-Regel unten
 — nicht hier wiederholen.
 
-VORSCHLÄGE für eine bessere Text-Hook gehören ausschließlich in das Feld `texthook_varianten` —
-bis zu 3, jede mit einer anderen Mechanik (Provokation / Neugierlücke / konkrete Zahl oder Pain
-Point / Erwartungsbruch / POV), passend zum echten Thema DIESES Videos. Für die Wortzahl gilt die
-Längenregel oben — nicht hier wiederholen.
-Schreib sie NICHT in eine Empfehlung: Das System prüft die Wortzahl, verwirft zu lange Varianten und
-baut die Handlungsempfehlung selbst daraus.
-**Ist die vorhandene Text-Hook stark (Score 4 oder 5), lass `texthook_varianten` LEER.** Dann braucht
-der Nutzer keine Alternativen — eine Empfehlung, das Beste am Video umzubauen, verbrennt nur einen der
-drei Top-Plätze.
-
 Hook-Kalibrierung (aus echten Beobachtungen):
-- KEIN HAKEN IN DEN ERSTEN ZWEI SÄTZEN = höchstens 2. Beginnt das Video mit Kontext, Begrüßung,
-  Themenankündigung oder Aufwärmen — ohne Konflikt, ohne Zahl, ohne offene Frage —, dann hookt es
-  nicht, egal wie sauber der Satz formuliert ist. „Verständlich gesprochen" und „passt zum Thema"
-  sind keine Hook-Kriterien. Eine 3 setzt voraus, dass ein Haken erkennbar DA ist und nur generisch
-  wirkt (Feedback 041770c1: Score 3 vergeben, Chris: „es hookt fast garnicht", eher 2).
-- Leere Hype-Wörter ohne konkreten Inhalt sind SCHWACH (Score ~2). Negativ-Beispiel Sprech-Hook:
-  „Das ist ein unfassbar spannender Glaubenssatz." → sagt statt zu zeigen, kein konkreter Open Loop,
-  reines Adjektiv-Hype („unfassbar spannend") → niedrig bewerten.
 - REDUNDANZ Sprech-Hook = Text-Hook ist eine SCHWÄCHE, keine Stärke (Referenz S3). Dies ist die
   KANONISCHE Fassung dieser Regel — sie steht nur hier, andere Abschnitte verweisen darauf.
   Sie gilt NUR für echte Text-Hooks: Untertitel sind ausgenommen (siehe „UNTERTITEL sind KEIN
@@ -193,6 +183,34 @@ Hook-Kalibrierung (aus echten Beobachtungen):
   Besser: „Wenn du Inbound- und Outbound-Leads gleich behandelst, verlierst du tausende Euro Umsatz."
 - Wortlaut-Quelle: Für GESPROCHENEN Text gilt immer das TRANSKRIPT als verlässlicher Wortlaut,
   nicht dein Höreindruck.
+
+### D — Was empfiehlst du
+
+GESTALTUNG der Text-Hook — hier entstehen die Mängel, aus denen das System die Empfehlung baut.
+Eine inhaltlich gute Hook, die gestalterisch nicht funktioniert, stoppt niemanden. Prüfe:
+- **Größe:** Sie muss ins Bild passen, ohne das Gesicht zu überdecken. Bildschirmfüllender Text
+  wirkt laut und unprofessionell, nicht auffällig. Als sichtbarer Anhaltspunkt: Eine Textzeile
+  sollte nicht höher sein als der Kopf des Sprechers im Bild.
+  Beurteile die Größe ausschließlich an dem, was du im Bild SIEHST. Nenne KEINE Schriftgrößen-Werte
+  aus einem Schnittprogramm (kein „Größe 14", keine Punktangaben) — die kannst du im gerenderten
+  Video nicht ablesen, und eine Zahl, die du nicht prüfen kannst, ist erfunden.
+- **Farbe und Kontrast:** lesbar, aber im Gesamtbild ruhig. Grelles Neon ohne Bezug zum Look des
+  Videos wirkt billig.
+- **Einblendungsdauer:** mindestens 5 Sekunden. Wer scrollt, braucht Zeit zum Lesen — kürzer ist
+  die Hook praktisch nicht vorhanden.
+- **Position:** oberes Drittel, mit deutlichem Abstand zum oberen Rand. Ganz oben überdeckt die
+  Oberfläche der Plattform (Instagram) den Text.
+Benenne jeden schwachen Punkt im `text_hook_grund` und trage ihn in `texthook_maengel` ein.
+Die Score-Wirkung steht in C — hier nicht wiederholen.
+
+VORSCHLÄGE für eine bessere Text-Hook gehören ausschließlich in das Feld `texthook_varianten` —
+bis zu 3, jede mit einer ANDEREN Mechanik aus der Liste in C, passend zum echten Thema DIESES
+Videos. Für die Wortzahl gilt die Längenregel in C — nicht hier wiederholen.
+Schreib sie NICHT in eine Empfehlung: Das System prüft die Wortzahl, verwirft zu lange Varianten und
+baut die Handlungsempfehlung selbst daraus.
+**Ist die vorhandene Text-Hook stark (Score 4 oder 5), lass `texthook_varianten` LEER.** Dann braucht
+der Nutzer keine Alternativen — eine Empfehlung, das Beste am Video umzubauen, verbrennt nur einen der
+drei Top-Plätze.
 
 ## Legitimation & Hook-Start (Referenz S2/P3)
 - **Superhook/Legitimation:** Dir ist NICHT bekannt, ob die Person prominent ist (Gemini bestimmt keine

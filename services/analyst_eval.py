@@ -26,7 +26,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-07-31"
+PROMPT_VERSION = "2026-08-01"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -592,6 +592,44 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
     return parsed
 
 
+HOOK_OHNE_HAKEN_DECKEL = 2   # Kein offener Haken → höchstens 2, egal wie sauber formuliert
+_MIN_FRAGE_WOERTER = 3       # kürzer ist keine Frage, sondern ein Platzhalter
+
+
+def deckle_hooks_ohne_haken(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Ein Hook ohne formulierbare offene Frage und ohne benennbare Mechanik ist keiner.
+
+    Warum im Code: Die Bewertungskriterien waren abstrakte Adjektive („erzeugt Neugier",
+    „macht Spannung"). Über jeden Text lässt sich das behaupten, und das Modell muss die
+    Behauptung nicht belegen — entsprechend wurden Hooks gut bewertet, die nachweislich nicht
+    neugierig machten. `*_offene_frage` und `*_mechanik` machen das Urteil prüfbar: Wer die Frage
+    nicht formulieren kann, hat keinen Haken; wer keine Mechanik benennen kann, hat eine Aussage.
+
+    Beide Hooks gleich behandelt — sie haben dasselbe Score-Gewicht (je 18).
+
+    Nur deckeln, nie anheben. `None` bleibt `None` (stummes Video → Sprech-Hook nicht bewertbar).
+    """
+    def ohne_haken(frage: str, mechanik: str) -> bool:
+        hat_frage = len((frage or "").strip().split()) >= _MIN_FRAGE_WOERTER
+        mech = (mechanik or "").strip().lower()
+        return (not hat_frage) or mech in ("", "keine")
+
+    h = parsed.hook
+    if h.sprech_hook_score is not None and h.sprech_hook_score > HOOK_OHNE_HAKEN_DECKEL \
+            and ohne_haken(h.sprech_hook_offene_frage, h.sprech_hook_mechanik):
+        h.sprech_hook_score = HOOK_OHNE_HAKEN_DECKEL
+
+    # Bei der Text-Hook nur, wenn überhaupt eine da ist — 0 ist bereits das Minimum.
+    if h.text_hook_vorhanden and h.text_hook_score is not None \
+            and h.text_hook_score > HOOK_OHNE_HAKEN_DECKEL \
+            and ohne_haken(h.text_hook_offene_frage, h.text_hook_mechanik):
+        h.text_hook_score = HOOK_OHNE_HAKEN_DECKEL
+        # Der Score fällt erst NACH dem Modell-Call — es konnte davon nichts wissen und hat
+        # entsprechend keine Varianten geliefert. Ohne diese Markierung bliebe die Empfehlung aus.
+        h.text_hook_score_geklemmt = True
+    return parsed
+
+
 SCHWACH_SCORE = 3   # „3 oder schlechter" löst aus (Vorgabe Chris, Lauf 3c9a8d95)
 
 # Welche Dimension bekommt bei schwachem Score einen erzwungenen Schritt, mit welchem Rückfalltext.
@@ -847,6 +885,8 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     # VOR den Erzwingungen: Benannte Probleme deckeln den Score, damit die ≤3-Regel danach
     # überhaupt greift (Lauf 041770c1: zwei Probleme benannt, Score trotzdem 4).
     parsed = deckle_score_auf_probleme(parsed)
+    # VOR erzwinge_hook_empfehlungen: Der gedeckelte Hook-Score muss die Empfehlung auslösen.
+    parsed = deckle_hooks_ohne_haken(parsed)
     parsed = erzwinge_hook_empfehlungen(parsed)
     parsed = erzwinge_anlauf_schnitt(parsed, result)
     # NACH den Hook- und Anlauf-Schritten: Alle liegen auf Sekunde 0, die Einfügereihenfolge
@@ -895,9 +935,13 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "hook": {
     "sprech_hook_score": <int 1-5, oder null wenn im Video niemand spricht — siehe „Videos ohne gesprochenes Wort">,
     "sprech_hook_grund": "<1-2 Sätze>",
+    "sprech_hook_offene_frage": "<PFLICHT: die Frage, die dein Einstieg beim Zuschauer offen lässt, in EINEM Satz. Lässt er keine offen: leer>",
+    "sprech_hook_mechanik": "<PFLICHT, einer aus: provokation | neugierluecke | zahl | erwartungsbruch | pov | konflikt | versprechen | keine>",
     "text_hook_vorhanden": <true|false>,
     "text_hook_score": <int 0-5; 0 wenn in der Eröffnung kein nicht-gesprochener Bildtext zu sehen ist (Untertitel zählen nie)>,
-    "text_hook_wortlaut": "<PFLICHT wenn text_hook_vorhanden=true: der Text WÖRTLICH, den du als Text-Hook bewertest. Leer bei false. Kein Kommentar, nur der Wortlaut>",
+    "text_hook_wortlaut": "<PFLICHT: der Eröffnungs-Bildtext WÖRTLICH — auch wenn er nicht als Hook zählt. Nur wenn gar kein Bildtext zu sehen war: leer>",
+    "text_hook_offene_frage": "<PFLICHT wenn text_hook_vorhanden=true: die Frage, die der Bildtext offen lässt, in EINEM Satz. Lässt er keine offen: leer>",
+    "text_hook_mechanik": "<PFLICHT wenn text_hook_vorhanden=true, einer aus: provokation | neugierluecke | zahl | erwartungsbruch | pov | konflikt | versprechen | keine>",
     "text_hook_grund": "<1-2 Sätze; bei score 0 die Ansage + Tipp (3 Varianten über Instagram-Testreel testen)>"
   },
   "struktur": {

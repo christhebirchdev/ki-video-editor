@@ -1572,8 +1572,8 @@ def test_sprechhook_ohne_haken_ist_hoechstens_2():
     """Feedback 041770c1: Score 3 vergeben, Chris: „es hookt fast garnicht", eher 2."""
     from services.analyst_eval import load_skill_body
     s = load_skill_body()
-    assert "KEIN HAKEN IN DEN ERSTEN ZWEI SÄTZEN = höchstens 2" in s
-    assert "sind keine Hook-Kriterien" in s
+    assert "Kein Haken in den ersten zwei Sätzen = höchstens 2" in s
+    assert "keine Hook-Kriterien" in s
 
 
 def test_weitschweifigkeit_ist_ein_struktur_mangel():
@@ -1670,7 +1670,7 @@ def test_gestaltung_ist_teil_der_score_definition():
     „grottig aussieht". Die Gestaltungsregel stand zu weit von der Score-Vergabe entfernt."""
     from services.analyst_eval import load_skill_body
     s = load_skill_body()
-    assert "bewertet INHALT UND\nGESTALTUNG" in s
+    assert "bewertet Inhalt UND\nGESTALTUNG" in s
     assert "müssen BEIDE Seiten tragen" in s
 
 
@@ -1722,3 +1722,87 @@ def test_score_farbe_ist_immer_gruen():
     assert "var(--err-ink)" not in block, "rote Score-Farbe ist wieder drin"
     assert "var(--gold-deep)" not in block
     assert block.count("var(--ok-ink)") >= 1
+
+
+# ---------- Hook-Regeln: Struktur A→B→C→D + Pflichtfelder (Runde „Texthook triggert nicht") ----------
+
+def _hook_ev(**felder):
+    from models.analyst import AnalystEvaluationV2
+    ev = AnalystEvaluationV2()
+    for k, v in felder.items():
+        setattr(ev.hook, k, v)
+    return ev
+
+
+def test_hook_abschnitt_hat_entscheidungsreihenfolge():
+    """Chris: „wie sollten wir die hook regeln optimal strukturieren". Der Score darf erst fallen,
+    nachdem geklärt ist, was da ist und ob es überhaupt zählt."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    for ueberschrift in ("### A — Was ist da", "### B — Zählt es als Hook",
+                         "### C — Wie stark ist der Hook", "### D — Was empfiehlst du"):
+        assert ueberschrift in s, ueberschrift
+    assert s.index("### A") < s.index("### B") < s.index("### C") < s.index("### D")
+
+
+def test_hook_regeln_stehen_nur_einmal():
+    """Chris: „wichtig ist das der prompt nie doppelte regeln irgendwo enthält"."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    for satz in ("Kein Haken in den ersten zwei Sätzen = höchstens 2",
+                 "müssen BEIDE Seiten tragen",
+                 "3–9 Wörter (ideal 3–6)",
+                 "REDUNDANZ Sprech-Hook = Text-Hook ist eine SCHWÄCHE"):
+        assert s.count(satz) == 1, f"{satz!r} steht {s.count(satz)}x"
+
+
+def test_pflichtfelder_offene_frage_und_mechanik_stehen_im_prompt():
+    from services.analyst_eval import load_skill_body, OUTPUT_SCHEMA
+    s = load_skill_body()
+    assert "PFLICHT `*_offene_frage`" in s
+    assert "PFLICHT `*_mechanik`" in s
+    for feld in ("sprech_hook_offene_frage", "sprech_hook_mechanik",
+                 "text_hook_offene_frage", "text_hook_mechanik"):
+        assert feld in OUTPUT_SCHEMA, feld
+
+
+def test_hook_ohne_offene_frage_wird_auf_2_gedeckelt():
+    """Kernfall: sauber formulierter Einstieg, aber keine Lücke — das ist eine Aussage, kein Hook."""
+    from services.analyst_eval import deckle_hooks_ohne_haken
+    ev = deckle_hooks_ohne_haken(_hook_ev(
+        sprech_hook_score=4, sprech_hook_offene_frage="", sprech_hook_mechanik="neugierluecke"))
+    assert ev.hook.sprech_hook_score == 2
+
+
+def test_hook_ohne_mechanik_wird_auf_2_gedeckelt():
+    from services.analyst_eval import deckle_hooks_ohne_haken
+    ev = deckle_hooks_ohne_haken(_hook_ev(
+        sprech_hook_score=5, sprech_hook_offene_frage="Was ist der dritte Fehler?",
+        sprech_hook_mechanik="keine"))
+    assert ev.hook.sprech_hook_score == 2
+
+
+def test_hook_mit_haken_bleibt_unberuehrt():
+    from services.analyst_eval import deckle_hooks_ohne_haken
+    ev = deckle_hooks_ohne_haken(_hook_ev(
+        sprech_hook_score=5, sprech_hook_offene_frage="Welcher Fehler kostet am meisten Geld?",
+        sprech_hook_mechanik="neugierluecke"))
+    assert ev.hook.sprech_hook_score == 5
+
+
+def test_fehlende_texthook_wird_nicht_gedeckelt():
+    """Score 0 heißt „gar keine Text-Hook" — daraus darf kein 2 werden."""
+    from services.analyst_eval import deckle_hooks_ohne_haken
+    ev = deckle_hooks_ohne_haken(_hook_ev(
+        text_hook_vorhanden=False, text_hook_score=0,
+        text_hook_offene_frage="", text_hook_mechanik=""))
+    assert ev.hook.text_hook_score == 0
+
+
+def test_texthook_deckel_wird_markiert():
+    from services.analyst_eval import deckle_hooks_ohne_haken
+    ev = deckle_hooks_ohne_haken(_hook_ev(
+        text_hook_vorhanden=True, text_hook_score=4,
+        text_hook_offene_frage="", text_hook_mechanik="zahl"))
+    assert ev.hook.text_hook_score == 2
+    assert ev.hook.text_hook_score_geklemmt is True
