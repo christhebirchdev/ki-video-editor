@@ -450,6 +450,28 @@ def test_verlauf_geht_auch_mit_cache_mit(tmp_path, monkeypatch):
     assert not any("Hier ist das Video" in t for t in texte)
 
 
+def test_denkstufe_wird_gesetzt_und_ist_kettenweit_gueltig(tmp_path, monkeypatch):
+    """Ohne Angabe denkt gemini-3.5-flash auf "medium" — der Hauptgrund für die Wartezeit vor
+    dem ersten Wort. "minimal" wäre schneller, unterstützt aber gemini-3.1-pro-preview aus der
+    Fallback-Kette nicht; "low" alle Modelle der Kette."""
+    from services import analyst_chat
+
+    protokoll = []
+
+    def fake_stream(*, model, contents, config):
+        protokoll.append(getattr(config, "thinking_config", None))
+        return iter([_FakeChunk("kurz")])
+
+    monkeypatch.setattr(analyst_chat.gemini_service.client.models, "generate_content_stream", fake_stream)
+    list(analyst_chat.stream_antwort(tmp_path, "Kontext", "Frage?"))
+
+    assert protokoll[0] is not None
+    # Das SDK normalisiert den String zu einem Enum (ThinkingLevel.LOW) → über den Wert prüfen
+    stufe = protokoll[0].thinking_level
+    assert str(getattr(stufe, "value", stufe)).lower() == analyst_chat.DENK_STUFE
+    assert analyst_chat.DENK_STUFE == "low", "minimal unterstuetzt 3.1-pro-preview nicht"
+
+
 def test_chat_laeuft_weiter_wenn_das_video_fehlt(tmp_path, monkeypatch):
     """Alte Läufe können aufgeräumt sein. Ein harter Fehler wäre die schlechtere Wahl —
     der Nutzer bekommt eine Erklärung statt eines roten Kastens."""

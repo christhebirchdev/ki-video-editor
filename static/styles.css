@@ -735,12 +735,15 @@
    Wiedergabe beim Umschalten nicht neu startet. Der Slot behält solange seine Höhe,
    sonst springt die Seite in dem Moment, in dem der Rahmen aus dem Fluss geht. */
 .analyst-player-rahmen.ist-mini{
-  position:fixed; right:24px; bottom:24px; z-index:60;
+  position:fixed; right:16px; bottom:16px; z-index:60;
   padding:8px; border-radius:14px;
   box-shadow:0 10px 34px rgba(34,30,24,.24);
   animation:playerSchwebtRein .3s cubic-bezier(.22,1,.36,1);
 }
-.analyst-player-rahmen.ist-mini video{max-height:200px; border-radius:9px;}
+/* Höhe kommt als Inline-Style aus React (aus dem freien Rand + Seitenverhältnis berechnet,
+   vom Nutzer per Anfasser überschreibbar). Der Wert hier ist nur der Notfall-Rückfall,
+   falls die Video-Metadaten nie eintreffen. */
+.analyst-player-rahmen.ist-mini video{max-height:300px; border-radius:9px;}
 @keyframes playerSchwebtRein{
   from{opacity:0; transform:translateY(14px) scale(.96);}
   to{opacity:1; transform:none;}
@@ -749,8 +752,7 @@
   .analyst-player-rahmen.ist-mini{animation:none;}
 }
 @media (max-width:640px){
-  .analyst-player-rahmen.ist-mini{right:12px; bottom:12px; padding:6px;}
-  .analyst-player-rahmen.ist-mini video{max-height:132px;}
+  .analyst-player-rahmen.ist-mini{right:10px; bottom:10px; padding:6px;}
 }
 .analyst-mini-zu{
   position:absolute; top:-9px; right:-9px; width:24px; height:24px;
@@ -760,6 +762,23 @@
   box-shadow:0 2px 8px rgba(34,30,24,.18);
 }
 .analyst-mini-zu:hover{color:var(--err-ink); border-color:var(--err-line);}
+
+/* Anfasser oben links. Bewusst NICHT unten rechts: dort liegen die Video-Steuerelemente,
+   ein Griff darüber würde Play und Vollbild abfangen. */
+.analyst-mini-griff{
+  position:absolute; top:-9px; left:-9px; width:26px; height:26px;
+  display:grid; place-items:center; gap:2px;
+  border:1px solid var(--line); border-radius:50%;
+  background:var(--paper); cursor:nwse-resize; touch-action:none;
+  box-shadow:0 2px 8px rgba(34,30,24,.18);
+}
+.analyst-mini-griff span{
+  display:block; width:10px; height:1.5px; border-radius:2px; background:var(--taupe-soft);
+  transform:rotate(-45deg);
+}
+.analyst-mini-griff span:last-child{width:6px;}
+.analyst-mini-griff:hover{border-color:var(--gold);}
+.analyst-mini-griff:hover span{background:var(--gold-deep);}
 
 .analyst-player-hinweis{
   font-size:13px; line-height:1.5; color:var(--taupe);

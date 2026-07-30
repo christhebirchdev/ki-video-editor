@@ -724,7 +724,11 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   const [mini, setMini] = useState(false);              // Player schwebt mit beim Scrollen
   const [miniAus, setMiniAus] = useState(false);        // vom Nutzer weggeklickt
   const [slotHoehe, setSlotHoehe] = useState(0);        // hält den Platz, wenn der Player schwebt
+  const [seiten, setSeiten] = useState(0);              // Breite/Höhe des Videos, aus den Metadaten
+  const [miniH, setMiniH] = useState(0);                // Höhe des schwebenden Players in px
+  const [selbstGezogen, setSelbstGezogen] = useState(false);  // Nutzer hat die Größe gesetzt
   const slotRef = useRef(null);
+  const videoRef = useRef(null);
   const fileRef = useRef(null);
   const cancelledRef = useRef(false);
   const activePhaseRef = useRef("");                    // stale-freier Vergleich im Poll-Loop
@@ -848,6 +852,42 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
 
   const schwebt = mini && !miniAus;
 
+  // Standardgröße des schwebenden Players: so groß, dass er den freien Rand rechts neben dem
+  // Inhalt ausfüllt, aber keinen Text überdeckt. Der Inhalt ist auf 1040px + 2×28px Polsterung
+  // begrenzt (.app), der Rest links und rechts ist freier Rand.
+  // Über die HÖHE gesteuert, nicht über die Breite: Bei einem 9:16-Reel ist die Höhe die
+  // bindende Größe, und die Breite folgt dem Seitenverhältnis.
+  useEffect(() => {
+    if (selbstGezogen || !seiten) return;
+    function passeAn() {
+      const rand = Math.max(0, (window.innerWidth - 1096) / 2 - 24);
+      const ausRand = rand > 120 ? rand / seiten : 0;   // schmaler Rand → nicht daran ausrichten
+      const grenze = window.innerHeight * 0.78;
+      setMiniH(Math.round(Math.min(grenze, Math.max(220, ausRand || 300))));
+    }
+    passeAn();
+    window.addEventListener("resize", passeAn);
+    return () => window.removeEventListener("resize", passeAn);
+  }, [seiten, selbstGezogen]);
+
+  // Ziehen am Anfasser oben links verändert die Höhe. Nach oben ziehen = größer.
+  function starteZiehen(e) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = miniH;
+    setSelbstGezogen(true);
+    const bewegen = (ev) => {
+      const neu = startH + (startY - ev.clientY);
+      setMiniH(Math.round(Math.max(140, Math.min(window.innerHeight * 0.92, neu))));
+    };
+    const loslassen = () => {
+      window.removeEventListener("pointermove", bewegen);
+      window.removeEventListener("pointerup", loslassen);
+    };
+    window.addEventListener("pointermove", bewegen);
+    window.addEventListener("pointerup", loslassen);
+  }
+
   return (
     <AdminCtx.Provider value={{ admin: !!adminPw, password: adminPw, runId }}>
       {error && (
@@ -913,21 +953,40 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             >
               <div className={"analyst-player-rahmen" + (schwebt ? " ist-mini" : "")}>
                 <video
+                  ref={videoRef}
                   src={videoUrl}
                   controls
                   playsInline
                   preload="metadata"
+                  style={schwebt && miniH ? { height: miniH, width: "auto", maxHeight: "none" } : undefined}
+                  onLoadedMetadata={(e) => {
+                    const v = e.currentTarget;
+                    if (v.videoWidth && v.videoHeight) setSeiten(v.videoWidth / v.videoHeight);
+                  }}
                   onError={() => setVideoFehler(true)}
                 />
                 {schwebt && (
-                  <button
-                    type="button"
-                    className="analyst-mini-zu"
-                    onClick={() => setMiniAus(true)}
-                    aria-label="Schwebenden Player ausblenden"
-                  >
-                    <Ico.x width="13" height="13" />
-                  </button>
+                  <>
+                    {/* Anfasser oben links: nach oben ziehen macht größer. Oben links, weil
+                        unten rechts die Video-Steuerelemente liegen. */}
+                    <div
+                      className="analyst-mini-griff"
+                      onPointerDown={starteZiehen}
+                      role="separator"
+                      aria-label="Größe des Players ziehen"
+                      title="Ziehen, um die Größe zu ändern"
+                    >
+                      <span /><span />
+                    </div>
+                    <button
+                      type="button"
+                      className="analyst-mini-zu"
+                      onClick={() => setMiniAus(true)}
+                      aria-label="Schwebenden Player ausblenden"
+                    >
+                      <Ico.x width="13" height="13" />
+                    </button>
+                  </>
                 )}
               </div>
             </div>

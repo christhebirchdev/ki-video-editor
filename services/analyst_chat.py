@@ -36,6 +36,18 @@ GEMINI_DATEI_CACHE = "gemini_file.json"
 # jeder Runde weiter, und irgendwann zahlt jede Frage den gesamten bisherigen Chat mit.
 MAX_VERLAUF = 20
 
+# Denk-Aufwand für den Chat. `gemini-3.5-flash` denkt ohne Angabe auf Stufe "medium" — das ist
+# der Hauptgrund, warum eine Chat-Antwort spürbar länger braucht als sie müsste: Vor dem ersten
+# Ausgabe-Token denkt das Modell erst durch. Für einen Chat, der eine BEREITS fertige Analyse
+# erklärt, ist das überflüssiger Aufwand; "low" ist laut Google explizit auf minimale Latenz
+# und Kosten ausgelegt.
+# "low" bewusst und nicht "minimal": Letzteres unterstützt gemini-3.1-pro-preview aus der
+# Fallback-Kette nicht, "low" alle Modelle der Kette.
+# Wird die Antwortqualität zu flach, ist das die Stelle zum Hochdrehen ("medium"/"high") —
+# jede Stufe kostet Zeit vor dem ersten sichtbaren Wort.
+# Quelle: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thinking-levels
+DENK_STUFE = "low"
+
 # Lebensdauer des expliziten Caches. Deckt eine übliche Chat-Sitzung ab, ohne Speicher für
 # einen Lauf zu bezahlen, den niemand mehr anfasst. Läuft er ab, wird beim nächsten
 # Video-Turn neu angelegt.
@@ -472,11 +484,13 @@ def _stream_mit_fallback(contents, system: str, info: dict, cache_name: str | No
     umgeschaltet: Der Nutzer bekäme den Anfang sonst ein zweites Mal in dieselbe Blase.
     Abgeschnitten ist besser als doppelt.
     """
+    denken = types.ThinkingConfig(thinking_level=DENK_STUFE)
     letzter_fehler = None
     for modell in [gemini_service.GEMINI_MODEL] + gemini_service.GEMINI_FALLBACK_MODELS:
         nutzt_cache = bool(cache_name) and modell == gemini_service.GEMINI_MODEL
-        cfg = (types.GenerateContentConfig(cached_content=cache_name) if nutzt_cache
-               else types.GenerateContentConfig(system_instruction=system))
+        cfg = (types.GenerateContentConfig(cached_content=cache_name, thinking_config=denken)
+               if nutzt_cache
+               else types.GenerateContentConfig(system_instruction=system, thinking_config=denken))
         etwas_geflossen = False
         try:
             for chunk in gemini_service.client.models.generate_content_stream(
