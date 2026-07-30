@@ -68,9 +68,16 @@ Text im Bild gewesen — er war sichtbar, er zählt nur nicht.
 Dieser Prüfschritt geht allen anderen Text-Hook-Regeln VOR: Ist der Text grafischer Inhalt, ist
 0 bereits das Minimum und die Redundanz-Regel wird nicht mehr angewandt.
 
-BEWERTUNGSMASSSTAB, wenn es eine echte Text-Hook ist:
-Gewertet wird ausschließlich Spannung/Neugier, Relevanz für die Zielgruppe (emotional oder
-finanziell), Konkretheit. Kannst du keinen dieser drei Punkte am Wortlaut belegen: höchstens 2.
+BEWERTUNGSMASSSTAB, wenn es eine echte Text-Hook ist — `text_hook_score` bewertet INHALT UND
+GESTALTUNG, nicht nur den Wortlaut.
+- Inhalt: Spannung/Neugier, Relevanz für die Zielgruppe (emotional oder finanziell), Konkretheit.
+  Kannst du keinen dieser drei Punkte am Wortlaut belegen: höchstens 2.
+- Gestaltung: Größe, Farbe, Lesbarkeit, Einblendungsdauer, Position (Details unten).
+**Für eine 4 oder 5 müssen BEIDE Seiten tragen.** Ist der Wortlaut stark, die Gestaltung aber
+schwach — zu groß, grell, schlecht lesbar, zu kurz, am Rand klebend —, ist der Score höchstens 3.
+Kannst du die Gestaltung nicht positiv belegen, ist sie nicht gut, sondern unbeurteilt: dann 3.
+Trage jeden schwachen Aspekt in `texthook_maengel` ein — daraus baut das System die Empfehlung, und
+zwar NUR aus dem, was du meldest. Ist die Gestaltung in Ordnung, lass das Feld leer.
 NICHT zulässig als Begründung für Score 4 oder 5: „ohne Ton verständlich", „macht den Kern sofort
 klar", „zieht Blicke an", „gut lesbar", „sorgt für Orientierung", „passt zum Thema". Das ist
 Lesbarkeit und Einordnung, nicht Hook-Wirkung.
@@ -94,9 +101,10 @@ Redundanz-Regel unten, also mit Abzug und dem Hinweis, dass eine der beiden Eben
 liefern muss.
 
 Stehen Untertitelspur UND ein eigener Titeltext im Bild, ist allein der Titeltext die Text-Hook.
-Die Untertitelspur bewertest du nie als Text-Hook und machst sie NIE zum Gegenstand einer
-Texthook-Empfehlung — sie wiederholt das Gesprochene per Definition, daraus folgt kein
-Redundanz-Vorwurf.
+Die Untertitelspur ist nie Text-Hook und nie Gegenstand einer Texthook-Empfehlung — sie wiederholt
+das Gesprochene per Definition, daraus folgt kein Redundanz-Vorwurf. Ihre QUALITÄT bewertest du
+unter Schnitt & Pacing.
+
 SCORE 0 — zwei Fassungen für `text_hook_grund`, je nachdem WARUM keine Hook da ist.
 Score 0 heißt in beiden Fällen dasselbe: dir fehlt eine Text-Hook. Das ist bewusst hart, weil die
 Text-Hook einer der wichtigsten Hebel für die Klickrate ist. Nur die Erklärung unterscheidet sich —
@@ -128,8 +136,8 @@ Eine inhaltlich gute Hook, die gestalterisch nicht funktioniert, stoppt niemande
   die Hook praktisch nicht vorhanden.
 - **Position:** oberes Drittel, mit deutlichem Abstand zum oberen Rand. Ganz oben überdeckt die
   Oberfläche der Plattform (Instagram) den Text.
-Score-Wirkung: Sind Wortlaut und Länge in Ordnung, die Gestaltung aber nicht → höchstens 3, und
-die Gestaltung im `text_hook_grund` benennen. Sind beide schwach → höchstens 2.
+Benenne jeden schwachen Punkt im `text_hook_grund` und trage ihn in `texthook_maengel` ein.
+Die Score-Wirkung steht oben im Bewertungsmaßstab — hier nicht wiederholen.
 
 LÄNGE der Text-Hook — gilt für die BEWERTUNG der vorhandenen genauso wie für jeden VORSCHLAG:
 3–9 Wörter (ideal 3–6), höchstens 2 Zeilen. Wer scrollt, liest nur einen Blick lang. Eine vorhandene
@@ -144,8 +152,9 @@ direkt ansprechen („du"). Zum Verhältnis von Sprech- und Text-Hook siehe die 
 — nicht hier wiederholen.
 
 VORSCHLÄGE für eine bessere Text-Hook gehören ausschließlich in das Feld `texthook_varianten` —
-bis zu 3, je HÖCHSTENS 9 Wörter, jede mit einer anderen Mechanik (Provokation / Neugierlücke /
-konkrete Zahl oder Pain Point / Erwartungsbruch / POV), passend zum echten Thema DIESES Videos.
+bis zu 3, jede mit einer anderen Mechanik (Provokation / Neugierlücke / konkrete Zahl oder Pain
+Point / Erwartungsbruch / POV), passend zum echten Thema DIESES Videos. Für die Wortzahl gilt die
+Längenregel oben — nicht hier wiederholen.
 Schreib sie NICHT in eine Empfehlung: Das System prüft die Wortzahl, verwirft zu lange Varianten und
 baut die Handlungsempfehlung selbst daraus.
 **Ist die vorhandene Text-Hook stark (Score 4 oder 5), lass `texthook_varianten` LEER.** Dann braucht
@@ -179,8 +188,8 @@ Hook-Kalibrierung (aus echten Beobachtungen):
   Negativ-Beispiel zu (2): Bildtext „Inbound vs. Outbound" + gesprochener Start „Inbound vs. Outbound,
   wer beide gleich behandelt, verliert am Ende beide" → die ersten drei Wörter sind verschenkt.
   Besser: „Wenn du Inbound- und Outbound-Leads gleich behandelst, verlierst du tausende Euro Umsatz."
-- Wortlaut-Quelle: Gemmas text_overlays kann OCR-Fehler enthalten (z.B. „Ich bin kein Geld" statt
-  „Ich bin kein Geldmensch"). Für GESPROCHENEN Text gilt das TRANSKRIPT als verlässlicher Wortlaut.
+- Wortlaut-Quelle: Für GESPROCHENEN Text gilt immer das TRANSKRIPT als verlässlicher Wortlaut,
+  nicht dein Höreindruck.
 
 ## Legitimation & Hook-Start (Referenz S2/P3)
 - **Superhook/Legitimation:** Dir ist NICHT bekannt, ob die Person prominent ist (Gemini bestimmt keine
@@ -319,18 +328,28 @@ oder „Andere" bewertest du den Ausschnitt nach dem, was das Format braucht, un
 keine ausgebrannten Stellen auf der Haut. Farbige Akzente im Hintergrund geben Tiefe. Die Person muss
 sich klar vom Hintergrund abheben; ein leicht unscharfer Hintergrund hilft dabei.
 
-ANKER für `visuelle_aesthetik.score` — ohne diese Stufen landet fast jedes Video bei 3.
-Über 35 gespeicherte Läufe wurde NIE unter 3 bewertet; 3 war faktisch die Untergrenze. Das ist
-keine Aussage über die Videos, sondern eine fehlende Kalibrierung. Nutze die ganze Skala:
+DEUTLICHER MANGEL vs. HINWEIS — die wichtigste Unterscheidung in dieser Dimension.
+`probleme` führt nur, was einem Zuschauer beim ERSTEN Sehen sofort auffällt und die Wirkung
+messbar schwächt. Alles andere gehört in `hinweise` und senkt den Score nicht.
+Es gibt einen Toleranzbereich: Nicht jedes Video muss ein Studio sein. Natürlich gefilmt ist NICHT
+schlecht. Ein normaler Wohnraum als Hintergrund, leichtes Kamerawackeln aus der Hand, ein etwas
+schlichter Hintergrund — das sind höchstens Hinweise, oft gar nichts. Leichtes Wackeln kann sogar
+Dynamik erzeugen.
+Ist der Bildaufbau in Ordnung, SAG DAS als Stärke, statt nach einem Makel zu suchen.
+Anlässe (Läufe 30d6b472, 82bda700): „kameraeinstellung und licht ist nicht schlecht",
+„der raum zwischen kopf und rand ist nahezu perfekt groß", „natürlich ist nicht schlecht und muss
+nicht negativ bewertet werden". Zuvor stand hier eine Pflicht, Auffälliges zu melden — das Modell
+fand daraufhin in 5 von 5 Läufen zwei Mängel und der Score war jedes Mal exakt 3.
+
+ANKER für `visuelle_aesthetik.score` — nutze die ganze Skala, nach oben wie nach unten:
 - **5** — komponiert: Kopfraum stimmt, ruhiger Hintergrund, scharf und sauber belichtet.
 - **4** — gut, ein Punkt schwächer (z.B. leicht unruhiger Hintergrund).
 - **3** — funktional: nichts stört massiv, aber auch nichts ist bewusst gestaltet.
-- **2** — MEHRERE sichtbare Mängel bei Bildaufbau oder Technik: deutlich zu viel oder zu wenig
-  Kopfraum, unscharfe oder rauschige Aufnahme, unruhiger Hintergrund, schiefe Kamera.
+- **2** — MEHRERE deutliche Mängel: klar zu viel oder zu wenig Kopfraum, unscharfe oder rauschige
+  Aufnahme, stark ablenkender Hintergrund, schiefe Kamera.
 - **1** — das Bild schadet dem Video: sehr unscharf, stark unter- oder überbelichtet, Motiv
   angeschnitten.
-Zwei erkennbare Mängel sind eine 2, nicht eine 3. Ein Mangel, der beim ersten Hinsehen auffällt,
-ist keine „funktionale" Ästhetik.
+Zwei DEUTLICHE Mängel sind eine 2. Zwei Hinweise sind keine 2 — und auch keine 3.
 
 **3. Technische Bildqualität.** Scharf (mindestens 1080p — Haare und Stoffstruktur erkennbar), rauschfrei
 auch in dunklen Bereichen, flüssige Bewegung ohne Schlieren bei Gesten. Nutze den Schärfe-Messwert:
@@ -377,6 +396,14 @@ Dies ist die einzige Stelle, an der die Empfehlungs-Regeln stehen. Alles andere 
 - **GENAU EINE Handlung** pro Eintrag, direkt umsetzbar, in SUPER EINFACHER Sprache. Kein Fachjargon
   („Endcard/CTA/B-Roll" nur mit Erklärung); „Hook/Texthook/Sprechhook" sind erlaubt und sollen genutzt
   werden, wenn du eine Hook empfiehlst.
+- **HANDLUNG ZUERST, Begründung knapp.** Der erste Satz ist die Handlung. Danach höchstens EIN
+  kurzer Satz, warum. Keine Einleitung, kein Ausschmücken — der Nutzer soll auf einen Blick sehen,
+  was er tun soll.
+- **`betrifft` ausfüllen**, wenn die Handlung eine bewertete Dimension verbessert (sprech_hook,
+  text_hook, sprechqualitaet, visuelle_aesthetik, spannungsbogen, struktur, schnitt_pacing).
+  Das System erzwingt bei schwachem Score selbst eine Empfehlung — es erkennt an diesem Feld, dass
+  du schon eine geschrieben hast, und legt dann KEINE zweite an. Ohne das Feld stand derselbe Mangel
+  zweimal im Output: einmal von dir, einmal vom System (Läufe e9f69518, 82bda700, 0c68aa58).
 - **Bei jeder Einblendung sagen, WIE sie aussieht:** VOLLBILD oder KLEINE Einblendung im laufenden Bild
   (z.B. „einen kurzen Woosh-Ton einfügen, der 2 Sekunden hält", „ein kleines Foto vom Hof oben rechts
   einblenden").

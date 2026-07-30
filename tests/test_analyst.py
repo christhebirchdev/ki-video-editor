@@ -586,7 +586,7 @@ def test_untertitel_regel_entscheidet_am_wortlaut_nicht_an_der_darstellung():
     assert "ZWEI Merkmalen, die BEIDE zutreffen müssen" in skill
     assert "Untertitel müssen weder wechseln noch unten sitzen" in skill
     # Untertitelspur darf nie Auslöser einer Texthook-Empfehlung sein
-    assert "NIE zum Gegenstand einer\nTexthook-Empfehlung" in skill
+    assert "nie Gegenstand einer Texthook-Empfehlung" in skill
     # die alte, zu enge Definition ist raus
     assert "wechselt mit der Sprache" not in skill
     assert "wechselnde Zeile in der unteren Bildhälfte" not in skill
@@ -1235,13 +1235,34 @@ def test_v2_override_macht_kopfraum_und_bildqualitaet_zur_pflicht():
 def test_texthook_empfehlung_ist_optimierung_wenn_eine_existiert():
     """c12db030: text_hook_vorhanden=true und trotzdem „Blende eine Texthook ein" auf Platz 1."""
     from services.analyst_eval import _texthook_anweisung
-    neu = _texthook_anweisung([], vorhanden=False)
+    assert "Blende" in _texthook_anweisung([], vorhanden=False)
     opt = _texthook_anweisung([], vorhanden=True)
-    assert "Blende" in neu
     assert "Blende" not in opt and "Überarbeite" in opt
-    # Die Gestaltungs-Punkte aus Chris' Feedback gehören in die Optimierungs-Fassung
-    for punkt in ("5 Sekunden", "oberen Drittel", "grell"):
-        assert punkt in opt
+
+
+def test_texthook_empfehlung_nennt_nur_die_gemeldeten_maengel():
+    """Feedback 4e56336e: „bei tipp 2 hätte nur die textinhaltsanpassung gereicht. optisch ist die
+    texthook in ordnung … er soll aber dynamisch sein und von fall zu fall unterschiedlich
+    formuliert sein." Vorher listete der feste Text ALLE Gestaltungspunkte."""
+    from services.analyst_eval import _texthook_anweisung
+    nur_schrift = _texthook_anweisung([], vorhanden=True, maengel=["lesbarkeit"])
+    assert "lesbare Schrift" in nur_schrift
+    for fremd in ("5 Sekunden", "Drittel", "Farbe", "Wörter"):
+        assert fremd not in nur_schrift, f"{fremd!r} gehört hier nicht hin"
+
+    nur_inhalt = _texthook_anweisung([], vorhanden=True, maengel=["wortlaut"])
+    assert "zugespitzter" in nur_inhalt and "Schrift" not in nur_inhalt
+
+    zwei = _texthook_anweisung([], vorhanden=True, maengel=["groesse", "dauer"])
+    assert "kleiner" in zwei and "5 Sekunden" in zwei and "Farbe" not in zwei
+
+
+def test_texthook_ohne_gemeldete_maengel_erfindet_keine_kritik():
+    from services.analyst_eval import _texthook_anweisung
+    t = _texthook_anweisung([], vorhanden=True, maengel=[])
+    assert "Überarbeite" in t
+    for fremd in ("5 Sekunden", "Schrift", "Farbe", "kleiner"):
+        assert fremd not in t
 
 
 def test_doppelte_texthook_empfehlung_wird_erkannt_ohne_das_wort_texthook():
@@ -1390,8 +1411,8 @@ def test_aesthetik_skala_hat_anker_fuer_1_und_2():
     from services.analyst_eval import load_skill_body
     s = load_skill_body()
     assert "ANKER für `visuelle_aesthetik.score`" in s
-    assert "Zwei erkennbare Mängel sind eine 2, nicht eine 3" in s
-    assert "zu viel oder zu wenig\n  Kopfraum" in s
+    assert "Zwei DEUTLICHE Mängel sind eine 2" in s
+    assert "Zwei Hinweise sind keine 2" in s
 
 
 def test_kopfraum_regel_nennt_auch_zu_viel_luft():
@@ -1416,13 +1437,12 @@ def test_keine_schriftgroessen_werte_irgendwo():
     assert "nicht höher sein als der Kopf des Sprechers" in skill
 
 
-def test_gestaltungs_anweisung_bleibt_konkret():
-    """Ohne Zahl darf die Empfehlung nicht ins Vage rutschen — Dauer und Position sind Chris'
-    eigene Vorgaben und bleiben drin."""
-    from services.analyst_eval import _texthook_anweisung
-    opt = _texthook_anweisung([], vorhanden=True)
-    for punkt in ("5 Sekunden", "oberen Drittel", "grell", "nicht höher als der Kopf"):
-        assert punkt in opt
+def test_gestaltungs_bausteine_bleiben_konkret():
+    """Die Bausteine selbst müssen konkret sein — Dauer, Position und Größe sind Chris' Vorgaben."""
+    from services.analyst_eval import _TEXTHOOK_BAUSTEINE
+    assert "5 Sekunden" in _TEXTHOOK_BAUSTEINE["dauer"]
+    assert "obere Drittel" in _TEXTHOOK_BAUSTEINE["position"]
+    assert "nicht höher als der Kopf" in _TEXTHOOK_BAUSTEINE["groesse"]
 
 
 # ---------- Fixes Runde 3 (Läufe 26a1adbf, 041770c1) ----------
@@ -1562,3 +1582,100 @@ def test_weitschweifigkeit_ist_ein_struktur_mangel():
     s = load_skill_body()
     assert "WEITSCHWEIFIGKEIT ist ein Struktur-Mangel" in s
     assert "nicht als pauschales" in s
+
+
+# ---------- Konsolidierung (Läufe 0c68aa58, e9f69518, 4e56336e, 30d6b472, 82bda700) ----------
+
+def test_betrifft_verhindert_den_doppelten_tipp():
+    """Kern der Konsolidierung. In 4 von 5 Läufen wiederholte Tipp 3 die Tipps 1/2, weil beide aus
+    denselben `probleme` entstanden — einmal vom Modell, einmal vom erzwungenen Sammeltipp.
+    Vier Versuche, das über Textmuster zu erkennen, sind gescheitert; das Feld ist exakt."""
+    from models.analyst import Empfehlung
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = _ev_dim(visuelle_aesthetik=2)
+    ev.visuelle_aesthetik.probleme = ["Der Fernseher im Hintergrund lenkt ab"]
+    ev.empfehlungen.append(Empfehlung(
+        zeitpunkt_sek=0.0, betrifft="visuelle_aesthetik",
+        anweisung="Wähle einen anderen Hintergrund ohne den Fernseher."))
+    n = erzwinge_empfehlungen_bei_schwachen_scores(ev)
+    assert len(n.empfehlungen) == 1, "Sammeltipp trotz vorhandener Modell-Empfehlung"
+
+
+def test_betrifft_einer_anderen_dimension_blockiert_nicht():
+    """Der Filter darf nur die passende Dimension überspringen, nicht alle."""
+    from models.analyst import Empfehlung
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = _ev_dim(visuelle_aesthetik=2)
+    ev.visuelle_aesthetik.probleme = ["Bild ist unscharf"]
+    ev.empfehlungen.append(Empfehlung(
+        zeitpunkt_sek=0.0, betrifft="spannungsbogen", anweisung="Setz einen Haken im Mittelteil."))
+    assert len(erzwinge_empfehlungen_bei_schwachen_scores(ev).empfehlungen) == 2
+
+
+def test_erzwungene_schritte_tragen_ihre_dimension():
+    """Damit der Filter auch gegen die eigenen Schritte greift und nichts doppelt entsteht."""
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = _ev_dim(visuelle_aesthetik=2)
+    ev.visuelle_aesthetik.probleme = ["Bild ist unscharf"]
+    n = erzwinge_empfehlungen_bei_schwachen_scores(ev)
+    assert n.empfehlungen[0].betrifft == "visuelle_aesthetik"
+    # zweiter Durchlauf darf nichts hinzufügen
+    assert len(erzwinge_empfehlungen_bei_schwachen_scores(n).empfehlungen) == 1
+
+
+def test_hinweise_deckeln_den_score_nicht():
+    """Läufe 30d6b472/82bda700: Die Pflicht-Beurteilung erzeugte immer zwei Einträge, der Deckel
+    machte daraus in 5 von 5 Läufen exakt eine 3. Chris: „bildausschnitt ist gut", „der raum
+    zwischen kopf und rand ist nahezu perfekt groß"."""
+    from services.analyst_eval import deckle_score_auf_probleme
+    ev = _ev_dim(visuelle_aesthetik=4)
+    ev.visuelle_aesthetik.hinweise = ["Hintergrund ist schlicht", "Textbox nah an den Haaren"]
+    assert deckle_score_auf_probleme(ev).visuelle_aesthetik.score == 4
+
+
+def test_hinweise_erzeugen_keine_empfehlung():
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = _ev_dim(visuelle_aesthetik=3)
+    ev.visuelle_aesthetik.hinweise = ["Hintergrund ist schlicht"]
+    n = erzwinge_empfehlungen_bei_schwachen_scores(ev)
+    assert "schlicht" not in n.empfehlungen[0].anweisung
+
+
+def test_schema_verlangt_betrifft_hinweise_und_maengel():
+    from services.analyst_eval import OUTPUT_SCHEMA
+    for feld in ("betrifft", "hinweise", "texthook_maengel"):
+        assert feld in OUTPUT_SCHEMA, f"{feld} fehlt im Schema-Vertrag"
+
+
+def test_pflicht_heisst_pruefen_nicht_kritisieren():
+    """Die alte Formulierung („Ist eines auffällig, MUSS es in probleme stehen") hat die
+    Über-Kritik erzeugt."""
+    from services.analyst_gemini_eval import _user_message
+    o = _user_message(_result(gewaehltes_format="Talking Head"), "hybrid")
+    assert "PRÜFEN heißt nicht KRITISIEREN" in o
+    assert "SAG DAS als Stärke" in o
+    assert "MUSS es in visuelle_aesthetik.probleme stehen" not in o
+
+
+def test_toleranzbereich_steht_im_skill():
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "DEUTLICHER MANGEL vs. HINWEIS" in s
+    assert "Natürlich gefilmt ist NICHT" in s
+    assert "kann sogar\nDynamik erzeugen" in s
+
+
+def test_gestaltung_ist_teil_der_score_definition():
+    """e9f69518: text_hook 4, Begründung nur über den Inhalt, obwohl die Hook laut Chris
+    „grottig aussieht". Die Gestaltungsregel stand zu weit von der Score-Vergabe entfernt."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "bewertet INHALT UND\nGESTALTUNG" in s
+    assert "müssen BEIDE Seiten tragen" in s
+
+
+def test_handlung_zuerst_steht_im_empfehlungs_kanon():
+    """4e56336e: „kürze die textblöcke so das die handlungsempfehlung vordergründig ist"."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "HANDLUNG ZUERST, Begründung knapp" in s

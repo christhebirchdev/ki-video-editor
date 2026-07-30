@@ -26,7 +26,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-07-30d"
+PROMPT_VERSION = "2026-07-31"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -481,24 +481,45 @@ def gueltige_texthook_varianten(varianten: list[str]) -> list[str]:
     return [v.strip() for v in varianten if v and len(v.split()) <= TEXTHOOK_MAX_WOERTER]
 
 
-def _texthook_anweisung(varianten: list[str], vorhanden: bool = False) -> str:
-    """Kanonische Texthook-Empfehlung, mit den geprüften Varianten als Beispiele.
+# Baustein je gemeldetem Mangel. Der Code setzt NUR die Sätze zusammen, die das Modell als
+# schwach markiert hat (Feld `texthook_maengel`) — nicht mehr alle Gestaltungspunkte auf Verdacht.
+# Feedback 4e56336e: „bei tipp 2 hätte nur die textinhaltsanpassung gereicht. optisch ist die
+# texthook in ordnung … er soll aber dynamisch sein und von fall zu fall unterschiedlich
+# formuliert sein."
+_TEXTHOOK_BAUSTEINE = {
+    "wortlaut":   "formuliere sie zugespitzter, damit sie wirklich neugierig macht",
+    "laenge":     f"kürze sie auf höchstens {TEXTHOOK_MAX_WOERTER} Wörter",
+    "redundanz":  "sag darin etwas, was du NICHT auch schon sprichst",
+    "groesse":    "setz sie kleiner — eine Zeile nicht höher als der Kopf im Bild",
+    "farbe":      "nimm eine ruhigere Farbe, die zum Look des Videos passt",
+    "lesbarkeit": "nimm eine besser lesbare Schrift mit mehr Kontrast",
+    "dauer":      "lass sie mindestens 5 Sekunden stehen",
+    "position":   "setz sie ins obere Drittel mit Abstand zum Rand, damit die Instagram-Oberfläche sie nicht überdeckt",
+}
 
-    Zwei Fassungen, weil „Blende eine Texthook ein" faktisch falsch ist, wenn eine existiert:
-    Im Lauf c12db030 war `text_hook_vorhanden=true` (neongrüner Text am Anfang) und auf Platz 1
-    stand trotzdem die Aufforderung, eine einzublenden — Feedback: „die empfehlung oben müsste als
-    optimierung formuliert sein und nicht so als gäbe es keine texthook."
+
+def _texthook_anweisung(varianten: list[str], vorhanden: bool = False,
+                        maengel: list[str] | None = None) -> str:
+    """Texthook-Empfehlung — bei vorhandener Hook aus den GEMELDETEN Mängeln zusammengesetzt.
+
+    Zwei Fassungen, weil „Blende eine Texthook ein" faktisch falsch ist, wenn eine existiert
+    (Lauf c12db030: `text_hook_vorhanden=true` und trotzdem diese Aufforderung auf Platz 1).
+
+    Bei vorhandener Hook nennt die Empfehlung nur, was das Modell als schwach gemeldet hat. Meldet
+    es nichts, bleibt ein allgemeiner Satz — erfundene Detailkritik wäre schlimmer als eine
+    unspezifische Bitte.
     """
     liste = " | ".join(f"„{v}“" for v in varianten) if varianten else ""
     if vorhanden:
-        text = (
-            f"Überarbeite deine bestehende Texthook — Wortlaut UND Gestaltung: höchstens "
-            f"{TEXTHOOK_MAX_WOERTER} Wörter, kleiner setzen (eine Zeile nicht höher als der Kopf "
-            f"im Bild), Farbe passend zum Look statt grell, mindestens 5 Sekunden sichtbar, und im "
-            f"oberen Drittel mit Abstand zum Rand, damit die Instagram-Oberfläche sie nicht überdeckt."
-        )
+        punkte = [_TEXTHOOK_BAUSTEINE[m] for m in (maengel or [])
+                  if m in _TEXTHOOK_BAUSTEINE]
+        if punkte:
+            text = "Überarbeite deine Texthook: " + "; ".join(punkte) + "."
+        else:
+            text = ("Überarbeite deine Texthook — sie stoppt in dieser Form beim Scrollen noch "
+                    "nicht zuverlässig.")
         if liste:
-            text += f" Diese Varianten kannst du über die Testreel-Funktion gegeneinander testen: {liste}"
+            text += f" Varianten zum Testen: {liste}"
         return text
     if not varianten:
         return TEXTHOOK_EMPFEHLUNG
@@ -541,7 +562,8 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
             and 1 <= parsed.hook.sprech_hook_score <= HOOK_SCHWACH_SCORE \
             and fehlt("sprechhook", "sprech-hook", "erster satz", "ersten satz"):
         parsed.empfehlungen.insert(0, Empfehlung(
-            zeitpunkt_sek=0.0, gruppe="sprechhook", anweisung=SPRECHHOOK_EMPFEHLUNG))
+            zeitpunkt_sek=0.0, gruppe="sprechhook", betrifft="sprech_hook",
+            anweisung=SPRECHHOOK_EMPFEHLUNG))
 
     # Texthook-Empfehlung NUR bei schwacher Text-Hook. Der Prompt bittet darum, `texthook_varianten`
     # bei Score 4/5 leer zu lassen — das Modell hält sich nicht daran und liefert sie trotzdem
@@ -565,8 +587,8 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
     geklemmt = bool(getattr(parsed.hook, "text_hook_score_geklemmt", False))
     if varianten or th == 0 or geklemmt or vorhanden:
         parsed.empfehlungen.insert(0, Empfehlung(
-            zeitpunkt_sek=0.0, gruppe="texthook",
-            anweisung=_texthook_anweisung(varianten, vorhanden)))
+            zeitpunkt_sek=0.0, gruppe="texthook", betrifft="text_hook",
+            anweisung=_texthook_anweisung(varianten, vorhanden, parsed.texthook_maengel)))
     return parsed
 
 
@@ -704,6 +726,11 @@ def erzwinge_empfehlungen_bei_schwachen_scores(parsed: AnalystEvaluationV2) -> A
             continue
         if any(e.gruppe == gruppe for e in parsed.empfehlungen):
             continue          # exakt dieses Label gibt es schon
+        # Das Modell hat zu dieser Dimension schon eine eigene Empfehlung geschrieben — exakt
+        # erkennbar über `betrifft`, nicht über Textmuster. DAS war die Ursache der doppelten
+        # Tipps: derselbe Mangel einmal als Modell-Empfehlung, einmal als erzwungener Sammeltipp.
+        if any((e.betrifft or "").strip() == attribut for e in parsed.empfehlungen):
+            continue
         schwach.append((SCORE_GEWICHTE.get(attribut, 0), score, attribut, gruppe, block, rueckfall))
 
     # Gewicht absteigend, bei gleichem Gewicht der schlechtere Score zuerst
@@ -733,7 +760,7 @@ def erzwinge_empfehlungen_bei_schwachen_scores(parsed: AnalystEvaluationV2) -> A
         else:
             anweisung = rueckfall
         parsed.empfehlungen.append(
-            Empfehlung(zeitpunkt_sek=0.0, gruppe=gruppe, anweisung=anweisung))
+            Empfehlung(zeitpunkt_sek=0.0, gruppe=gruppe, betrifft=attribut, anweisung=anweisung))
     return parsed
 
 
@@ -878,16 +905,17 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
     "elemente": {"hook": <bool>, "bridge": <bool>, "mid": <bool>, "peak": <bool>, "cta": <bool>},
     "kommentar": "<1-2 Sätze>"
   },
-  "sprechqualitaet": {"score": <int 1-5, oder null wenn niemand spricht>, "probleme": ["<nur stark Auffälliges, je 1-2 Sätze, sonst []>"]},
+  "sprechqualitaet": {"score": <int 1-5, oder null wenn niemand spricht>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},
   "schnitt_pacing": {"score": <int 1-5>, "kommentar": "<1-2 Sätze, format-bewusst>"},
   "spannungsbogen": {"score": <int 1-5>, "kommentar": "<1-2 Sätze>"},
-  "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur Auffälliges, je 1-2 Sätze, sonst []>"]},
+  "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},
   "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],
   "top_tipps": ["<3-5 wichtigste Hebel, je 1-2 Sätze, nach Wirkung priorisiert>"],
   "pausen_urteile": [{"start_sec": <float: die start_sec EINER gemessenen Pause aus der Sprachstatistik, unverändert übernommen>, "urteil": "<raus | lassen | unklar — siehe „Sprechpausen — nach FUNKTION beurteilen">"}],
   "texthook_varianten": ["<bis zu 3 Vorschläge für eine bessere Text-Hook, je HÖCHSTENS 9 Wörter, je andere Mechanik; LEER LASSEN, wenn text_hook_score 4 oder 5 ist>"],
+  "texthook_maengel": ["<NUR die Aspekte, die an der VORHANDENEN Text-Hook wirklich schwach sind, aus: wortlaut | laenge | redundanz | groesse | farbe | lesbarkeit | dauer | position. Ist die Hook in Ordnung: []>"],
   "einblendungen": [{"zeitpunkt_sek": <float: Stelle, an der eine visuelle Einblendung den Inhalt verstärken würde>, "verstaerkt": "<das Wort oder die Aussage, die dort verstärkt werden soll — z.B. Hof, Selbstbewusstsein>"}],
-  "empfehlungen": [{"zeitpunkt_sek": <float: die Sekunde im Video, auf die sich die Handlung bezieht — Richtwert, ±1–2 s>, "anweisung": "<EINE konkrete Handlung, die etwas VERÄNDERT, in SUPER EINFACHER Sprache>", "gruppe": "<Label nur für die WÖRTLICH GLEICHE Handlung an mehreren Stellen, sonst leer>"}]
+  "empfehlungen": [{"zeitpunkt_sek": <float: die Sekunde im Video, auf die sich die Handlung bezieht — Richtwert, ±1–2 s>, "anweisung": "<EINE konkrete Handlung, die etwas VERÄNDERT, in SUPER EINFACHER Sprache>", "gruppe": "<Label nur für die WÖRTLICH GLEICHE Handlung an mehreren Stellen, sonst leer>", "betrifft": "<welche Bewertungsdimension diese Handlung behebt, aus: sprech_hook | text_hook | sprechqualitaet | visuelle_aesthetik | spannungsbogen | struktur | schnitt_pacing. Gehört sie zu keiner: leer>"}]
 }
 
 Sprechpausen, Text-Hook-Varianten und inhaltsverstärkende Einblendungen gehören NICHT in

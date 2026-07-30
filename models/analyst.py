@@ -115,7 +115,17 @@ class ScoreProbleme(BaseModel):
     score ist nullable — siehe HookEval: bei sprechqualitaet ohne gesprochenes Wort bedeutet null
     „nicht bewertbar", nicht „schlecht". Das Frontend zeigt dafür „–"."""
     score: Optional[int] = 0
+    # DEUTLICHE Mängel: zählen für den Score-Deckel und erzeugen eine Handlungsempfehlung.
     probleme: list[str] = Field(default_factory=list)
+    # Leichte Auffälligkeiten: werden erwähnt, wirken NICHT auf Score oder Empfehlungen.
+    # Grund (Läufe 30d6b472, 82bda700): Die Pflicht-Beurteilung von Kopfraum und Bildqualität hat
+    # das Modell gezwungen, immer etwas zu nennen — zwei Einträge waren praktisch garantiert und
+    # der Score-Deckel machte daraus in 5 von 5 Läufen exakt eine 3. Feedback: „bildausschnitt ist
+    # gut", „der raum zwischen kopf und rand ist nahezu perfekt groß". Ohne diese Trennung kann
+    # das Modell eine Randnotiz nicht von einem echten Mangel unterscheiden.
+    # Zwei Listen statt eines Schwere-Attributs pro Eintrag: `probleme` bleibt `list[str]`, damit
+    # Altläufe und das Frontend unverändert weiterlesen.
+    hinweise: list[str] = Field(default_factory=list)
 
 
 class ScoreKommentar(BaseModel):
@@ -170,6 +180,41 @@ class Empfehlung(BaseModel):
     gruppe: str = ""             # gleiches Label = DIESELBE Handlung an mehreren Stellen (z.B.
                                  # "sprechpausen") → der Code fasst sie zu EINEM Schritt zusammen.
                                  # Was dieselbe Handlung ist, weiß nur das Modell — das bleibt Urteil.
+    # Welche BEWERTUNGSDIMENSION diese Empfehlung adressiert. Einer der Namen aus DIMENSIONEN
+    # (models.analyst.DIMENSIONEN) oder leer, wenn sie zu keiner gehört.
+    #
+    # Zweck: Der Code erzwingt bei schwachem Score eine Empfehlung — soll das aber NICHT tun, wenn
+    # das Modell dazu schon eine geschrieben hat. Ohne dieses Feld war die Doppelung garantiert:
+    # In 4 von 5 Läufen am 2026-07-30 wiederholte Tipp 3 die Tipps 1/2 wortnah, weil beide aus
+    # denselben `probleme` entstanden (Lauf e9f69518: „Fernseher im Hintergrund" stand als
+    # Modell-Empfehlung UND als erzwungener Sammeltipp).
+    # Vier Versuche, das über Textmuster zu erkennen, sind gescheitert (`bild` traf „Text im Bild",
+    # `sprech` traf „Sprechhook", `hintergrund` traf eine Farb-Empfehlung, Wortmengen-Überlappung
+    # scheiterte an Paraphrasen). Eine Zuordnung durch das Modell ist exakt statt geraten.
+    betrifft: str = ""
+
+
+# Die sieben Bewertungsdimensionen als Single Source of Truth: Schema-Vertrag, Score-Gewichte und
+# die Zuordnung in `Empfehlung.betrifft` müssen dieselben Namen benutzen.
+DIMENSIONEN = (
+    "sprech_hook", "text_hook", "sprechqualitaet", "visuelle_aesthetik",
+    "spannungsbogen", "struktur", "schnitt_pacing",
+)
+
+# Gestaltungs- und Inhaltsmängel einer vorhandenen Text-Hook. Das Modell meldet NUR die Aspekte,
+# die wirklich schwach sind; der Code baut daraus die Empfehlung.
+# Grund (Lauf 4e56336e): Die feste Empfehlung nannte alle Gestaltungspunkte, auch die intakten —
+# „bei tipp 2 hätte nur die textinhaltsanpassung gereicht. optisch ist die texthook in ordnung."
+TEXTHOOK_MANGEL_ARTEN = (
+    "wortlaut",    # sagt inhaltlich zu wenig, macht nicht neugierig
+    "laenge",      # zu viele Wörter
+    "redundanz",   # wiederholt das Gesprochene
+    "groesse",     # zu groß oder zu klein im Bild
+    "farbe",       # grell oder schlecht zum Look passend
+    "lesbarkeit",  # Schriftart/Kontrast schwer lesbar
+    "dauer",       # zu kurz eingeblendet
+    "position",    # klebt am Rand, wird von der Plattform-UI überdeckt
+)
 
 
 # Vom Nutzer beim Upload wählbares Format (genau EINES, Pflicht). Single Source of Truth:
@@ -198,6 +243,10 @@ class AnalystEvaluationV2(BaseModel):
     # Urteile statt Formulierungen — der Code baut daraus die fertigen Schritte:
     pausen_urteile: list[PausenUrteil] = Field(default_factory=list)
     texthook_varianten: list[str] = Field(default_factory=list)   # je max. 9 Wörter; Code prüft und filtert
+    # Nur die Aspekte, die an einer VORHANDENEN Text-Hook wirklich schwach sind (Werte aus
+    # TEXTHOOK_MANGEL_ARTEN). Der Code baut die Empfehlung genau daraus — nennt das Modell nur
+    # „lesbarkeit", steht in der Empfehlung auch nur die Schriftart.
+    texthook_maengel: list[str] = Field(default_factory=list)
     einblendungen: list[Einblendung] = Field(default_factory=list)  # Code bündelt zu EINEM Schritt
     # Die beiden folgenden Listen berechnet der Code aus `empfehlungen` — das Modell füllt sie nicht:
     action_steps: list[ActionStep] = Field(default_factory=list)  # die 3 frühesten Handlungsempfehlungen
