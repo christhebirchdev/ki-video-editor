@@ -63,12 +63,17 @@ async def upload_video(file: UploadFile = File(...)):
     return {"id": run_id, "filename": safe_name}
 
 
-ENGINES = {"v1", "v2_pure", "v2_hybrid"}
+# V1 ist abgeschafft (Entscheidung Chris, 2026-07-31) und deshalb NICHT mehr wählbar.
+# Wichtig für den Prompt: V1 bewertete OHNE Video aus Szenenbeschreibungen und nutzte denselben
+# `build_system_prompt()`. Der Skill ist inzwischen für den Modus „du siehst das Video"
+# geschrieben — solange V1 aufrufbar wäre, bekäme er dort einen faktisch falschen Prompt.
+# Der Code von `_run_v1` liegt noch im Engine-Modul; ihn zu entfernen ist eine eigene Aufräumaktion.
+ENGINES = {"v2_pure", "v2_hybrid"}
 
 
 @router.post("/{run_id}/start")
 async def start_analysis(
-    run_id: str, background: BackgroundTasks, skip_eval: bool = False, engine: str = "v1",
+    run_id: str, background: BackgroundTasks, skip_eval: bool = False, engine: str = "v2_hybrid",
     planned_text_hook: str = "", format: str = "",
 ):
     """engine: v1 (Claude bewertet aus Text) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte).

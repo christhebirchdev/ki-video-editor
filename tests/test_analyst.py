@@ -1679,3 +1679,34 @@ def test_handlung_zuerst_steht_im_empfehlungs_kanon():
     from services.analyst_eval import load_skill_body
     s = load_skill_body()
     assert "HANDLUNG ZUERST, Begründung knapp" in s
+
+
+# ---------- V1 abgeschafft: der Prompt beschreibt den echten Modus ----------
+
+def test_v1_ist_nicht_mehr_waehlbar():
+    """V1 bewertete OHNE Video und nutzte denselben build_system_prompt(). Der Skill ist jetzt für
+    „du siehst das Video" geschrieben — wäre V1 noch aufrufbar, bekäme er einen falschen Prompt.
+    Der API-Default stand auf 'v1', also hätte JEDER Aufruf ohne engine-Parameter dort gelandet."""
+    import inspect
+    from api.analyst import ENGINES, start_analysis
+    assert "v1" not in ENGINES
+    assert inspect.signature(start_analysis).parameters["engine"].default == "v2_hybrid"
+
+
+def test_skill_behauptet_nicht_mehr_das_video_nicht_zu_sehen():
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "nie gesehen" not in s
+    assert "Du bekommst das VIDEO selbst" in s
+    for altlast in ("Szenenliste", "Bild-Fakten", "Gemma", "dedizierter Gemini-Pass"):
+        assert altlast not in s, f"{altlast!r} setzt den abgeschafften V1-Modus voraus"
+
+
+def test_override_widerruft_den_systemprompt_nicht_mehr():
+    """Der Widerruf lief bei JEDEM Lauf und schwächte jede Regel im Prompt — das Modell musste bei
+    jeder Aussage mitentscheiden, ob sie noch gilt."""
+    from services.analyst_gemini_eval import _user_message
+    o = _user_message(_result(gewaehltes_format="Talking Head"), "hybrid")
+    assert "abweichend vom System-Prompt" not in o
+    assert "Ignoriere daher" not in o
+    assert "Du erhältst das VIDEO direkt" in o      # die Ansage selbst bleibt

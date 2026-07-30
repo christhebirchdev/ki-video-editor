@@ -120,11 +120,11 @@ def _user_message(result: AnalystResult, mode: str) -> str:
         return (
             "Du erhältst das VIDEO direkt — sieh es dir WIRKLICH an (Bild und Ton) und bewerte aus dem, "
             "was du siehst und hörst.\n"
-            "WICHTIG, abweichend vom System-Prompt oben: Der System-Prompt ist für einen Modus geschrieben, "
-            "in dem der Bewerter das Video NICHT sieht. Das gilt hier nicht. Ignoriere daher: (a) den Satz "
-            "„Du hast das Video nie gesehen\"; (b) Verweise auf eine vorgefertigte Szenenliste, Bild-Fakten "
-            "oder einen separaten „dedizierten Blick-Pass\" — die gibt es hier nicht; (c) Warnungen vor "
-            "„Gemma-OCR-Fehlern\" — du liest Bildtext selbst direkt ab.\n"
+            # Hier stand bis 2026-07-31 ein Widerruf-Block, der bei JEDEM Lauf die Prämisse des
+            # System-Prompts zurücknahm („Du hast das Video nie gesehen", Szenenliste, Bild-Fakten,
+            # Gemma-OCR). Seit V1 abgeschafft ist, ist der System-Prompt für DIESEN Modus geschrieben
+            # — es gibt nichts zu widerrufen. Ein Prompt, der sich selbst korrigiert, schwächt jede
+            # Regel darin: Das Modell muss bei jeder Aussage mitentscheiden, ob sie noch gilt.
             "NUTZE aktiv deinen visuellen Vorteil (das ist der Mehrwert): beurteile Blickrichtung (in die "
             "Linse vs. Ablesen nach unten/zur Seite), Bildtext, Schnitt/Pacing, Effekte/Zooms und Mimik "
             "aus dem bewegten Bild selbst.\n"
