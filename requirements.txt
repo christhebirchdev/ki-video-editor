@@ -4,7 +4,11 @@ python-multipart==0.0.12
 pydantic==2.9.0
 pydantic-settings==2.5.2
 python-dotenv==1.0.1
-google-genai>=1.0.0
+# Untergrenze bewusst 2.8.0, nicht 1.0.0: Der V1.1-Chat nutzt types.ThinkingConfig
+# (thinking_level) und die explizite Cache-API (client.caches). Beides gibt es in 1.x nicht —
+# mit der alten Untergrenze konnte der Container eine SDK-Version bekommen, unter der der Chat
+# lokal läuft und auf dem Server abstürzt. Lokal geprüft mit 2.8.0.
+google-genai>=2.8.0
 anthropic==0.39.0
 assemblyai==0.35.0
 faster-whisper>=1.0.0
