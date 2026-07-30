@@ -1259,45 +1259,118 @@ def _ev_aesthetik(score, probleme=None):
         visuelle_aesthetik=ScoreProbleme(score=score, probleme=probleme or []))
 
 
-def test_schwache_aesthetik_erzwingt_einen_gebuendelten_tipp():
-    """Vorgabe Chris: Fällt die visuelle Ästhetik unter 3, muss ein gebündelter Tipp in die Top 3.
-    Bild-Probleme gelten fürs ganze Video und erreichten die zeitlich sortierte Top 3sonst nie."""
-    from services.analyst_eval import erzwinge_aesthetik_empfehlung
-    ev = erzwinge_aesthetik_empfehlung(_ev_aesthetik(
-        2, ["Kopf sitzt zu tief im Bild", "Aufnahme ist unscharf"]))
-    schritte = [e for e in ev.empfehlungen if e.gruppe == "aesthetik"]
-    assert len(schritte) == 1                       # EIN gebündelter Schritt, nicht zwei
-    assert schritte[0].zeitpunkt_sek == 0.0         # so erreicht er die Top 3 ohne Sortier-Ausnahme
-    assert "Kopf sitzt zu tief im Bild" in schritte[0].anweisung
-    assert "unscharf" in schritte[0].anweisung
+def _ev_dim(**scores):
+    """Bewertung mit gezielt gesetzten Dimensions-Scores."""
+    from models.analyst import (AnalystEvaluationV2, ScoreKommentar, ScoreProbleme, StrukturEval)
+    ev = AnalystEvaluationV2()
+    for name, wert in scores.items():
+        if isinstance(wert, tuple):
+            score, text = wert
+        else:
+            score, text = wert, None
+        block = getattr(ev, name)
+        block.score = score
+        if text is not None:
+            if hasattr(block, "probleme"):
+                block.probleme = [text]
+            else:
+                block.kommentar = text
+    return ev
 
 
-def test_aesthetik_score_3_erzwingt_nichts():
-    """„unter 3" heißt 1 oder 2. Bei 3 würde in fast jedem Lauf ein Tipp einen Top-Platz belegen."""
-    from services.analyst_eval import erzwinge_aesthetik_empfehlung
-    assert erzwinge_aesthetik_empfehlung(_ev_aesthetik(3)).empfehlungen == []
-
-
-def test_aesthetik_score_0_ist_kein_urteil():
-    """0 ist der Pydantic-Default bei Altläufen und Teil-Antworten, keine schwache Ästhetik —
-    dieselbe Falle wie beim Sprech-Hook. Dieser Test hat den Fehler beim Bauen gefangen."""
-    from services.analyst_eval import erzwinge_aesthetik_empfehlung
-    assert erzwinge_aesthetik_empfehlung(_ev_aesthetik(0)).empfehlungen == []
-
-
-def test_aesthetik_tipp_wird_nicht_verdoppelt():
-    from models.analyst import Empfehlung
-    from services.analyst_eval import erzwinge_aesthetik_empfehlung
-    ev = _ev_aesthetik(2, ["unscharf"])
-    ev.empfehlungen.append(Empfehlung(zeitpunkt_sek=0.0, gruppe="aesthetik", anweisung="Schon da."))
-    assert len(erzwinge_aesthetik_empfehlung(ev).empfehlungen) == 1
-
-
-def test_aesthetik_ohne_benannte_probleme_erfindet_keine_details():
-    from services.analyst_eval import erzwinge_aesthetik_empfehlung
-    ev = erzwinge_aesthetik_empfehlung(_ev_aesthetik(2))
+def test_score_3_erzwingt_eine_handlungsempfehlung():
+    """Vorgabe Chris (3c9a8d95): „überall wo der score eine 3 oder schlechter ist, sollte eine
+    handlungsempfehlung oben beschrieben werden". Im Lauf hatte spannungsbogen 3 mit benannter
+    Schwäche und keinen Schritt."""
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = erzwinge_empfehlungen_bei_schwachen_scores(
+        _ev_dim(spannungsbogen=(3, "Es plätschert im Mittelteil")))
     assert len(ev.empfehlungen) == 1
-    assert "10–15" in ev.empfehlungen[0].anweisung   # nur der Bereich, keine erfundene Beobachtung
+    assert ev.empfehlungen[0].gruppe == "spannungsbogen"
+    assert ev.empfehlungen[0].zeitpunkt_sek == 0.0
+    assert "plätschert im Mittelteil" in ev.empfehlungen[0].anweisung
+
+
+def test_score_4_erzwingt_nichts():
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    assert erzwinge_empfehlungen_bei_schwachen_scores(_ev_dim(spannungsbogen=4)).empfehlungen == []
+
+
+def test_score_0_ist_kein_urteil():
+    """0 ist der Pydantic-Default bei Altläufen und Teil-Antworten, keine schwache Bewertung —
+    dieselbe Falle wie beim Sprech-Hook. Dieser Test hat den Fehler beim Bauen gefangen."""
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    assert erzwinge_empfehlungen_bei_schwachen_scores(
+        _ev_dim(spannungsbogen=0, visuelle_aesthetik=0, struktur=0)).empfehlungen == []
+
+
+def test_aesthetik_bei_score_3_erzwingt_jetzt_auch(monkeypatch):
+    """Geänderte Vorgabe: vorher „unter 3", jetzt „3 oder schlechter". Genau der Fall aus
+    e35a568b — Ästhetik 3 mit zwei benannten Mängeln und keinem Schritt."""
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = _ev_dim(visuelle_aesthetik=3)
+    ev.visuelle_aesthetik.probleme = ["Über dem Kopf ist zu viel leerer Raum",
+                                      "Der Hintergrund wirkt unruhig"]
+    n = erzwinge_empfehlungen_bei_schwachen_scores(ev)
+    assert len(n.empfehlungen) == 1                     # EIN gebündelter Schritt
+    assert "zu viel leerer Raum" in n.empfehlungen[0].anweisung
+    assert "Hintergrund wirkt unruhig" in n.empfehlungen[0].anweisung
+
+
+def test_reihenfolge_folgt_den_score_gewichten():
+    """Vorgabe Chris: Hooks zuerst, dann nach Gewicht. Ästhetik (17) muss vor Spannungsbogen (10)
+    stehen, obwohl der Spannungsbogen den schlechteren Score hat."""
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = erzwinge_empfehlungen_bei_schwachen_scores(
+        _ev_dim(spannungsbogen=1, visuelle_aesthetik=3, schnitt_pacing=2))
+    assert [e.gruppe for e in ev.empfehlungen] == ["aesthetik", "spannungsbogen", "schnitt"]
+
+
+def test_hooks_stehen_vor_den_dimensions_tipps():
+    """Hook- und Anlauf-Schritte werden vorne eingefügt, die Dimensions-Tipps angehängt —
+    so entscheidet die Einfügereihenfolge, ohne die Zeit-Sortierung anzufassen."""
+    from models.analyst import AnalystResult, HookEval
+    from services.analyst_eval import nachbearbeiten
+    ev = _ev_dim(visuelle_aesthetik=3, spannungsbogen=3)
+    ev.hook = HookEval(sprech_hook_score=2, text_hook_vorhanden=False, text_hook_score=0)
+    res = AnalystResult(id="x", filename="v.mp4", duration_sec=30.0, scene_count=0, scenes=[],
+                        transcript="Text.", gewaehltes_format="Talking Head")
+    n = nachbearbeiten(ev, res)
+    erste = n.action_steps[0].anweisung.lower()
+    assert "texthook" in erste or "gesprochenen satz" in erste
+    # Die Dimensions-Tipps kommen danach — hier landen sie in den erweiterten Empfehlungen
+    alle = " ".join(s.anweisung for s in n.action_steps + n.weitere_empfehlungen).lower()
+    assert "kopf" in alle or "bild in ordnung" in alle
+
+
+def test_nur_das_gruppen_label_verhindert_eine_doppelung():
+    """Gleiches Label → kein zweiter Schritt."""
+    from models.analyst import Empfehlung
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = _ev_dim(visuelle_aesthetik=2)
+    ev.empfehlungen.append(Empfehlung(zeitpunkt_sek=5.0, gruppe="aesthetik", anweisung="Schon da."))
+    assert len(erzwinge_empfehlungen_bei_schwachen_scores(ev).empfehlungen) == 1
+
+
+def test_stichwort_im_modelltext_unterdrueckt_den_pflichttipp_nicht():
+    """Drei Fehlalarme in Folge: `bild` traf „Text im Bild", `sprech` traf „Sprechhook",
+    `hintergrund` traf eine Empfehlung zur Textfarbe — jedes Mal fiel der Pflicht-Tipp aus.
+    Genau der Fall aus e35a568b: Ästhetik 3, aber die Farb-Empfehlung erwähnte „Hintergrund"."""
+    from models.analyst import Empfehlung
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = _ev_dim(visuelle_aesthetik=3)
+    ev.empfehlungen.append(Empfehlung(
+        zeitpunkt_sek=0.0, gruppe="",
+        anweisung="Ändere die Farbe des Text-Overlays in ein Marken-Grün mit dunklem Hintergrund."))
+    n = erzwinge_empfehlungen_bei_schwachen_scores(ev)
+    assert any(e.gruppe == "aesthetik" for e in n.empfehlungen), "Pflicht-Tipp wurde unterdrückt"
+
+
+def test_ohne_benannte_schwaeche_wird_nichts_erfunden():
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = erzwinge_empfehlungen_bei_schwachen_scores(_ev_dim(visuelle_aesthetik=2))
+    assert len(ev.empfehlungen) == 1
+    assert "10–15" in ev.empfehlungen[0].anweisung    # nur der Bereich, keine erfundene Beobachtung
 
 
 def test_skill_bewertet_die_gestaltung_der_texthook():
@@ -1326,3 +1399,27 @@ def test_kopfraum_regel_nennt_auch_zu_viel_luft():
     den Zielwert, nicht die Abweichung nach oben."""
     from services.analyst_eval import load_skill_body
     assert "Deutlich MEHR Luft" in load_skill_body()
+
+
+def test_keine_schriftgroessen_werte_irgendwo():
+    """Ein Zielwert (12–14) war kurz in den Empfehlungen und wurde auf Wunsch wieder entfernt.
+    Das Modell darf ihn auch nicht selbst erfinden: Im gerenderten Video ist ein App-Wert nicht
+    ablesbar, und eine ungeprüfte Zahl ist erfunden."""
+    from services.analyst_eval import (TEXTHOOK_EMPFEHLUNG, _texthook_anweisung, load_skill_body)
+    for text in (TEXTHOOK_EMPFEHLUNG, _texthook_anweisung([], vorhanden=True),
+                 _texthook_anweisung([], vorhanden=False)):
+        assert "12–14" not in text
+        assert "Schriftgröße" not in text
+    skill = load_skill_body()
+    assert "KEINE Schriftgrößen-Werte" in skill
+    # Für die Bewertung bleibt ein im Bild sichtbarer Anhaltspunkt
+    assert "nicht höher sein als der Kopf des Sprechers" in skill
+
+
+def test_gestaltungs_anweisung_bleibt_konkret():
+    """Ohne Zahl darf die Empfehlung nicht ins Vage rutschen — Dauer und Position sind Chris'
+    eigene Vorgaben und bleiben drin."""
+    from services.analyst_eval import _texthook_anweisung
+    opt = _texthook_anweisung([], vorhanden=True)
+    for punkt in ("5 Sekunden", "oberen Drittel", "grell", "nicht höher als der Kopf"):
+        assert punkt in opt

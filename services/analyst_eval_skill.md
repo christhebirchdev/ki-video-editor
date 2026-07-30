@@ -117,7 +117,11 @@ Testreel-Funktion von Instagram gegeneinander."
 GESTALTUNG der Text-Hook — sie wird mitbewertet, nicht nur der Wortlaut.
 Eine inhaltlich gute Hook, die gestalterisch nicht funktioniert, stoppt niemanden. Prüfe:
 - **Größe:** Sie muss ins Bild passen, ohne das Gesicht zu überdecken. Bildschirmfüllender Text
-  wirkt laut und unprofessionell, nicht auffällig.
+  wirkt laut und unprofessionell, nicht auffällig. Als sichtbarer Anhaltspunkt: Eine Textzeile
+  sollte nicht höher sein als der Kopf des Sprechers im Bild.
+  Beurteile die Größe ausschließlich an dem, was du im Bild SIEHST. Nenne KEINE Schriftgrößen-Werte
+  aus einem Schnittprogramm (kein „Größe 14", keine Punktangaben) — die kannst du im gerenderten
+  Video nicht ablesen, und eine Zahl, die du nicht prüfen kannst, ist erfunden.
 - **Farbe und Kontrast:** lesbar, aber im Gesamtbild ruhig. Grelles Neon ohne Bezug zum Look des
   Videos wirkt billig.
 - **Einblendungsdauer:** mindestens 5 Sekunden. Wer scrollt, braucht Zeit zum Lesen — kürzer ist

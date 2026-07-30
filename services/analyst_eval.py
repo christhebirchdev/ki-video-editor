@@ -26,7 +26,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-07-30b"
+PROMPT_VERSION = "2026-07-30c"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -348,8 +348,8 @@ HOOK_SCHWACH_SCORE = 3
 
 TEXTHOOK_EMPFEHLUNG = (
     "Blende in den ersten 3 Sekunden eine Texthook ein — kurzer Text im Bild, maximal 9 Wörter, der "
-    "neugierig macht. Schreib dir 3 Varianten und teste sie über die Testreel-Funktion von Instagram "
-    "gegeneinander."
+    "neugierig macht. Mindestens 5 Sekunden sichtbar, im oberen Drittel mit Abstand zum Rand. "
+    "Schreib dir 3 Varianten und teste sie über die Testreel-Funktion von Instagram gegeneinander."
 )
 
 SPRECHHOOK_EMPFEHLUNG = (
@@ -360,6 +360,11 @@ SPRECHHOOK_EMPFEHLUNG = (
 
 
 TEXTHOOK_MAX_WOERTER = 9
+
+# Bewusst KEIN Schriftgrößen-Zielwert in den Empfehlungen (2026-07-30, Entscheidung Chris —
+# ein konkreter Wert war kurz drin und wurde wieder entfernt). Die Größe wird nur relativ am Bild
+# beurteilt und empfohlen; ein App-Wert wäre im gerenderten Video ohnehin nicht nachprüfbar.
+# Nicht ohne neuen Grund erneut vorschlagen.
 
 PAUSEN_ANWEISUNG = "Schneide diese unnötige Sprechpause raus, damit das Video flüssiger läuft."
 
@@ -457,10 +462,10 @@ def _texthook_anweisung(varianten: list[str], vorhanden: bool = False) -> str:
     liste = " | ".join(f"„{v}“" for v in varianten) if varianten else ""
     if vorhanden:
         text = (
-            "Überarbeite deine bestehende Texthook — Wortlaut UND Gestaltung: höchstens 9 Wörter, "
-            "nicht bildschirmfüllend, Farbe passend zum Look statt grell, mindestens 5 Sekunden "
-            "sichtbar, und im oberen Drittel mit Abstand zum Rand, damit die Instagram-Oberfläche "
-            "sie nicht überdeckt."
+            f"Überarbeite deine bestehende Texthook — Wortlaut UND Gestaltung: höchstens "
+            f"{TEXTHOOK_MAX_WOERTER} Wörter, kleiner setzen (eine Zeile nicht höher als der Kopf "
+            f"im Bild), Farbe passend zum Look statt grell, mindestens 5 Sekunden sichtbar, und im "
+            f"oberen Drittel mit Abstand zum Rand, damit die Instagram-Oberfläche sie nicht überdeckt."
         )
         if liste:
             text += f" Diese Varianten kannst du über die Testreel-Funktion gegeneinander testen: {liste}"
@@ -535,51 +540,90 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
     return parsed
 
 
-AESTHETIK_SCHWACH_SCORE = 3   # „unter 3" → 1 oder 2 lösen aus (Vorgabe Chris)
+SCHWACH_SCORE = 3   # „3 oder schlechter" löst aus (Vorgabe Chris, Lauf 3c9a8d95)
+
+# Welche Dimension bekommt bei schwachem Score einen erzwungenen Schritt, mit welchem Rückfalltext.
+# Die Hooks stehen NICHT hier — sie haben eigene Logik (Varianten, vorhanden, geklemmt) in
+# erzwinge_hook_empfehlungen und werden davor eingefügt, damit sie vorn stehen.
+# `thema` erkennt einen Schritt, den das Modell zum selben Bereich schon geschrieben hat.
+#
+# KEINE Stichwort-Erkennung für „hat das Modell dazu schon was geschrieben?".
+# Drei Versuche, drei Fehlalarme: `bild` traf die Texthook-Empfehlung („kurzer Text im Bild"),
+# `sprech` traf „Sprechhook", und `hintergrund` traf eine Empfehlung zur Textfarbe — jedes Mal
+# wurde dadurch der PFLICHT-Tipp unterdrückt, also genau das, was Chris eingefordert hat.
+# Entschieden wird nur über das `gruppe`-Label. Nach der Logik, die im Repo schon für das Bündeln
+# gilt: ein zusätzlicher, thematisch ähnlicher Schritt ist harmlos — ein fehlender Pflicht-Schritt
+# ist der eigentliche Fehler.
+_DIMENSIONEN = (
+    ("sprechqualitaet", "sprechqualitaet",
+     "Arbeite an der Sprache: sprich die Kernsätze langsamer und deutlicher, und lass nach den "
+     "wichtigsten Aussagen eine kurze Pause stehen, damit sie ankommen."),
+    ("visuelle_aesthetik", "aesthetik",
+     "Bring das Bild in Ordnung: Achte auf den Abstand zwischen Kopf und oberem Bildrand "
+     "(etwa 10–15 % Luft), einen ruhigen Hintergrund und eine scharfe, gut belichtete Aufnahme."),
+    ("spannungsbogen", "spannungsbogen",
+     "Halte die Spannung im Mittelteil: Setz dort einen neuen Haken — eine überraschende Zahl, "
+     "einen Einwand oder eine offene Frage —, statt gleichförmig weiterzuerzählen."),
+    ("struktur", "struktur",
+     "Bau das Video klarer auf: Hook, dann ein Übergang, der neugierig hält, dann der Kern, dann "
+     "ein Höhepunkt. Sag am Anfang, worauf es hinausläuft."),
+    ("schnitt_pacing", "schnitt",
+     "Zieh das Tempo an: Schneide Leerlauf zwischen den Sätzen weg und wechsle etwa alle drei bis "
+     "fünf Sekunden etwas im Bild — Bildgröße, Perspektive oder eine Einblendung."),
+)
 
 
-def erzwinge_aesthetik_empfehlung(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
-    """Fällt die visuelle Ästhetik unter 3, MUSS ein gebündelter Tipp in die Top 3 (Vorgabe Chris).
+def erzwinge_empfehlungen_bei_schwachen_scores(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Score 3 oder schlechter in einer Dimension MUSS eine Handlungsempfehlung erzeugen.
 
-    Warum überhaupt: Bild- und Aufbau-Probleme gelten für das ganze Video und haben damit keinen
-    frühen Zeitpunkt — bei einer Sortierung strikt nach frühestem Zeitpunkt erreichten sie die
-    Top 3 nie. Feedback c12db030: „solche sachen müssen auch als prio mit aufgenommen werden,
-    neben den hooks und ersten sekunden des videos."
+    Vorgabe Chris (Lauf 3c9a8d95): „überall wo der score eine 3 oder schlechter ist, sollte eine
+    handlungsempfehlung oben beschrieben werden … vor allem weil dieser auch die watchtime
+    beeinflusst."
 
-    Warum kein Bruch der Sortierregel: Der Schritt liegt auf Sekunde 0, genau wie die
-    Hook- und Anlauf-Schritte. `verteile_empfehlungen` bleibt unverändert „strikt nach frühestem
-    Zeitpunkt" — es kommt nur ein weiterer Null-Sekunden-Schritt hinzu.
+    Das ist die Verallgemeinerung des häufigsten Leerlaufs im Output: Score und Begründung benennen
+    eine Schwäche, unter den Handlungsempfehlungen taucht sie nicht auf. Belegt in beiden Läufen vom
+    2026-07-30 — `spannungsbogen: 3` mit „plätschert im Mittelteil" ohne Schritt (3c9a8d95), zwei
+    benannte Ästhetik-Mängel ohne Schritt (e35a568b). Vorher gab es dafür Einzelklemmen pro
+    Dimension; die sind hier zusammengefasst, damit es EINE Regel bleibt.
 
-    Bekannte Grenze, bewusst so: Feuern alle vier Null-Sekunden-Schritte (Anlauf, Texthook,
-    Sprechhook, Ästhetik), passen sie nicht in drei Plätze. Dieser hier wird zuletzt eingefügt und
-    landet dann in `weitere_empfehlungen` — die Hooks behalten Vorrang („neben den Hooks").
+    **Reihenfolge (Vorgabe Chris):** Hooks zuerst, dann nach den vorhandenen `SCORE_GEWICHTE`.
+    Erreicht wird das ohne Sortier-Ausnahme: Diese Schritte werden ANGEHÄNGT, die Hook- und
+    Anlauf-Schritte per `insert(0, …)` davorgesetzt. Alle liegen auf Sekunde 0, und
+    `verteile_empfehlungen` sortiert stabil — die Einfügereihenfolge entscheidet.
 
-    EIN gebündelter Schritt, nicht einer pro Problem: Mehrere Einzeltipps würden die Top 3 allein
-    füllen — derselbe Effekt, der bei Pausen (25b8b2f6) und Einblendungen (3185d209) schon
-    aufgetreten ist.
+    **1..3, nicht `<= 3`:** 0 ist kein Urteil, sondern der Pydantic-Default bei Altläufen und
+    Teil-Antworten (dieselbe Falle wie beim Sprech-Hook).
+
+    Was das Modell selbst zu einer Dimension geschrieben hat, wird übernommen — erfunden wird
+    nichts. Fehlt eine Begründung, greift der allgemeine Rückfalltext.
     """
-    # 1..2, nicht <3: 0 ist kein gültiger Ästhetik-Score, sondern der Pydantic-Default bei
-    # Altläufen und Teil-Antworten — dieselbe Falle wie beim Sprech-Hook (siehe
-    # erzwinge_hook_empfehlungen). Aus einem Default eine „schwache Ästhetik" zu machen wäre erfunden.
-    score = parsed.visuelle_aesthetik.score
-    if score is None or not (1 <= score < AESTHETIK_SCHWACH_SCORE):
-        return parsed
-    if any(e.gruppe == "aesthetik" for e in parsed.empfehlungen):
-        return parsed
+    schwach = []
+    for attribut, gruppe, rueckfall in _DIMENSIONEN:
+        block = getattr(parsed, attribut, None)
+        if block is None:
+            continue
+        score = getattr(block, "score", None)
+        if score is None or not (1 <= score <= SCHWACH_SCORE):
+            continue
+        if any(e.gruppe == gruppe for e in parsed.empfehlungen):
+            continue          # exakt dieses Label gibt es schon
+        schwach.append((SCORE_GEWICHTE.get(attribut, 0), score, attribut, gruppe, block, rueckfall))
 
-    probleme = [p.strip().rstrip(".") for p in (parsed.visuelle_aesthetik.probleme or []) if p.strip()]
-    if probleme:
-        anweisung = (
-            "Bring das Bild in Ordnung, bevor du am Inhalt feilst — diese Punkte fallen sofort auf: "
-            + "; ".join(probleme) + "."
-        )
-    else:
-        # Kein Problem benannt, Score aber schwach: kein erfundenes Detail, nur der Bereich.
-        anweisung = (
-            "Bring das Bild in Ordnung: Achte auf den Abstand zwischen Kopf und oberem Bildrand "
-            "(etwa 10–15 % Luft), einen ruhigen Hintergrund und eine scharfe, gut belichtete Aufnahme."
-        )
-    parsed.empfehlungen.append(Empfehlung(zeitpunkt_sek=0.0, gruppe="aesthetik", anweisung=anweisung))
+    # Gewicht absteigend, bei gleichem Gewicht der schlechtere Score zuerst
+    schwach.sort(key=lambda t: (-t[0], t[1]))
+
+    for _, _, attribut, gruppe, block, rueckfall in schwach:
+        eigene = [p.strip().rstrip(".") for p in (getattr(block, "probleme", None) or []) if p.strip()]
+        kommentar = (getattr(block, "kommentar", "") or "").strip().rstrip(".")
+        if eigene:
+            anweisung = ("Diese Punkte fallen sofort auf und gehören zuerst behoben: "
+                         + "; ".join(eigene) + ".")
+        elif kommentar:
+            anweisung = f"{kommentar}. {rueckfall}"
+        else:
+            anweisung = rueckfall
+        parsed.empfehlungen.append(
+            Empfehlung(zeitpunkt_sek=0.0, gruppe=gruppe, anweisung=anweisung))
     return parsed
 
 
@@ -665,9 +709,10 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = baue_einblendungs_schritt(parsed)
     parsed = erzwinge_hook_empfehlungen(parsed)
     parsed = erzwinge_anlauf_schnitt(parsed, result)
-    # NACH den Hook- und Anlauf-Schritten: Alle vier liegen auf Sekunde 0, die Einfügereihenfolge
-    # entscheidet damit über die Reihenfolge im Output. Ästhetik zuletzt — die Hooks behalten Vorrang.
-    parsed = erzwinge_aesthetik_empfehlung(parsed)
+    # NACH den Hook- und Anlauf-Schritten: Alle liegen auf Sekunde 0, die Einfügereihenfolge
+    # entscheidet damit über die Reihenfolge im Output. Hook- und Anlauf-Schritte werden vorne
+    # eingefügt, diese hier angehängt — Hooks behalten Vorrang (Vorgabe Chris).
+    parsed = erzwinge_empfehlungen_bei_schwachen_scores(parsed)
     parsed = berechne_performance_score(parsed)
     return verteile_empfehlungen(parsed)
 
