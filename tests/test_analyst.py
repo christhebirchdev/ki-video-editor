@@ -1710,3 +1710,15 @@ def test_override_widerruft_den_systemprompt_nicht_mehr():
     assert "abweichend vom System-Prompt" not in o
     assert "Ignoriere daher" not in o
     assert "Du erhältst das VIDEO direkt" in o      # die Ansage selbst bleibt
+
+
+def test_score_farbe_ist_immer_gruen():
+    """Vorgabe Chris: Die Score-Farbe darf nicht demotivieren — jedes veröffentlichte Video ist
+    besser als keines. Die Zahl und der Einordnungstext differenzieren weiterhin, nur das
+    Farbsignal ist neutralisiert."""
+    import re, pathlib
+    quelle = pathlib.Path("static/app.jsx").read_text(encoding="utf-8")
+    block = re.search(r"function scoreEinordnung\(score\) \{.*?\n\}", quelle, re.S).group()
+    assert "var(--err-ink)" not in block, "rote Score-Farbe ist wieder drin"
+    assert "var(--gold-deep)" not in block
+    assert block.count("var(--ok-ink)") >= 1

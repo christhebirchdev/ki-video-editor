@@ -429,12 +429,19 @@ function Handlungsempfehlungen({ steps }) {
 }
 
 // Ordnet den Performance-Score ermutigend ein (Label + Farbe) statt nackter Zahl.
+// Der Score wird IMMER grün dargestellt — auch bei 20 von 100.
+// Vorgabe Chris: Die Farbe soll nicht demotivieren. Jedes veröffentlichte Video ist besser als
+// keines; wer nach dem ersten Versuch eine rote Zahl sieht, dreht das zweite womöglich nicht mehr.
+// Die Zahl selbst differenziert weiterhin, ebenso der Einordnungstext — nur das Farbsignal ist
+// bewusst neutralisiert. Rot bleibt dem vorbehalten, was der Reputation wirklich schaden kann;
+// dafür gibt es die Warnhinweise in den Empfehlungen, nicht den Gesamtscore.
 function scoreEinordnung(score) {
   if (score == null) return { label: "", color: "var(--taupe)" };
-  if (score >= 75) return { label: "Stark — weiter so", color: "var(--ok-ink)" };
-  if (score >= 55) return { label: "Gute Basis — mit 1–2 Änderungen richtig stark", color: "var(--gold-deep)" };
-  if (score >= 35) return { label: "Solide Basis — ein paar Hebel bringen viel", color: "var(--gold-deep)" };
-  return { label: "Guter Anfang — die Empfehlungen unten helfen am meisten", color: "var(--err-ink)" };
+  const color = "var(--ok-ink)";
+  if (score >= 75) return { label: "Stark — weiter so", color };
+  if (score >= 55) return { label: "Gute Basis — mit 1–2 Änderungen richtig stark", color };
+  if (score >= 35) return { label: "Solide Basis — ein paar Hebel bringen viel", color };
+  return { label: "Guter Anfang — die Empfehlungen unten helfen am meisten", color };
 }
 
 // Detail-Text für die Struktur: Kommentar + erkannte Bausteine.
