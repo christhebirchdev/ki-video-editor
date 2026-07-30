@@ -1423,3 +1423,142 @@ def test_gestaltungs_anweisung_bleibt_konkret():
     opt = _texthook_anweisung([], vorhanden=True)
     for punkt in ("5 Sekunden", "oberen Drittel", "grell", "nicht höher als der Kopf"):
         assert punkt in opt
+
+
+# ---------- Fixes Runde 3 (Läufe 26a1adbf, 041770c1) ----------
+
+def test_kein_vorspann_mehr_in_den_erzwungenen_tipps():
+    """Feedback 26a1adbf: „Diese Formulierung ist unnötig und sollte nicht mit drinstehen:
+    Diese Punkte fallen sofort auf und gehören zuerst behoben" — sie stand in zwei Tipps
+    untereinander."""
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = _ev_dim(visuelle_aesthetik=2)
+    ev.visuelle_aesthetik.probleme = ["Der Kopfraum ist zu groß"]
+    n = erzwinge_empfehlungen_bei_schwachen_scores(ev)
+    assert "fallen sofort auf" not in n.empfehlungen[0].anweisung
+    assert n.empfehlungen[0].anweisung.startswith("Der Kopfraum")
+
+
+def test_fast_wortgleiches_problem_erzeugt_nur_einen_tipp():
+    """Sicherheitsnetz im Code: Fast identischer Text wird nicht zweimal zum Tipp."""
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = _ev_dim(sprechqualitaet=3, visuelle_aesthetik=3)
+    ev.sprechqualitaet.probleme = ["Dein Blick wandert häufig nach unten oder zur Seite"]
+    ev.visuelle_aesthetik.probleme = ["Dein Blick wandert häufig nach unten oder zur Seite"]
+    assert len(erzwinge_empfehlungen_bei_schwachen_scores(ev).empfehlungen) == 1
+
+
+def test_paraphrasen_verhindert_der_prompt_nicht_der_code():
+    """Lauf 26a1adbf: Der Blickkontakt stand zweimal, aber als PARAPHRASE — gemeinsam genau ein
+    Inhaltswort. Kein Wortmaß erkennt das, ohne bei echten Mängeln falsch zusammenzulegen; eine
+    Fehl-Zusammenlegung unterschlägt einen Mangel und ist damit schlimmer als eine Doppelung.
+    Deshalb steht die Regel im Prompt, wo das Modell weiß, was es schon geschrieben hat."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "JEDE BEOBACHTUNG NUR EINMAL" in s
+    assert "Paraphrasen nicht zuverlässig erkennen" in s
+
+
+def test_verschiedene_beobachtungen_bleiben_beide():
+    """Der Doppler-Filter darf nicht zu scharf sein — zwei echte Mängel bleiben zwei Tipps."""
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = _ev_dim(sprechqualitaet=3, visuelle_aesthetik=3)
+    ev.sprechqualitaet.probleme = ["Das Sprechtempo ist durchgehend sehr langsam"]
+    ev.visuelle_aesthetik.probleme = ["Der Hintergrund ist unruhig und lenkt ab"]
+    assert len(erzwinge_empfehlungen_bei_schwachen_scores(ev).empfehlungen) == 2
+
+
+def test_benannte_probleme_deckeln_den_score():
+    """Lauf 041770c1: aesthetik 4 UND zwei benannte Probleme. Die Score-Anker im Skill haben das
+    zweimal nicht verhindert — deshalb im Code."""
+    from services.analyst_eval import deckle_score_auf_probleme
+    ev = _ev_dim(visuelle_aesthetik=4, sprechqualitaet=5)
+    ev.visuelle_aesthetik.probleme = ["Kopfraum zu groß", "Bildausschnitt unruhig"]
+    ev.sprechqualitaet.probleme = ["Etwas monotone Betonung"]
+    n = deckle_score_auf_probleme(ev)
+    assert n.visuelle_aesthetik.score == 3      # zwei Probleme
+    assert n.sprechqualitaet.score == 4         # ein Problem
+
+
+def test_deckel_hebt_keinen_score_an():
+    from services.analyst_eval import deckle_score_auf_probleme
+    ev = _ev_dim(visuelle_aesthetik=1)
+    ev.visuelle_aesthetik.probleme = ["Ein Problem"]
+    assert deckle_score_auf_probleme(ev).visuelle_aesthetik.score == 1
+
+
+def test_ohne_probleme_kein_deckel():
+    from services.analyst_eval import deckle_score_auf_probleme
+    assert deckle_score_auf_probleme(_ev_dim(visuelle_aesthetik=5)).visuelle_aesthetik.score == 5
+
+
+def test_kommentar_allein_deckelt_nicht():
+    """Nur Dimensionen mit echter probleme-Liste. Ein Kommentar ist nicht zwingend ein Mangel —
+    daraus einen Abzug zu machen wäre erfunden."""
+    from services.analyst_eval import deckle_score_auf_probleme
+    ev = _ev_dim(spannungsbogen=(5, "Die Spannung bleibt durchgehend hoch"))
+    assert deckle_score_auf_probleme(ev).spannungsbogen.score == 5
+
+
+def test_hoechstens_zwei_sammel_tipps_in_den_top3():
+    """Lauf 26a1adbf: Anlauf plus zwei erzwungene Tipps belegten alle drei Plätze, die konkreten
+    Stellen-Tipps (Sek. 10, 15, 20) rutschten komplett nach unten."""
+    from models.analyst import AnalystEvaluationV2, Empfehlung
+    from services.analyst_eval import SAMMEL_GRUPPEN, verteile_empfehlungen
+    ev = AnalystEvaluationV2(empfehlungen=[
+        Empfehlung(zeitpunkt_sek=0.0, gruppe="sprechqualitaet", anweisung="Sammel A"),
+        Empfehlung(zeitpunkt_sek=0.0, gruppe="aesthetik", anweisung="Sammel B"),
+        Empfehlung(zeitpunkt_sek=0.0, gruppe="spannungsbogen", anweisung="Sammel C"),
+        Empfehlung(zeitpunkt_sek=10.0, gruppe="einblendungen", anweisung="Konkret bei Sek 10"),
+    ])
+    n = verteile_empfehlungen(ev)
+    assert len(n.action_steps) == 3
+    assert n.action_steps[2].anweisung == "Konkret bei Sek 10", "kein Platz für den konkreten Tipp"
+    assert "Sammel C" in n.weitere_empfehlungen[0].anweisung
+
+
+def test_hooks_zaehlen_nicht_zum_sammel_deckel():
+    """Hook- und Anlauf-Schritte betreffen die ersten Sekunden und behalten Vorrang."""
+    from models.analyst import AnalystEvaluationV2, Empfehlung
+    from services.analyst_eval import verteile_empfehlungen
+    ev = AnalystEvaluationV2(empfehlungen=[
+        Empfehlung(zeitpunkt_sek=0.0, gruppe="anlauf", anweisung="Anlauf weg"),
+        Empfehlung(zeitpunkt_sek=0.0, gruppe="texthook", anweisung="Texthook"),
+        Empfehlung(zeitpunkt_sek=0.0, gruppe="sprechqualitaet", anweisung="Sammel A"),
+        Empfehlung(zeitpunkt_sek=5.0, gruppe="", anweisung="Konkret"),
+    ])
+    n = verteile_empfehlungen(ev)
+    assert [s.anweisung for s in n.action_steps] == ["Anlauf weg", "Texthook", "Sammel A"]
+
+
+def test_skill_bewertet_untertitel_im_pacing():
+    """Feedback 26a1adbf: „es fehlt die kritik an den untertiteln … zu viele wörter pro textblock.
+    eher auf 2-4 reduzieren.\""""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "UNTERTITEL gehören zum Pacing" in s
+    assert "2–4 Wörter" in s
+    assert "schnitt_pacing" in s.split("UNTERTITEL gehören zum Pacing")[1][:900]
+
+
+def test_override_macht_untertitel_zur_pflicht():
+    from services.analyst_gemini_eval import _user_message
+    o = _user_message(_result(gewaehltes_format="Talking Head"), "hybrid")
+    assert "PFLICHT Untertitel" in o
+    assert "2–4" not in o          # Zielwert steht nur im Skill, keine zweite Ausformulierung
+
+
+def test_sprechhook_ohne_haken_ist_hoechstens_2():
+    """Feedback 041770c1: Score 3 vergeben, Chris: „es hookt fast garnicht", eher 2."""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "KEIN HAKEN IN DEN ERSTEN ZWEI SÄTZEN = höchstens 2" in s
+    assert "sind keine Hook-Kriterien" in s
+
+
+def test_weitschweifigkeit_ist_ein_struktur_mangel():
+    """Feedback 041770c1: „an vielen stellen könnte man text reduzieren.\""""
+    from services.analyst_eval import load_skill_body
+    s = load_skill_body()
+    assert "WEITSCHWEIFIGKEIT ist ein Struktur-Mangel" in s
+    assert "nicht als pauschales" in s

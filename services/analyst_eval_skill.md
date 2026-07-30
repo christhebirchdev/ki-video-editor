@@ -153,6 +153,11 @@ der Nutzer keine Alternativen — eine Empfehlung, das Beste am Video umzubauen,
 drei Top-Plätze.
 
 Hook-Kalibrierung (aus echten Beobachtungen):
+- KEIN HAKEN IN DEN ERSTEN ZWEI SÄTZEN = höchstens 2. Beginnt das Video mit Kontext, Begrüßung,
+  Themenankündigung oder Aufwärmen — ohne Konflikt, ohne Zahl, ohne offene Frage —, dann hookt es
+  nicht, egal wie sauber der Satz formuliert ist. „Verständlich gesprochen" und „passt zum Thema"
+  sind keine Hook-Kriterien. Eine 3 setzt voraus, dass ein Haken erkennbar DA ist und nur generisch
+  wirkt (Feedback 041770c1: Score 3 vergeben, Chris: „es hookt fast garnicht", eher 2).
 - Leere Hype-Wörter ohne konkreten Inhalt sind SCHWACH (Score ~2). Negativ-Beispiel Sprech-Hook:
   „Das ist ein unfassbar spannender Glaubenssatz." → sagt statt zu zeigen, kein konkreter Open Loop,
   reines Adjektiv-Hype („unfassbar spannend") → niedrig bewerten.
@@ -192,6 +197,21 @@ ineinandergreifen — nicht bloßes Abhaken. Fehlender CTA ist KEIN Abzug,
 wenn das Format ihn nicht braucht.
 MEHRERE CTAs am Ende = Schwäche (zwingt den Viewer zur Entscheidung) → in top_tipps
 auf genau EINEN klaren CTA reduzieren.
+
+JEDE BEOBACHTUNG NUR EINMAL — in genau der Dimension, zu der sie am besten passt.
+Schreib dieselbe Sache nicht in zwei Felder. Ein abschweifender Blick ist EIN Befund: er gehört in
+`visuelle_aesthetik` (Bildwirkung), nicht zusätzlich in `sprechqualitaet`. Ein monotones
+Sprechtempo gehört in `sprechqualitaet`, nicht zusätzlich in `spannungsbogen`.
+Grund: Aus jedem benannten Problem baut das System eine eigene Handlungsempfehlung. Steht ein
+Befund zweimal, bekommt der Nutzer zwei Tipps für eine Sache — real passiert (Lauf 26a1adbf:
+„wirkst abgelenkt, weil dein Blick abschweift" in sprechqualitaet UND „Dein Blick wandert häufig
+nach unten" in visuelle_aesthetik). Das System kann Paraphrasen nicht zuverlässig erkennen; du
+weißt dagegen genau, was du schon geschrieben hast.
+
+WEITSCHWEIFIGKEIT ist ein Struktur-Mangel. Wird eine Aussage mit mehr Worten getroffen als nötig,
+oder wiederholt sich der Inhalt, kostet das Watchtime. Benenne die konkrete Passage, die kürzer
+könnte, im Struktur-Kommentar UND als Empfehlung mit der Sekunde — nicht als pauschales
+„straffe das Skript".
 
 ## Sprache & Verständlichkeit
 Das Skript muss in EINFACHER Sprache für die breite Masse verständlich sein.
@@ -240,6 +260,14 @@ B-ROLL & EINBLENDUNGEN sind ein starker, mehrfach wirkender Hebel — empfiehl s
 wo er wegschaut; (2) sie verstärken das Gesagte visuell → das Video wird leichter verständlich, die Botschaft
 kommt an, der Zuschauer nimmt mehr mit (mehr Wert); (3) sie bringen Dynamik ins Bild → höhere Chance, dass
 Zuschauer dranbleiben (bessere Retention). Fehlen sie in einem statischen Video, ist das eine konkrete Chance.
+
+UNTERTITEL gehören zum Pacing und werden hier bewertet (nicht in visuelle_aesthetik, nicht als
+Text-Hook — siehe die Untertitel-Regel im Hook-Abschnitt für die Abgrenzung). Prüfe zwei Dinge:
+- **Wörter pro Block:** 2–4 Wörter sind das Ziel. Lange Blöcke liest niemand im Scrollen mit; sie
+  wirken träge und ziehen den Blick vom Sprecher weg.
+- **Rhythmus:** Die Blöcke sollen im Takt der Sprache wechseln. Lange statische Blöcke, die stehen
+  bleiben, während weitergesprochen wird, nehmen dem Video Dynamik.
+Trifft eines davon zu, ist es ein Mangel für schnitt_pacing — benenne ihn im Kommentar.
 
 ## Sprechpausen — nach FUNKTION beurteilen, nicht nach Länge
 Die Sprachstatistik listet jede Pause MIT Position (z.B. „3.1s @ 14.2–17.3s"). Gemeldet werden nur

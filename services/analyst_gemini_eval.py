@@ -133,6 +133,10 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "stehen bleibt oder oben im Bild steht. Details in der Regel „UNTERTITEL sind KEIN Text-Hook“ "
             "im System-Prompt.\n"
             + _format_instruction(result) +
+            "PFLICHT Untertitel: Laufen Untertitel mit, beurteile sie IMMER — Wörter pro Block und "
+            "Rhythmus, Regel im System-Prompt unter Schnitt & Pacing. Sind die Blöcke zu lang oder "
+            "zu statisch, MUSS das in schnitt_pacing.kommentar stehen. Laufen keine Untertitel mit, "
+            "sag das nicht als Mangel — das ist eine Formatentscheidung.\n"
             "PFLICHT Bildaufbau und Bildqualität: Beurteile IMMER (a) den KOPFRAUM — den Abstand "
             "zwischen Kopf und oberem Bildrand, Zielwert und Begründung stehen im System-Prompt unter "
             "„Kopfraum“; deutlich mehr Luft wirkt verloren, deutlich weniger gedrängt — und (b) die "

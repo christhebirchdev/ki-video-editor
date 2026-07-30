@@ -26,7 +26,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-07-30c"
+PROMPT_VERSION = "2026-07-30d"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -103,6 +103,15 @@ def metrics_txt(qm) -> str:
 
 TOP_ACTION_STEPS = 3
 
+# Gruppen, die aus einem schwachen Dimensions-Score entstehen — allgemeine Sammel-Tipps ohne echte
+# Stelle im Video. Hooks und Anlauf gehören NICHT dazu: die betreffen die ersten Sekunden und
+# behalten Vorrang.
+SAMMEL_GRUPPEN = frozenset({"sprechqualitaet", "aesthetik", "spannungsbogen", "struktur", "schnitt"})
+
+# Wie viele Sammel-Tipps höchstens in den Top 3 stehen (Vorgabe Chris). Ein Platz bleibt so für
+# einen videospezifischen Schritt mit echter Sekundenangabe frei.
+MAX_SAMMEL_OBEN = 2
+
 
 def _normtext(s: str) -> str:
     """Anweisung auf Kern normalisieren, damit „Sprechpause rausschneiden" an drei Stellen als
@@ -140,19 +149,40 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
         key = f"{label}\x00{_normtext(e.anweisung)}" if label else f"\x00einzeln{i}"
         gruppen.setdefault(key, []).append(e)
 
-    schritte: list[tuple[float, ActionStep]] = []
+    # (Zeitpunkt, Gruppen-Label, Schritt) — das Label muss durch die Sortierung mitlaufen,
+    # weil die Auswahl unten danach entscheidet.
+    schritte: list[tuple[float, str, ActionStep]] = []
     for eintraege in gruppen.values():
         eintraege.sort(key=lambda e: e.zeitpunkt_sek)
         schritte.append((
             eintraege[0].zeitpunkt_sek,  # eine Gruppe zählt ab ihrem FRÜHESTEN Vorkommen
+            (eintraege[0].gruppe or "").strip().lower(),
             ActionStep(
                 zeitpunkt=_zeit_label([e.zeitpunkt_sek for e in eintraege]),
                 anweisung=eintraege[0].anweisung,
             ),
         ))
     schritte.sort(key=lambda t: t[0])
-    parsed.action_steps = [s for _, s in schritte[:TOP_ACTION_STEPS]]
-    parsed.weitere_empfehlungen = [s for _, s in schritte[TOP_ACTION_STEPS:]]
+
+    # Höchstens zwei Sammel-Tipps in den Top 3 (Vorgabe Chris). In Lauf 26a1adbf belegten
+    # Anlauf-Schnitt plus zwei erzwungene Dimensions-Tipps alle drei Plätze; die konkreten Tipps
+    # mit echter Sekundenangabe (Sek. 10, 15, 20) rutschten komplett nach unten. Ein Platz bleibt
+    # deshalb für einen videospezifischen Schritt frei.
+    # Hook- und Anlauf-Schritte zählen NICHT zum Deckel — sie betreffen die ersten Sekunden und
+    # behalten Vorrang (frühere Vorgabe).
+    oben: list[ActionStep] = []
+    rest: list[ActionStep] = []
+    sammel = 0
+    for _, gruppe, schritt in schritte:
+        ist_sammel = gruppe in SAMMEL_GRUPPEN
+        if len(oben) < TOP_ACTION_STEPS and not (ist_sammel and sammel >= MAX_SAMMEL_OBEN):
+            oben.append(schritt)
+            sammel += ist_sammel
+        else:
+            rest.append(schritt)
+
+    parsed.action_steps = oben
+    parsed.weitere_empfehlungen = rest
     return parsed
 
 
@@ -573,6 +603,73 @@ _DIMENSIONEN = (
 )
 
 
+_FUELLWOERTER = {
+    "dein", "deine", "deinem", "deinen", "der", "die", "das", "den", "dem", "ein", "eine", "einen",
+    "einem", "eines", "und", "oder", "aber", "auch", "sehr", "etwas", "wirkt", "wirkst", "ist",
+    "sind", "wird", "sich", "nicht", "mehr", "noch", "dadurch", "wodurch", "weil", "dass", "als",
+    "wie", "was", "sodass", "damit", "über", "unter", "nach", "beim", "durch", "einige", "manche",
+}
+
+
+def _inhaltswoerter(text: str) -> set:
+    """Bedeutungstragende Wörter eines Problemtexts — Basis für den Doppler-Vergleich."""
+    return {w for w in _normalisiert(text).split() if len(w) >= 4 and w not in _FUELLWOERTER}
+
+
+def _schon_genannt(text: str, bereits: list[set]) -> bool:
+    """Steht `text` fast wortgleich schon in einem früheren Problem?
+
+    **Sicherheitsnetz, nicht die Hauptlösung.** Die Schwelle liegt hoch (0.8), weil eine
+    Fehl-Zusammenlegung schlimmer ist als eine Doppelung: Sie unterschlägt einen echten Mangel.
+    Das ist dieselbe Abwägung, die im Repo schon fürs Bündeln der Empfehlungen dokumentiert ist.
+
+    Was hier NICHT geht, und warum: Im Lauf 26a1adbf stand der Blickkontakt zweimal, aber als
+    PARAPHRASE — „wirkst abgelenkt, weil dein Blick abschweift" (sprechqualitaet) gegen „Dein Blick
+    wandert häufig nach unten oder zur Seite" (visuelle_aesthetik). Gemeinsam ist genau ein
+    Inhaltswort. Kein Wortmaß erkennt das, ohne bei echten Mängeln falsch zu greifen; drei Versuche
+    mit thematischen Stichwörtern (`bild`, `sprech`, `hintergrund`) sind vorher genauso gescheitert.
+    Die Doppelung wird deshalb im Prompt verhindert (Regel „jede Beobachtung nur EINMAL") — dort
+    weiß das Modell, dass es dieselbe Sache zweimal schreibt. Hier bleibt nur der Fall des
+    fast identischen Texts.
+    """
+    woerter = _inhaltswoerter(text)
+    if not woerter:
+        return False
+    for frueher in bereits:
+        if not frueher:
+            continue
+        if len(woerter & frueher) / min(len(woerter), len(frueher)) >= 0.8:
+            return True
+    return False
+
+
+def deckle_score_auf_probleme(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Benennt das Modell Probleme, darf der Score nicht hoch bleiben (Vorgabe Chris).
+
+    Lauf 041770c1: `visuelle_aesthetik` = 4 UND zwei benannte Probleme („Kopfraum recht groß",
+    „Bildausschnitt unruhig"). Die Score-Anker im Skill haben das nicht verhindert — zweiter
+    Versuch, zweites Mal nicht gegriffen. Damit feuert die ≤3-Regel nicht, obwohl Mängel
+    dokumentiert sind: Der Score ist der falsche Auslöser, solange er den Problemen nicht folgt.
+
+    Ein Problem → höchstens 4, zwei oder mehr → höchstens 3. Nur deckeln, nie anheben.
+
+    Gilt ausschließlich für Dimensionen mit einer echten `probleme`-Liste. Die übrigen führen nur
+    `kommentar`; ein Kommentar ist nicht zwingend ein Mangel, daraus einen Abzug zu machen wäre
+    erfunden.
+    """
+    for attribut in ("sprechqualitaet", "visuelle_aesthetik"):
+        block = getattr(parsed, attribut, None)
+        if block is None or getattr(block, "score", None) is None:
+            continue
+        anzahl = len([p for p in (getattr(block, "probleme", None) or []) if p.strip()])
+        if anzahl == 0:
+            continue
+        deckel = 3 if anzahl >= 2 else 4
+        if block.score > deckel:
+            block.score = deckel
+    return parsed
+
+
 def erzwinge_empfehlungen_bei_schwachen_scores(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
     """Score 3 oder schlechter in einer Dimension MUSS eine Handlungsempfehlung erzeugen.
 
@@ -612,14 +709,27 @@ def erzwinge_empfehlungen_bei_schwachen_scores(parsed: AnalystEvaluationV2) -> A
     # Gewicht absteigend, bei gleichem Gewicht der schlechtere Score zuerst
     schwach.sort(key=lambda t: (-t[0], t[1]))
 
+    # Problemtexte über ALLE Dimensionen hinweg, damit dieselbe Beobachtung nicht zweimal
+    # als Tipp erscheint (Lauf 26a1adbf: Blickkontakt stand in sprechqualitaet UND aesthetik).
+    bereits: list[set] = []
+
     for _, _, attribut, gruppe, block, rueckfall in schwach:
-        eigene = [p.strip().rstrip(".") for p in (getattr(block, "probleme", None) or []) if p.strip()]
+        eigene = []
+        for p in (getattr(block, "probleme", None) or []):
+            p = p.strip().rstrip(".")
+            if not p or _schon_genannt(p, bereits):
+                continue
+            bereits.append(_inhaltswoerter(p))
+            eigene.append(p)
         kommentar = (getattr(block, "kommentar", "") or "").strip().rstrip(".")
         if eigene:
-            anweisung = ("Diese Punkte fallen sofort auf und gehören zuerst behoben: "
-                         + "; ".join(eigene) + ".")
+            # Kein Vorspann: „Diese Punkte fallen sofort auf …" stand in zwei Tipps untereinander
+            # und war reiner Füllsatz (Feedback 26a1adbf).
+            anweisung = ". ".join(eigene) + "."
         elif kommentar:
             anweisung = f"{kommentar}. {rueckfall}"
+        elif getattr(block, "probleme", None):
+            continue          # alle Probleme waren Doppler → kein eigener Schritt
         else:
             anweisung = rueckfall
         parsed.empfehlungen.append(
@@ -707,6 +817,9 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = entferne_bestaetigungen(parsed)
     parsed = baue_pausen_schritt(parsed)
     parsed = baue_einblendungs_schritt(parsed)
+    # VOR den Erzwingungen: Benannte Probleme deckeln den Score, damit die ≤3-Regel danach
+    # überhaupt greift (Lauf 041770c1: zwei Probleme benannt, Score trotzdem 4).
+    parsed = deckle_score_auf_probleme(parsed)
     parsed = erzwinge_hook_empfehlungen(parsed)
     parsed = erzwinge_anlauf_schnitt(parsed, result)
     # NACH den Hook- und Anlauf-Schritten: Alle liegen auf Sekunde 0, die Einfügereihenfolge
