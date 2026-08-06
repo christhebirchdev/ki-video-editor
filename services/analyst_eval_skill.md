@@ -81,6 +81,10 @@ oder oben im Bild stehen. Untertitel müssen weder wechseln noch unten sitzen.
 
 Trifft nur Punkt 1 zu, ist es eine TEXT-HOOK: ein einzelner Textblock am Anfang, der danach nicht
 weiterläuft, bleibt eine Text-Hook — auch wenn er fast wörtlich wiederholt, was gesprochen wird.
+Woran du sie erkennst (positiver Test, geht der Wortlaut-Prüfung vor): Eine Text-Hook steht
+durchgehend an derselben Position im Bild, ODER sie verschwindet nach einer Weile und taucht danach
+nicht wieder auf. Untertitel dagegen werden laufend durch neue Blöcke ersetzt. Beides kann
+gleichzeitig im Bild sein: eine stehende Text-Hook oben und eine mitlaufende Untertitelspur.
 Dann ist sie NICHT „nicht vorhanden" (nicht Score 0), sondern REDUNDANT: bewerte sie nach der
 Redundanz-Regel unten, also mit Abzug und dem Hinweis, dass eine der beiden Ebenen etwas Neues
 liefern muss.
@@ -229,9 +233,9 @@ MEHRERE CTAs am Ende = Schwäche (zwingt den Viewer zur Entscheidung) → in top
 auf genau EINEN klaren CTA reduzieren.
 
 JEDE BEOBACHTUNG NUR EINMAL — in genau der Dimension, zu der sie am besten passt.
-Schreib dieselbe Sache nicht in zwei Felder. Ein abschweifender Blick ist EIN Befund: er gehört in
-`visuelle_aesthetik` (Bildwirkung), nicht zusätzlich in `sprechqualitaet`. Ein monotones
-Sprechtempo gehört in `sprechqualitaet`, nicht zusätzlich in `spannungsbogen`.
+Schreib dieselbe Sache nicht in zwei Felder. Ein abschweifender Blick ist EIN Befund: er gehört
+ausschließlich in `blickkontakt`, weder in `visuelle_aesthetik` noch in `sprechqualitaet`. Ein
+monotones Sprechtempo gehört in `sprechqualitaet`, nicht zusätzlich in `spannungsbogen`.
 Grund: Aus jedem benannten Problem baut das System eine eigene Handlungsempfehlung. Steht ein
 Befund zweimal, bekommt der Nutzer zwei Tipps für eine Sache — real passiert (Lauf 26a1adbf:
 „wirkst abgelenkt, weil dein Blick abschweift" in sprechqualitaet UND „Dein Blick wandert häufig
@@ -291,13 +295,7 @@ wo er wegschaut; (2) sie verstärken das Gesagte visuell → das Video wird leic
 kommt an, der Zuschauer nimmt mehr mit (mehr Wert); (3) sie bringen Dynamik ins Bild → höhere Chance, dass
 Zuschauer dranbleiben (bessere Retention). Fehlen sie in einem statischen Video, ist das eine konkrete Chance.
 
-UNTERTITEL gehören zum Pacing und werden hier bewertet (nicht in visuelle_aesthetik, nicht als
-Text-Hook — siehe die Untertitel-Regel im Hook-Abschnitt für die Abgrenzung). Prüfe zwei Dinge:
-- **Wörter pro Block:** 2–4 Wörter sind das Ziel. Lange Blöcke liest niemand im Scrollen mit; sie
-  wirken träge und ziehen den Blick vom Sprecher weg.
-- **Rhythmus:** Die Blöcke sollen im Takt der Sprache wechseln. Lange statische Blöcke, die stehen
-  bleiben, während weitergesprochen wird, nehmen dem Video Dynamik.
-Trifft eines davon zu, ist es ein Mangel für schnitt_pacing — benenne ihn im Kommentar.
+UNTERTITEL gehören NICHT hierher — sie haben einen eigenen Abschnitt und ein eigenes Feld.
 
 ## Sprechpausen — nach FUNKTION beurteilen, nicht nach Länge
 Die Sprachstatistik listet jede Pause MIT Position (z.B. „3.1s @ 14.2–17.3s"). Gemeldet werden nur
@@ -381,12 +379,68 @@ verdecken, weit vom Kinn entfernt sitzen, so tief liegen, dass die Plattform-Obe
 oder schlecht lesbar sind. Statische Textblöcke statt kurzer Einblendungen (1–4 Wörter, synchron zum
 Gesprochenen geschnitten) sind eine verschenkte Chance auf Aufmerksamkeit → als Empfehlung ausgeben.
 
-**BLICKRICHTUNG** zählt hier ebenfalls mit, und du beurteilst sie selbst aus dem bewegten Bild.
-Geht der Blick wiederholt oder dauerhaft nach unten oder zur Seite (Skript/Teleprompter ablesen),
-wirkt das geskriptet und unsicher → als Problem benennen und als Empfehlung: die betroffenen Stellen
-rausschneiden bzw. eine Einblendung drüberlegen und den Blick in die Linse richten. Liegt der Blick
-überwiegend in der Linse, sag das positiv und zieh keinen Abzug. Format-Ausnahmen stehen in der
-Aufgabe (bei einer Reaction ist der Blick auf den eingeblendeten Clip normal).
+**BLICKRICHTUNG gehört NICHT hierher** — sie hat ein eigenes Feld, siehe Abschnitt „Blickkontakt".
+Schreib sie nicht zusätzlich in `visuelle_aesthetik.probleme` oder `.hinweise`.
+
+## Untertitel — eigenes Feld, und PFLICHT sobald gesprochen wird
+Mitlaufende Untertitel sind essentiell, nicht optional. Wird im Video gesprochen, muss praktisch
+jedes gesprochene Wort auch als Untertitel lesbar sein — ein großer Teil der Zuschauer sieht das
+Video ohne Ton. Fehlen sie, ist das ein MANGEL: `vorhanden=false`, und das System baut daraus
+selbst den Handlungsschritt (schreib dazu keine eigene Empfehlung).
+Dass vereinzelte Wörter nicht angezeigt werden, ist dagegen KEIN Mangel — entscheidend ist, dass
+die Spur durchgehend mitläuft.
+Wird gar nicht gesprochen (reines Bild-Ton-Format), gibt es nichts zu untertiteln: `vorhanden=false`
+und `maengel` leer, ohne Kritik.
+Laufen Untertitel mit, beurteile sie in `untertitel` und NICHT in `schnitt_pacing` oder
+`visuelle_aesthetik`.
+Trag in `maengel` nur ein, was wirklich schwach ist:
+- `position` — sie sitzen am unteren Bildrand statt direkt unter dem Kinn, oder so tief, dass die
+  Plattform-Oberfläche sie überdeckt.
+- `statisch` — lange Textblöcke stehen bleiben, statt synchron zum Gesprochenen in kurze Blöcke
+  geschnitten zu sein.
+- `wortzahl` — mehr als 4 Wörter pro Block.
+- `groesse` — auf einem Handydisplay mühsam zu lesen.
+- `lesbarkeit` — zu wenig Kontrast zum Hintergrund, keine Kontur.
+- `timing` — Text und gesprochenes Wort laufen auseinander.
+Sind sie in Ordnung, lass `maengel` LEER und sag es unter `staerken`. Die Empfehlung baut das
+System genau aus dem, was du meldest — nenne also nichts auf Verdacht.
+
+## Dynamik & Effekte
+`dynamik.urteil` beschreibt, wie viel im Bild passiert:
+- `gering` — ein Kamerawinkel, kaum oder keine Schnitte, kein Zoom, keine Einblendungen, das Bild
+  steht im Wesentlichen still.
+- `mittel` — gelegentliche Schnitte, ein Zoom, vereinzelte Einblendungen.
+- `hoch` — häufige Wechsel von Einstellung oder Perspektive, B-Roll, sichtbare Bewegung.
+Das ist KEIN Score und kein Urteil über Qualität: Ein ruhiges Talking Head kann für sein Thema genau
+richtig sein.
+
+`effekt_vorschlaege`: Stellen, an denen ein kurzer Soundeffekt (Whoosh, Klick) oder ein kleiner
+visueller Effekt (Flash beim Übergang, kurzer Punch-In) etwas bringen würde — höchstens 3, je mit
+Zeitpunkt, `art` und Zweck. Schreib dazu KEINE eigene Empfehlung; das System entscheidet selbst, ob
+der Schritt gebaut wird, und formuliert ihn.
+Nenne Stellen vor allem dann, wenn die Dynamik gering ist (Effekte ersetzen dort die fehlende
+Abwechslung) oder wenn das Video sonst kaum Schwächen hat (letzter Feinschliff).
+
+## Energie im Auftreten — eigenes Urteil, KEIN Score
+`energie.urteil`: `traegt` | `flach` | `uebertrieben`. Gemeint ist die PASSUNG zum Inhalt, nicht
+Lautstärke: Ein ernstes Thema ruhig vorgetragen ist `traegt`. `flach` heißt, die Stimme lässt den
+Zuschauer kalt, obwohl der Inhalt mehr hergäbe. Bewerte das nicht zusätzlich in `sprechqualitaet` —
+dort geht es um Tempo, Deutlichkeit und Füllwörter.
+
+## Blickkontakt — eigenes Urteil, KEIN Score
+Du beurteilst den Blick selbst aus dem bewegten Bild und trägst ihn in `blickkontakt` ein:
+- `urteil`: `in_der_linse` | `abgelesen` | `unklar`
+- `kommentar`: 1 Satz, was du siehst.
+
+`abgelesen` nur, wenn der Blick wiederholt oder dauerhaft nach unten oder zur Seite geht und dabei
+erkennbar Text abgelesen wird (die Augen wandern zeilenweise). Ein einzelner kurzer Blick zur Seite
+ist `in_der_linse`. Kannst du es nicht sicher sehen, ist es `unklar` — rate nicht.
+
+Der Blick fließt in KEINEN Score ein. Bei `abgelesen` baut das System selbst den Handlungsschritt;
+schreib dafür KEINE eigene Empfehlung, außer du kannst konkrete Sekunden nennen. Liegt der Blick in
+der Linse, darf das als Stärke auftauchen.
+Format-Ausnahmen stehen in der Aufgabe (bei einer Reaction ist der Blick auf den eingeblendeten
+Clip funktional und damit `in_der_linse`).
 
 ## Zielgruppe
 Genau 1 Satz: wer sich angesprochen fühlt.

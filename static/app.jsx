@@ -290,8 +290,8 @@ const ANALYST_FEATURES = [
 // Bewertungs-Engines zum Vergleich. Gleiches Ergebnis-Layout, gleicher Bewertungsprompt —
 // nur WER/WIE bewertet ändert sich.
 const ANALYST_ENGINES = [
-  { id: "v1",        label: "V1",        hint: "Mehrstufige Analyse: das Video wird erst beschrieben, dann bewertet. Gründlich, aber etwas langsamer." },
-  { id: "v2_hybrid", label: "V2 Hybrid", hint: "Analyse und Bewertung in einem Schritt, ergänzt um objektive Messwerte. Schneller." },
+  { id: "v2_hybrid", label: "V1.1", hint: "Ein Bewertungs-Durchgang für alle Kriterien. Schneller." },
+  { id: "v2_split",  label: "V1.2", hint: "Zwei Durchgänge: erst die Eröffnung, dann das Handwerk. Jeder Schritt bekommt weniger Regeln gleichzeitig — dauert länger, sollte aber genauer sein." },
 ];
 const ENGINE_LABEL = Object.fromEntries(ANALYST_ENGINES.map((e) => [e.id, e.label]));
 
@@ -302,6 +302,12 @@ const STAGE_SETS = {
     { key: "transcribe", label: "Transkription", est: 28 },
     { key: "quality", label: "Audio-Messwerte", est: 6 },
     { key: "evaluate", label: "Analyse & Bewertung", est: 85 },
+  ],
+  // V1.2: zwei Bewertungs-Calls hintereinander → die Bewertungsphase dauert entsprechend länger.
+  v2_split: [
+    { key: "transcribe", label: "Transkription", est: 28 },
+    { key: "quality", label: "Audio-Messwerte", est: 6 },
+    { key: "evaluate", label: "Bewertung in zwei Schritten", est: 150 },
   ],
   v2_pure: [
     { key: "evaluate", label: "Analyse & Bewertung", est: 50 },
@@ -714,7 +720,9 @@ function ChatPanel({ runId, filename, dauerSec = 0 }) {
 function VideoAnalystPage({ adminPw = "", chat = false }) {
   const [runId, setRunId] = useState("");   // für die Feedback-Zuordnung in der Admin-Ansicht
   const [analysisFile, setAnalysisFile] = useState(null);
-  const engine = "v2_hybrid";    // nur noch V2 Hybrid im Frontend (V1 entfernt; Backend kann v1/v2_pure weiter via API)
+  // Bewertungs-Version. V1.1 = ein Call, V1.2 = zwei Calls (Eröffnung / Handwerk). Läuft bewusst
+  // nebeneinander, damit sich vergleichen lässt, ob der Split die Bewertung verbessert.
+  const [engine, setEngine] = useState("v2_hybrid");
   const [plannedTextHook, setPlannedTextHook] = useState("");  // Freifeld: geplante Texthook (falls noch nicht im Video)
   // Format-Auswahl (Pflicht, genau eines). Muss zu models.analyst.FORMATE passen — die API validiert dagegen.
   const [format, setFormat] = useState("");
@@ -1049,6 +1057,42 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
               Wähl das Format, das am besten passt — es steuert, wie streng Schnitt und Sprechpausen
               bewertet werden. Passt nichts genau? Dann „Andere“.
+            </div>
+          </div>
+
+          {/* Bewertungs-Version. V1.1 und V1.2 laufen nebeneinander, damit sich der Zwei-Schritt-
+              Ansatz gegen den bisherigen vergleichen lässt. Gleiche Felder, gleiche Nachbearbeitung. */}
+          <div style={{ marginBottom: 12 }} role="radiogroup" aria-label="Version">
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+              Version
+            </label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {ANALYST_ENGINES.map((e) => {
+                const on = engine === e.id;
+                return (
+                  <button
+                    key={e.id}
+                    type="button"
+                    role="radio"
+                    title={e.hint}
+                    disabled={phase === "running"}
+                    onClick={() => setEngine(e.id)}
+                    aria-checked={on}
+                    style={{
+                      padding: "6px 12px", fontSize: 13, borderRadius: 999, cursor: "pointer",
+                      border: `1px solid ${on ? "var(--accent, #2d6cdf)" : "var(--line-strong)"}`,
+                      background: on ? "var(--accent, #2d6cdf)" : "transparent",
+                      color: on ? "#fff" : "inherit",
+                      fontWeight: on ? 600 : 400,
+                    }}
+                  >
+                    {e.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              {(ANALYST_ENGINES.find((e) => e.id === engine) || {}).hint}
             </div>
           </div>
 

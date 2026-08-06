@@ -100,9 +100,90 @@ class HookEval(BaseModel):
     text_hook_wortlaut: str = ""
     text_hook_offene_frage: str = ""   # wie sprech_hook_offene_frage, für die Text-Hook
     text_hook_mechanik: str = ""       # wie sprech_hook_mechanik, für die Text-Hook
+    # DRITTE HOOK-EBENE (Vorgabe Chris, 2026-08-06): Bewegung im Bild, Zoom, Schnitt, ein visueller
+    # Bruch in den ersten Sekunden. Die Referenz kennt sie seit jeher (S1: „Hook auf 3 Ebenen —
+    # Sprech × Text × visuell"), das Schema hatte nur zwei — die Ebene fiel damit still weg.
+    # Nullable wie der Sprech-Hook: Ein Standbild ohne jede Bewegung ist bewertbar (Score 1), ein
+    # Video, in dem die Eröffnung nicht beurteilbar ist, nicht.
+    visuell_hook_score: Optional[int] = None
+    visuell_hook_grund: str = ""
     # True, wenn der Score erst NACH dem Modell-Call im Code geklemmt wurde. Das Modell konnte davon
     # nichts wissen, also muss die Empfehlung dazu erzwungen werden (siehe erzwinge_hook_empfehlungen).
     text_hook_score_geklemmt: bool = False
+
+
+class DynamikEval(BaseModel):
+    """Wie viel im Bild passiert (Vorgabe Chris, 2026-08-06).
+
+    Chris: „die Prüfung von einem geringen Bildreiz würde ich auf Basis der allgemeinen Dynamik im
+    Video bewerten. Wenn es zum Beispiel nur einen Kamerawinkel gibt, dann ist das eben auch ein
+    Zeichen dafür, dass es weniger Bildreiz gibt."
+
+    Kein Score: Geringe Dynamik ist nicht per se schlecht — ein ruhiges Talking Head kann für sein
+    Thema richtig sein. Das Urteil steuert nur, OB Effekte empfohlen werden.
+
+    `urteil`: gering | mittel | hoch."""
+    urteil: str = ""
+    kommentar: str = ""
+
+
+class EffektVorschlag(BaseModel):
+    """Eine Stelle, an der ein Sound- oder ein kleiner visueller Effekt etwas bringen würde.
+
+    Wie bei `Einblendung`: Das Modell nennt Stelle und Zweck, den fertigen Schritt baut der Code.
+    `art`: sound | visuell."""
+    zeitpunkt_sek: float = 0.0
+    art: str = ""
+    zweck: str = ""
+
+
+class UntertitelEval(BaseModel):
+    """Untertitel als eigener Block (Vorgabe Chris, 2026-08-06).
+
+    Vorher standen sie als Freitext in `schnitt_pacing.kommentar` — dort erzeugten sie nie einen
+    Handlungsschritt, und Position und Design wurden gar nicht erfasst. Chris hat die Kritik daran
+    fünfmal gegeben (statische Blöcke, zu viele Wörter, falsche Platzierung).
+
+    `maengel` trägt Werte aus UNTERTITEL_MANGEL_ARTEN. Wie bei `texthook_maengel` baut der Code die
+    Empfehlung NUR aus dem, was gemeldet wurde — nicht aus der ganzen Prüfliste auf Verdacht.
+
+    `vorhanden=False` ist KEIN Mangel: Ohne Untertitel zu arbeiten ist eine Formatentscheidung."""
+    vorhanden: bool = False
+    maengel: list[str] = Field(default_factory=list)
+    kommentar: str = ""
+
+
+class EnergieEval(BaseModel):
+    """Energie im Auftreten — score-frei wie der Blick (Vorgabe Chris, 2026-08-06).
+
+    Chris: „mit welcher Energy spricht er in die Kamera? Diese Energy hat auch einen krassen
+    Einfluss auf die Form dieses Videos." Bisher war sie in `sprechqualitaet` eingeschmolzen
+    (Skill: „Tempo, Energie, Deutlichkeit zu EINEM Score") — man konnte nie sehen, ob eine 3 an der
+    Aussprache oder an fehlender Energie lag.
+
+    Kein Score, weil hohe Energie nicht per se besser ist: Ein ruhiger, ernster Vortrag kann für
+    sein Thema genau richtig sein. Bewertet wird die PASSUNG zum Inhalt, und das ist ein Urteil,
+    kein Messwert.
+
+    `urteil`: traegt | flach | uebertrieben. Nur `flach` löst einen Schritt aus."""
+    urteil: str = ""
+    kommentar: str = ""
+
+
+class BlickEval(BaseModel):
+    """Blickrichtung — bewusst OHNE Score (Vorgabe Chris, 2026-08-06).
+
+    Vorher lief die Blickrichtung über `visuelle_aesthetik.probleme`. Das hatte zwei Folgen, die
+    beide nicht gewollt waren: Sie zählte für `deckle_score_auf_probleme` und lief damit über die
+    17 Gewichtspunkte der Ästhetik in den Performance-Score, und sie war über 41 Läufe der mit
+    Abstand häufigste Ästhetik-Befund (54 %) — der Score maß am Ende überwiegend den Blick.
+
+    Ein Urteil ohne Score kann trotzdem eine Handlungsempfehlung auslösen: Chris hält die Wirkung
+    für stark genug, dass sie in den Schritten auftauchen MUSS, wenn sie negativ auffällt.
+
+    `urteil`: in_der_linse | abgelesen | unklar. `abgelesen` ist der einzige Auslöser."""
+    urteil: str = ""
+    kommentar: str = ""
 
 
 class StrukturElemente(BaseModel):
@@ -263,6 +344,11 @@ class AnalystEvaluationV2(BaseModel):
     schnitt_pacing: ScoreKommentar = Field(default_factory=ScoreKommentar)
     spannungsbogen: ScoreKommentar = Field(default_factory=ScoreKommentar)
     visuelle_aesthetik: ScoreProbleme = Field(default_factory=ScoreProbleme)
+    untertitel: UntertitelEval = Field(default_factory=UntertitelEval)
+    dynamik: DynamikEval = Field(default_factory=DynamikEval)     # steuert, ob Effekte empfohlen werden
+    effekt_vorschlaege: list[EffektVorschlag] = Field(default_factory=list)  # Code bündelt zu EINEM Schritt
+    blickkontakt: BlickEval = Field(default_factory=BlickEval)    # score-frei, kann aber einen Schritt auslösen
+    energie: EnergieEval = Field(default_factory=EnergieEval)     # score-frei, siehe EnergieEval
     staerken: list[str] = Field(default_factory=list)             # positives Feedback: was schon gut ist
     top_tipps: list[str] = Field(default_factory=list)            # ausführliches Verbesserungs-Feedback
     empfehlungen: list[Empfehlung] = Field(default_factory=list)  # ROH vom Modell: flach, unsortiert
@@ -309,6 +395,11 @@ class AnalystResult(BaseModel):
     evaluation: Optional[AnalystEvaluationV2] = None
     engine: str = "v1"                 # v1 (Claude) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte)
     elapsed_sec: float = 0.0           # reine Verarbeitungszeit (ohne Warteschlange), für Engine-Vergleich
+    phasen_sek: dict[str, float] = Field(default_factory=dict)
+    # Dauer je Phase (transkript / messwerte / bewertung). Entscheidungsgrundlage für
+    # ANALYST_MAX_CONCURRENT: „transkript" belegt die CPU, „bewertung" wartet nur auf das
+    # Gemini-Netz. Nur aus dem Verhältnis lässt sich sagen, ob ein zweiter paralleler Lauf
+    # Durchsatz bringt oder nur zwei Läufe gleichzeitig ausbremst. Altläufe: leeres Dict.
     geplante_texthook: str = ""        # vom Nutzer vor der Analyse eingetragene, geplante Texthook (Freifeld)
     gewaehltes_format: str = ""        # vom Nutzer beim Upload gewähltes Format (Pflicht, genau eines aus
                                        # FORMATE); leer nur bei Altläufen → Modell klassifiziert dann selbst

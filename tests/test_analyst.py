@@ -357,6 +357,52 @@ def test_vorhandene_hook_empfehlung_wird_nicht_verdoppelt():
     assert len(ev.empfehlungen) == 2  # nichts dazugekommen
 
 
+def _ev_betrifft(sprech, text, *empfehlungen, vorhanden=None, maengel=None):
+    """Wie _ev_scores, aber die Empfehlungen tragen ein `betrifft`-Label."""
+    from models.analyst import AnalystEvaluationV2, HookEval
+    return AnalystEvaluationV2(
+        hook=HookEval(sprech_hook_score=sprech, text_hook_score=text,
+                      text_hook_vorhanden=bool(text) if vorhanden is None else vorhanden),
+        texthook_maengel=maengel or [],
+        empfehlungen=[{"zeitpunkt_sek": t, "anweisung": a, "gruppe": "", "betrifft": b}
+                      for t, a, b in empfehlungen],
+    )
+
+
+def test_eigene_texthook_empfehlung_ueberlebt_statt_template():
+    """Vorgabe Chris: „in den Empfehlungsfeldern sollen immer individuelle Handlungsempfehlungen
+    stehen … nicht die Templates, die im Code generiert werden."
+
+    Bisher löschte erzwinge_hook_empfehlungen JEDE Empfehlung, die das Texthook-Thema traf, und
+    setzte den Baustein-Text ein — auch wenn das Modell die konkrete Schwäche schon benannt hatte.
+    Über 10 Läufe vom 2026-08-06 stand deshalb 9× ein wortgleicher Template-Satz in den Top 3."""
+    from services.analyst_eval import erzwinge_hook_empfehlungen
+    eigene = "Färbe die Texthook statt Neongelb in ein ruhiges Weiß, das zum Look des Videos passt."
+    ev = erzwinge_hook_empfehlungen(_ev_betrifft(4, 3, (0.0, eigene, "text_hook")))
+    texthook = [e for e in ev.empfehlungen if "Texthook" in e.anweisung or "texthook" in e.anweisung]
+    assert len(texthook) == 1, "Modell-Empfehlung und Template dürfen nicht beide dastehen"
+    assert texthook[0].anweisung == eigene
+
+
+def test_template_greift_weiter_wenn_das_modell_nichts_liefert():
+    """Gegenprobe: Ohne eigene Texthook-Empfehlung bleibt der Baustein die Rückfallebene."""
+    from services.analyst_eval import erzwinge_hook_empfehlungen
+    ev = erzwinge_hook_empfehlungen(
+        _ev_betrifft(4, 3, (12.0, "Blende bei Sek. 12 ein Symbol ein.", ""), maengel=["laenge"]))
+    assert any(e.gruppe == "texthook" for e in ev.empfehlungen)
+
+
+def test_geklemmter_score_ersetzt_die_modell_empfehlung_weiterhin():
+    """Wurde der Score erst im Code auf 0 gesetzt (Fremd-Texthook), kannte das Modell den Grund
+    nicht — seine Empfehlung beschreibt dann die falsche Sache und muss ersetzt werden."""
+    from services.analyst_eval import erzwinge_hook_empfehlungen
+    ev = _ev_betrifft(4, 0, (0.0, "Mach die Texthook etwas größer.", "text_hook"), vorhanden=False)
+    ev.hook.text_hook_score_geklemmt = True
+    ev = erzwinge_hook_empfehlungen(ev)
+    assert any(e.gruppe == "texthook" for e in ev.empfehlungen)
+    assert all("etwas größer" not in e.anweisung for e in ev.empfehlungen)
+
+
 def test_texthook_score_0_erzwingt_eine_empfehlung():
     """Run e7fdf99d: text_hook_score 0 (im Code geklemmt), aber kein Handlungsschritt dazu — das
     Modell hielt die Fremdvideo-Texthook für vorhanden und hatte keinen Grund, einen zu schreiben."""
@@ -595,7 +641,401 @@ def test_nachbearbeiten_laeuft_in_der_richtigen_reihenfolge():
     assert all("behalten" not in s.anweisung for s in ev.action_steps)
 
 
+# ---------- V1.2: Prompt-Split auf zwei Calls ----------
+
+def test_jeder_abschnitt_ist_einem_call_zugeordnet():
+    """Ohne vollständige Zuordnung fällt ein Abschnitt beim Split still weg — der teuerste Fehler
+    dieser Architektur, weil er im Output nur als schlechtere Bewertung sichtbar wird."""
+    import re
+    from services.analyst_eval import ABSCHNITT_ZUORDNUNG, load_skill_body
+    ueberschriften = {m.group(1) for m in re.finditer(r'^## (.+)$', load_skill_body(), re.M)}
+    fehlend = ueberschriften - set(ABSCHNITT_ZUORDNUNG)
+    assert not fehlend, f"nicht zugeordnet: {fehlend}"
+    verwaist = set(ABSCHNITT_ZUORDNUNG) - ueberschriften
+    assert not verwaist, f"Zuordnung zeigt auf gelöschte Abschnitte: {verwaist}"
+
+
+def test_split_prompts_sind_deutlich_kleiner_als_der_ganze():
+    """Der Zweck des Splits: weniger gleichzeitig geltende Regeln pro Call (IFScale-Befund
+    Primacy-Bias). Bleibt ein Teil fast so groß wie das Ganze, ist nichts gewonnen."""
+    from services.analyst_eval import build_system_prompt
+    ganz = len(build_system_prompt())
+    eroeffnung = len(build_system_prompt(teil="eroeffnung"))
+    handwerk = len(build_system_prompt(teil="handwerk"))
+    assert eroeffnung < ganz * 0.75
+    assert handwerk < ganz * 0.75
+
+
+def test_hook_regeln_nur_im_eroeffnungs_call():
+    from services.analyst_eval import build_system_prompt
+    assert "Zählt es als Hook" in build_system_prompt(teil="eroeffnung")
+    assert "Zählt es als Hook" not in build_system_prompt(teil="handwerk")
+
+
+def test_handwerk_regeln_nicht_im_eroeffnungs_call():
+    from services.analyst_eval import build_system_prompt
+    hw = build_system_prompt(teil="handwerk")
+    assert "Sprechpausen" in hw and "Untertitel" in hw and "Dynamik" in hw
+    er = build_system_prompt(teil="eroeffnung")
+    assert "nach FUNKTION beurteilen" not in er
+
+
+def test_gemeinsame_basis_steht_in_beiden_calls():
+    """Laiensprache, Empfehlungsregel und Ausgabeformat gelten für beide — fehlen sie in einem,
+    liefert dieser Call unbrauchbare Freitexte."""
+    from services.analyst_eval import build_system_prompt
+    for teil in ("eroeffnung", "handwerk"):
+        p = build_system_prompt(teil=teil)
+        assert "Laiensprache" in p or "LAIENSPRACHE" in p
+        assert "kanonische Regel" in p
+        assert "empfehlungen" in p
+
+
+def test_teilschemas_decken_zusammen_alle_felder_ab():
+    """Kein Bewertungsfeld darf zwischen den beiden Calls verloren gehen."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import TEIL_FELDER
+    pflicht = set(AnalystEvaluationV2.model_fields) - {
+        "action_steps", "weitere_empfehlungen", "performance_score"}
+    abgedeckt = set(TEIL_FELDER["eroeffnung"]) | set(TEIL_FELDER["handwerk"])
+    assert pflicht <= abgedeckt, f"fehlt in beiden Teilen: {pflicht - abgedeckt}"
+
+
+def test_merge_fuehrt_beide_teilergebnisse_zusammen():
+    from models.analyst import AnalystEvaluationV2, HookEval, ScoreKommentar
+    from services.analyst_eval import merge_teilergebnisse
+    a = AnalystEvaluationV2(zielgruppe="Gründer.", hook=HookEval(sprech_hook_score=4),
+                            empfehlungen=[{"zeitpunkt_sek": 0.0, "anweisung": "Hook schärfen"}])
+    b = AnalystEvaluationV2(spannungsbogen=ScoreKommentar(score=3, kommentar="Plätschert."),
+                            staerken=["Klare Sprache"],
+                            empfehlungen=[{"zeitpunkt_sek": 20.0, "anweisung": "Pause kürzen"}])
+    m = merge_teilergebnisse(a, b)
+    assert m.zielgruppe == "Gründer." and m.hook.sprech_hook_score == 4
+    assert m.spannungsbogen.score == 3 and m.staerken == ["Klare Sprache"]
+    assert len(m.empfehlungen) == 2
+
+
+def test_merge_wirft_doppelte_empfehlungen_raus():
+    """Der Split macht Doppler WAHRSCHEINLICHER als ein einzelner Call: Beide Teile sehen dasselbe
+    Video und können dieselbe Beobachtung melden — Call 1 kennt den Bildtext, Call 2 die
+    Untertitel, beide könnten „Text kürzen" schreiben. In V1.1 fiel das dem Modell selbst auf,
+    weil alles in einer Antwort stand. Chris hat doppelte Tipps 5× bemängelt."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import merge_teilergebnisse
+    doppelt = "Kürze den Text auf dem Startbildschirm."
+    a = AnalystEvaluationV2(empfehlungen=[{"zeitpunkt_sek": 0.0, "anweisung": doppelt}])
+    b = AnalystEvaluationV2(empfehlungen=[
+        {"zeitpunkt_sek": 0.0, "anweisung": doppelt},
+        {"zeitpunkt_sek": 9.0, "anweisung": "Schneide die Pause bei Sek. 9."}])
+    m = merge_teilergebnisse(a, b)
+    assert len(m.empfehlungen) == 2
+    assert [e.anweisung for e in m.empfehlungen].count(doppelt) == 1
+
+
+def test_split_liefert_dasselbe_ergebnis_wie_ein_call():
+    """Der Split darf nur ÄNDERN, wie das Modell gefragt wird — nicht, was der Code daraus macht.
+    Gegenprobe an einem echten Lauf: dieselben Rohdaten einmal als Ganzes, einmal in zwei Teile
+    zerlegt und wieder zusammengeführt. Score und Schritte müssen identisch sein."""
+    import json
+    from pathlib import Path
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import TEIL_FELDER, merge_teilergebnisse, nachbearbeiten
+    lauf = Path("analyst_runs/870b3d6c/analysis.json")
+    if not lauf.exists():
+        pytest.skip("Referenzlauf nicht vorhanden")
+    ev = json.loads(lauf.read_text())["evaluation"]
+    roh = {k: v for k, v in ev.items() if k not in ("action_steps", "weitere_empfehlungen")}
+    res = _result(gewaehltes_format=ev.get("format", ""))
+    ganz = nachbearbeiten(AnalystEvaluationV2(**roh), res)
+    t1 = AnalystEvaluationV2(**{k: v for k, v in roh.items() if k in TEIL_FELDER["eroeffnung"]})
+    t2 = AnalystEvaluationV2(**{k: v for k, v in roh.items() if k in TEIL_FELDER["handwerk"]})
+    geteilt = nachbearbeiten(merge_teilergebnisse(t1, t2), res)
+    assert geteilt.performance_score == ganz.performance_score
+    assert [s.anweisung for s in geteilt.action_steps] == [s.anweisung for s in ganz.action_steps]
+
+
+def test_teilschemas_bleiben_valides_json_geruest():
+    """Beim Filtern der Schema-Zeilen dürfen keine offenen Klammern zurückbleiben — sonst bekommt
+    das Modell einen kaputten Vertrag und antwortet frei."""
+    from services.analyst_eval import _schema_fuer
+    for teil in ("eroeffnung", "handwerk"):
+        s = _schema_fuer(teil)
+        kern = s[s.find("{"):s.rfind("}") + 1]
+        assert kern.count("{") == kern.count("}"), teil
+        assert kern.count("[") == kern.count("]"), teil
+
+
+def test_zweiter_call_bekommt_das_ergebnis_des_ersten():
+    """Chris: „wichtig wäre, dass der zweite Run den Kontext auch vom ersten Run bekommt und auch
+    die Bewertung." Ohne den Hook beurteilt Call 2 den Spannungsbogen blind."""
+    from models.analyst import AnalystEvaluationV2, HookEval
+    from services.analyst_gemini_eval import eroeffnungs_kontext
+    txt = eroeffnungs_kontext(AnalystEvaluationV2(
+        zielgruppe="Gründer im B2B.",
+        hook=HookEval(sprech_hook_score=2, text_hook_score=4,
+                      text_hook_wortlaut="3 Fehler beim Lead-Kontakt")))
+    assert "3 Fehler beim Lead-Kontakt" in txt
+    assert "2" in txt and "Gründer im B2B." in txt
+
+
+# ---------- Neue Bewertungsfelder (Runde 4, Vorgaben Chris 2026-08-06) ----------
+
+def test_untertitel_haben_ein_eigenes_feld():
+    """Chris: „die Untertitelbewertung, auch die dynamischen Untertitel und auch die Position der
+    Untertitel, kam in den Bewertungen noch gar nicht vor. Das möchte ich gerne mit aufnehmen."
+    Bisher landeten sie als Freitext in schnitt_pacing.kommentar — unauffindbar und ohne Schritt."""
+    from models.analyst import AnalystEvaluationV2, UntertitelEval
+    ev = AnalystEvaluationV2()
+    assert isinstance(ev.untertitel, UntertitelEval)
+    assert ev.untertitel.vorhanden is False
+    assert ev.untertitel.maengel == []
+
+
+def test_untertitel_maengel_erzeugen_eine_empfehlung():
+    """Wie bei der Texthook: Der Code baut die Empfehlung aus GEMELDETEN Mängeln, nicht auf Verdacht."""
+    from models.analyst import AnalystEvaluationV2, UntertitelEval
+    from services.analyst_eval import erzwinge_untertitel_empfehlung
+    ev = erzwinge_untertitel_empfehlung(AnalystEvaluationV2(
+        untertitel=UntertitelEval(vorhanden=True, maengel=["position", "statisch"])))
+    schritte = [e for e in ev.empfehlungen if e.gruppe == "untertitel"]
+    assert len(schritte) == 1
+    assert "Kinn" in schritte[0].anweisung          # Baustein „position"
+    assert "2 bis 4 Wörter" in schritte[0].anweisung  # Baustein „statisch"
+
+
+def test_untertitel_ohne_maengel_erzeugen_nichts():
+    from models.analyst import AnalystEvaluationV2, UntertitelEval
+    from services.analyst_eval import erzwinge_untertitel_empfehlung
+    ev = erzwinge_untertitel_empfehlung(AnalystEvaluationV2(
+        untertitel=UntertitelEval(vorhanden=True, maengel=[])))
+    assert ev.empfehlungen == []
+
+
+def test_fehlende_untertitel_sind_ein_mangel_wenn_gesprochen_wird():
+    """Vorgabe Chris (2026-08-06), Korrektur der bisherigen Regel: „ein Untertitel, der mitläuft,
+    ist im Video absolut essentiell und muss immer dazugehören. Wenn im Video gesprochen wird und
+    es ein Transkript gibt, muss quasi jedes gesprochene Wort auch als Untertitel lesbar sein."
+
+    Vorher galt das Fehlen als Formatentscheidung — genau umgekehrt."""
+    from models.analyst import AnalystEvaluationV2, UntertitelEval
+    from services.analyst_eval import erzwinge_untertitel_empfehlung
+    ev = erzwinge_untertitel_empfehlung(
+        AnalystEvaluationV2(untertitel=UntertitelEval(vorhanden=False)),
+        _result(transcript="Heute zeige ich dir drei Fehler beim Lead-Kontakt."))
+    schritte = [e for e in ev.empfehlungen if e.gruppe == "untertitel"]
+    assert len(schritte) == 1
+    assert "Untertitel" in schritte[0].anweisung
+
+
+def test_ohne_gesprochenes_wort_keine_untertitel_pflicht():
+    """Ein stummes Video braucht keine Untertitel — sonst bekäme jedes reine Bild-Ton-Format
+    einen Tipp, der nichts zu untertiteln hätte."""
+    from models.analyst import AnalystEvaluationV2, UntertitelEval
+    from services.analyst_eval import erzwinge_untertitel_empfehlung
+    ev = erzwinge_untertitel_empfehlung(
+        AnalystEvaluationV2(untertitel=UntertitelEval(vorhanden=False)), _result(transcript=""))
+    assert ev.empfehlungen == []
+
+
+def test_vereinzelt_fehlende_woerter_sind_kein_mangel():
+    """Chris: „manchmal gibt es bei Untertiteln auch mal vereinzelt Wörter, die vielleicht nicht
+    direkt angezeigt werden, aber an sich sollten Untertitel mitlaufen." Laufen sie mit und ist
+    nichts gemeldet, entsteht kein Schritt."""
+    from models.analyst import AnalystEvaluationV2, UntertitelEval
+    from services.analyst_eval import erzwinge_untertitel_empfehlung
+    ev = erzwinge_untertitel_empfehlung(
+        AnalystEvaluationV2(untertitel=UntertitelEval(vorhanden=True, maengel=[])),
+        _result(transcript="Ein gesprochener Satz."))
+    assert ev.empfehlungen == []
+
+
+def test_skill_macht_untertitel_zur_pflicht_bei_sprache():
+    from services.analyst_eval import load_skill_body
+    skill = " ".join(load_skill_body().split())
+    assert "Formatentscheidung und KEIN Mangel" not in skill
+    assert "jedes gesprochene Wort" in skill
+
+
+def test_visuelle_hook_ist_die_dritte_ebene():
+    """Chris: „bei der Hook am Anfang wird keine visuelle Hook mit aufgeführt. Also zum Beispiel eine
+    Bewegung, ein Bild, Bewegung der Person, ein Zoom-In-Effekt."
+    Die Referenz kennt die Ebene seit jeher (S1 „Hook auf 3 Ebenen"), das Schema nicht."""
+    from models.analyst import AnalystEvaluationV2
+    ev = AnalystEvaluationV2()
+    assert ev.hook.visuell_hook_score is None
+    assert ev.hook.visuell_hook_grund == ""
+
+
+def test_visuelle_hook_zaehlt_im_performance_score():
+    """Drei Ebenen teilen sich das Hook-Gewicht — sonst bliebe die neue Ebene folgenlos."""
+    from services.analyst_eval import SCORE_GEWICHTE
+    assert "visuell_hook" in SCORE_GEWICHTE
+    assert sum(SCORE_GEWICHTE.values()) == 100
+
+
+def test_energie_hat_ein_eigenes_feld():
+    """Chris: „was auch nicht bewertet wird, ist die Energy des Protagonisten … diese Energy hat
+    einen krassen Einfluss." Bisher in sprechqualitaet eingeschmolzen (Skill: „Tempo, Energie,
+    Deutlichkeit zu EINEM Score") — man sah nie, woran eine 3 lag."""
+    from models.analyst import AnalystEvaluationV2, EnergieEval
+    ev = AnalystEvaluationV2()
+    assert isinstance(ev.energie, EnergieEval)
+    assert ev.energie.urteil == ""
+
+
+# ---------- Effekte: nur bei geringer Dynamik oder als Feinschliff, nie in den Top 3 ----------
+
+def _ev_effekte(dynamik, *effekte, andere=()):
+    from models.analyst import AnalystEvaluationV2, DynamikEval
+    return AnalystEvaluationV2(
+        dynamik=DynamikEval(urteil=dynamik),
+        effekt_vorschlaege=[{"zeitpunkt_sek": t, "art": a, "zweck": z} for t, a, z in effekte],
+        empfehlungen=[{"zeitpunkt_sek": t, "anweisung": a, "gruppe": ""} for t, a in andere],
+    )
+
+
+def test_geringe_dynamik_erzeugt_einen_effekt_schritt():
+    """Chris: „wenn das Video an sich wenig Bewegung beinhaltet … können durch solche Effekte mehr
+    Abwechslung erzeugt werden, was zu einer höheren Watch Time führt." Als Indikator nennt er die
+    allgemeine Dynamik, z. B. nur ein Kamerawinkel."""
+    from services.analyst_eval import baue_effekt_schritt
+    ev = baue_effekt_schritt(_ev_effekte(
+        "gering", (3.0, "sound", "Übergang zur Aufzählung"), (12.0, "visuell", "Zahl erscheint"),
+        andere=[(0.0, "Texthook überarbeiten"), (5.0, "Pause rausschneiden"),
+                (9.0, "Blick in die Linse"), (20.0, "Symbol einblenden")]))
+    schritte = [e for e in ev.empfehlungen if e.gruppe == "effekte"]
+    assert len(schritte) == 1
+    assert "Sek. 3" in schritte[0].anweisung and "Sek. 12" in schritte[0].anweisung
+
+
+def test_hohe_dynamik_und_viele_empfehlungen_erzeugen_nichts():
+    """Ein Video mit viel Bewegung UND offenen Baustellen braucht keinen Effekt-Feinschliff —
+    sonst wird der Tipp zum nächsten Dauerläufer wie vorher die Einblendungen."""
+    from services.analyst_eval import baue_effekt_schritt
+    ev = baue_effekt_schritt(_ev_effekte(
+        "hoch", (3.0, "sound", "Übergang"),
+        andere=[(0.0, "a"), (1.0, "b"), (2.0, "c"), (3.0, "d")]))
+    assert all(e.gruppe != "effekte" for e in ev.empfehlungen)
+
+
+def test_starkes_video_bekommt_effekte_als_feinschliff():
+    """Chris: „wenn das Video schon sehr, sehr gut ist, fast keine Handlungsempfehlung mehr gibt,
+    kann damit nochmal Feintuning betrieben werden." Hohe Dynamik, aber kaum offene Punkte."""
+    from services.analyst_eval import baue_effekt_schritt
+    ev = baue_effekt_schritt(_ev_effekte(
+        "hoch", (7.0, "visuell", "Produkt erscheint"), andere=[(0.0, "Einziger offener Punkt")]))
+    assert any(e.gruppe == "effekte" for e in ev.empfehlungen)
+
+
+def test_effekt_schritt_landet_nie_in_den_top_3():
+    """Vorgabe Chris: „ich würde nicht sagen, dass der Effekt-Tipp in die Top 3 kommen muss. Das ist
+    eher eine ergänzende Empfehlung." Der Schritt liegt auf einer frühen Sekunde und würde ohne
+    Sonderbehandlung nach vorn sortiert."""
+    from services.analyst_eval import baue_effekt_schritt, verteile_empfehlungen
+    ev = baue_effekt_schritt(_ev_effekte(
+        "gering", (1.0, "sound", "Einstieg"),
+        andere=[(30.0, "Späterer Schritt A"), (40.0, "Späterer Schritt B")]))
+    ev = verteile_empfehlungen(ev)
+    assert all("Soundeffekt" not in s.anweisung for s in ev.action_steps)
+    assert any("Soundeffekt" in s.anweisung for s in ev.weitere_empfehlungen)
+
+
+def test_ohne_effekt_vorschlaege_passiert_nichts():
+    from services.analyst_eval import baue_effekt_schritt
+    ev = baue_effekt_schritt(_ev_effekte("gering"))
+    assert ev.empfehlungen == []
+
+
+# ---------- Blickrichtung: eigenes Urteil, kein Score ----------
+
+def test_blickkontakt_hat_ein_eigenes_feld_ohne_score():
+    """Vorgabe Chris: Die Blickrichtung soll eine eigene Bewertung sein und NICHT in ein Kriterium
+    mit Scoring einfließen. Bisher lief sie über `visuelle_aesthetik.probleme` — dort zählte sie
+    für den Score-Deckel und damit über SCORE_GEWICHTE (17 Punkte) in den Performance-Score."""
+    from models.analyst import AnalystEvaluationV2, BlickEval
+    ev = AnalystEvaluationV2()
+    assert isinstance(ev.blickkontakt, BlickEval)
+    assert not hasattr(ev.blickkontakt, "score"), "Blickrichtung darf keinen Score tragen"
+    assert ev.blickkontakt.urteil == ""
+
+
+def test_abgelesener_blick_erzwingt_eine_empfehlung():
+    """Chris: „falls die Blickrichtung negativ auffallen sollte, dass sie auch definitiv als
+    Handlungsempfehlung mit reinkommt … sie hat schon einen starken Einfluss auf die Wirkung.\""""
+    from models.analyst import AnalystEvaluationV2, BlickEval
+    from services.analyst_eval import erzwinge_blick_empfehlung
+    ev = erzwinge_blick_empfehlung(AnalystEvaluationV2(
+        blickkontakt=BlickEval(urteil="abgelesen", kommentar="Blick wandert zeilenweise nach unten.")))
+    blick = [e for e in ev.empfehlungen if e.gruppe == "blick"]
+    assert len(blick) == 1
+    assert blick[0].betrifft == "", "darf keine Score-Dimension referenzieren"
+
+
+def test_blick_in_der_linse_erzwingt_nichts():
+    from models.analyst import AnalystEvaluationV2, BlickEval
+    from services.analyst_eval import erzwinge_blick_empfehlung
+    ev = erzwinge_blick_empfehlung(AnalystEvaluationV2(blickkontakt=BlickEval(urteil="in_der_linse")))
+    assert ev.empfehlungen == []
+
+
+def test_blick_erzeugt_keine_zweite_empfehlung():
+    """Hat das Modell schon selbst einen Blick-Schritt geschrieben, kommt keiner dazu."""
+    from models.analyst import AnalystEvaluationV2, BlickEval, Empfehlung
+    from services.analyst_eval import erzwinge_blick_empfehlung
+    ev = erzwinge_blick_empfehlung(AnalystEvaluationV2(
+        blickkontakt=BlickEval(urteil="abgelesen"),
+        empfehlungen=[Empfehlung(zeitpunkt_sek=3.0, gruppe="blick", anweisung="Schau in die Linse.")]))
+    assert len(ev.empfehlungen) == 1
+
+
+def test_blick_zaehlt_nicht_mehr_zur_visuellen_aesthetik():
+    """Der Skill wies die Blickrichtung ausdrücklich `visuelle_aesthetik` zu — das ist die Stelle,
+    über die sie in den Score lief."""
+    from services.analyst_eval import load_skill_body
+    skill = " ".join(load_skill_body().split())
+    assert "**BLICKRICHTUNG** zählt hier ebenfalls mit" not in skill
+    assert "blickkontakt" in skill.lower()
+
+
 # ---------- Prompt-Regeln: vorhanden, eindeutig, nicht doppelt ----------
+
+def test_user_message_macht_wortgleichheit_nicht_zum_alleinkriterium():
+    """Widerspruch zwischen Skill und User-Message (Befund Chris, 2026-08-06).
+
+    Der Skill verlangt für Untertitel ZWEI Merkmale (wortgleich UND laufend neue Blöcke) und stellt
+    ausdrücklich klar, dass Wortgleichheit allein eine Texthook nicht entwertet. Die User-Message
+    strich Merkmal 2 und machte Wortgleichheit hinreichend — inklusive „auch wenn der Text statisch
+    stehen bleibt oder oben im Bild steht". Chris: eine echte Texthook KANN wortgleich mitgesprochen
+    werden, während parallel Untertitel mitlaufen. Die User-Message steht näher am Modell und gewinnt
+    im Zweifel gegen den Skill — deshalb muss dort dasselbe Zwei-Merkmale-Kriterium stehen."""
+    from models.analyst import AnalystResult
+    from services.analyst_gemini_eval import _user_message
+    res = AnalystResult(id="x", filename="a.mp4", duration_sec=30.0, scene_count=0, scenes=[],
+                        transcript="Test", gewaehltes_format="Talking Head")
+    um = _user_message(res, "hybrid")
+    assert "auch wenn der Text statisch stehen bleibt" not in um, \
+        "macht Wortgleichheit zum hinreichenden Untertitel-Kriterium"
+    assert "BEIDE" in um, "das Zwei-Merkmale-Kriterium muss auch hier gelten"
+
+
+def test_texthook_wird_an_der_persistenz_erkannt():
+    """Positives Erkennungsmerkmal (Vorgabe Chris): Eine Texthook steht durchgehend an derselben
+    Position ODER verschwindet und taucht danach nicht wieder auf. Untertitel werden dagegen laufend
+    durch neue Blöcke ersetzt. Bisher war nur die negative Fassung da („läuft nicht weiter")."""
+    from services.analyst_eval import load_skill_body
+    # Zeilenumbrüche glätten — die Regel ist im Markdown umbrochen, geprüft wird der Inhalt.
+    skill = " ".join(load_skill_body().split())
+    assert "durchgehend an derselben Position" in skill
+    assert "taucht danach nicht wieder auf" in skill
+
+
+def test_schema_koppelt_texthook_nicht_an_nicht_gesprochen():
+    """Dritte Stelle desselben Widerspruchs: Das Ausgabeschema definierte Score 0 über „kein
+    nicht-gesprochener Bildtext". Damit fällt jede mitgesprochene Texthook auf 0 — dieselbe
+    Fehlklassifikation, die Skill und User-Message eigentlich verhindern sollen."""
+    from services.analyst_eval import OUTPUT_SCHEMA
+    assert "nicht-gesprochener Bildtext" not in OUTPUT_SCHEMA
+
 
 def test_untertitel_regel_entscheidet_am_wortlaut_nicht_an_der_darstellung():
     """P1, Feedback Run 25b8b2f6: Statische Untertitel-Blöcke wurden als Texthook bewertet. Die alte
@@ -1570,14 +2010,22 @@ def test_hooks_zaehlen_nicht_zum_sammel_deckel():
     assert [s.anweisung for s in n.action_steps] == ["Anlauf weg", "Texthook", "Sammel A"]
 
 
-def test_skill_bewertet_untertitel_im_pacing():
-    """Feedback 26a1adbf: „es fehlt die kritik an den untertiteln … zu viele wörter pro textblock.
-    eher auf 2-4 reduzieren.\""""
+def test_untertitel_regel_steht_nur_im_untertitel_block():
+    """Die Untertitel-Bewertung ist aus `schnitt_pacing` in den eigenen Block umgezogen (2026-08-06).
+    Bleibt die alte Fassung stehen, gilt dieselbe Regel an zwei Orten — der Fehler, an dem sich
+    doppelte Tipps im Repo schon mehrfach entzündet haben.
+
+    Ursprünglicher Anlass der Regel bleibt gültig (Feedback 26a1adbf: „es fehlt die kritik an den
+    untertiteln … zu viele wörter pro textblock. eher auf 2-4 reduzieren.") — nur der Ort ändert sich.
+    """
     from services.analyst_eval import load_skill_body
     s = load_skill_body()
-    assert "UNTERTITEL gehören zum Pacing" in s
-    assert "2–4 Wörter" in s
-    assert "schnitt_pacing" in s.split("UNTERTITEL gehören zum Pacing")[1][:900]
+    assert "UNTERTITEL gehören zum Pacing" not in s
+    # Die Wortzahl-Regel steht jetzt ausschließlich im Untertitel-Abschnitt
+    block = s.split("## Untertitel")[1].split("\n## ")[0]
+    assert "4 Wörter" in block
+    pacing = s.split("## Schnitt & Pacing")[1].split("\n## ")[0]
+    assert "Wörter pro Block" not in pacing
 
 
 def test_override_macht_untertitel_zur_pflicht():
@@ -1825,3 +2273,36 @@ def test_texthook_deckel_wird_markiert():
         text_hook_offene_frage="", text_hook_mechanik="zahl"))
     assert ev.hook.text_hook_score == 2
     assert ev.hook.text_hook_score_geklemmt is True
+
+
+# ---------- Phasenzeiten: Entscheidungsgrundlage für ANALYST_MAX_CONCURRENT ----------
+
+def test_messe_phase_schreibt_die_dauer_unter_ihren_namen():
+    """Ohne Phasenzeiten steht nur `elapsed_sec` für den Gesamtlauf in der analysis.json
+    (59 v2_hybrid-Läufe: Median 80 s, Spanne 30–120 s). Die Frage, ob mehr als ein Lauf
+    parallel etwas bringt, hängt aber genau an der Aufteilung: Whisper belegt die CPU,
+    der Gemini-Call wartet nur auf Netz. Ohne diese zwei Zahlen ist jede Prognose geraten."""
+    import time as _t
+    from services.analyst_engine import messe_phase
+    phasen = {}
+    with messe_phase(phasen, "transkript"):
+        _t.sleep(0.05)
+    assert "transkript" in phasen
+    assert phasen["transkript"] >= 0.05
+
+
+def test_messe_phase_haelt_die_zeit_auch_bei_einem_fehler_fest():
+    """Ein abgebrochener Lauf ist der teuerste — dann will man erst recht wissen,
+    wie weit er gekommen ist und wie lange das gedauert hat."""
+    from services.analyst_engine import messe_phase
+    phasen = {}
+    with pytest.raises(RuntimeError):
+        with messe_phase(phasen, "bewertung"):
+            raise RuntimeError("Gemini 429")
+    assert "bewertung" in phasen
+
+
+def test_altlauf_ohne_phasenzeiten_bleibt_ladbar():
+    from models.analyst import AnalystResult
+    r = AnalystResult(id="x", filename="v.mp4", duration_sec=1.0, scene_count=0, scenes=[])
+    assert r.phasen_sek == {}

@@ -89,9 +89,9 @@ def _format_instruction(result: AnalystResult) -> str:
             "Schwäche des Protagonisten.\n"
             "- BLICK: Dass er auf Laptop, Handy oder einen zweiten Bildschirm schaut, ist im Reaction-Format "
             "FUNKTIONAL — dort läuft das Video, auf das er reagiert. Das ist KEIN Ablesen und KEIN Mangel: "
-            "nicht in visuelle_aesthetik.probleme, nicht in sprechqualitaet.probleme, keine Empfehlung "
-            "dazu, kein Abzug. Die unten stehende Blickkontakt-Pflicht gilt hier NUR für den Fall, dass er "
-            "erkennbar einen Text abliest (Augen wandern zeilenweise, ohne Bezug zum eingeblendeten Video).\n"
+            "blickkontakt.urteil bleibt `in_der_linse`, keine Empfehlung dazu. Die unten stehende "
+            "Blickkontakt-Pflicht gilt hier NUR für den Fall, dass er erkennbar einen Text abliest (Augen "
+            "wandern zeilenweise, ohne Bezug zum eingeblendeten Video) — dann `abgelesen`.\n"
         )
     return txt
 
@@ -128,15 +128,18 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "NUTZE aktiv deinen visuellen Vorteil (das ist der Mehrwert): beurteile Blickrichtung (in die "
             "Linse vs. Ablesen nach unten/zur Seite), Bildtext, Schnitt/Pacing, Effekte/Zooms und Mimik "
             "aus dem bewegten Bild selbst.\n"
-            "BILDTEXT: Du liest jeden Bildtext direkt ab — gleiche ihn mit dem TRANSKRIPT unten ab. Was dort "
-            "(nahezu) wortgleich vorkommt, sind UNTERTITEL und nie die Texthook, auch wenn der Text statisch "
-            "stehen bleibt oder oben im Bild steht. Details in der Regel „UNTERTITEL sind KEIN Text-Hook“ "
-            "im System-Prompt.\n"
+            "BILDTEXT: Du liest jeden Bildtext direkt ab — gleiche ihn mit dem TRANSKRIPT unten ab. "
+            "Wortgleichheit allein macht daraus aber KEINE Untertitel. Dafür müssen BEIDE Merkmale "
+            "zutreffen: (1) wortgleich zum Gesprochenen UND (2) über das Video hinweg kommen laufend neue "
+            "Blöcke. Ein einzelner Textblock, der durchgehend an derselben Position steht oder nach einer "
+            "Weile verschwindet und nicht wiederkommt, ist eine TEXTHOOK — auch wenn er mitgesprochen wird. "
+            "Dann ist er nicht „nicht vorhanden“, sondern redundant. Details in der Regel „UNTERTITEL sind "
+            "KEIN Text-Hook“ im System-Prompt.\n"
             + _format_instruction(result) +
             "PFLICHT Untertitel: Laufen Untertitel mit, beurteile sie IMMER — Wörter pro Block und "
             "Rhythmus, Regel im System-Prompt unter Schnitt & Pacing. Sind die Blöcke zu lang oder "
-            "zu statisch, MUSS das in schnitt_pacing.kommentar stehen. Laufen keine Untertitel mit, "
-            "sag das nicht als Mangel — das ist eine Formatentscheidung.\n"
+            "zu statisch, MUSS das in den `untertitel`-Block. Laufen KEINE mit, obwohl gesprochen wird, "
+            "ist das ein Mangel — setz `untertitel.vorhanden=false`, den Schritt baut das System.\n"
             "PFLICHT Bildaufbau und Bildqualität — PRÜFEN heißt nicht KRITISIEREN: Beurteile IMMER "
             "(a) den KOPFRAUM (Regel im System-Prompt) und (b) die technische BILDQUALITÄT aus dem "
             "bewegten Bild. Ist es in Ordnung, SAG DAS als Stärke und zieh keinen Abzug — es gibt "
@@ -144,11 +147,11 @@ def _user_message(result: AnalystResult, mode: str) -> str:
             "Zuschauer beim ersten Sehen sofort auffällt, gehört als DEUTLICHER Mangel in "
             "visuelle_aesthetik.probleme; Kleinigkeiten gehören in visuelle_aesthetik.hinweise und "
             "senken den Score NICHT.\n"
-            "PFLICHT Blickkontakt (Ausnahmen im Format-Block oben beachten): Beurteile den Blick IMMER. Geht "
-            "er auffällig oft nach unten/zur Seite (Ablesen/Teleprompter), MUSS das (a) in "
-            "visuelle_aesthetik.probleme stehen UND (b) als konkreter top_tipp: die betroffenen Stellen mit "
-            "B-Roll/Einblendung überdecken und den Blick in die Linse richten. Liegt der Blick überwiegend "
-            "in der Linse, sag das positiv und zieh keinen Abzug.\n"
+            "PFLICHT Blickkontakt (Ausnahmen im Format-Block oben beachten): Beurteile den Blick IMMER und "
+            "trag ihn AUSSCHLIESSLICH in das Feld `blickkontakt` ein (Regel im System-Prompt unter "
+            "„Blickkontakt“). NICHT in visuelle_aesthetik, NICHT in sprechqualitaet — der Blick fließt in "
+            "keinen Score. Bei `abgelesen` baut das System den Handlungsschritt selbst; schreib dazu keine "
+            "eigene Empfehlung, außer du kannst konkrete Sekunden nennen.\n"
             "HOOK-REDUNDANZ-CHECK (Pflicht): Es gilt die Redundanz-Regel aus dem System-Prompt. V2-spezifisch "
             "kommt dazu: Der Sprech-Hook sind die ersten Worte des PROTAGONISTEN ab protagonist_ab_sek — nicht "
             "zwingend der Anfang des Transkripts. Vergleiche gegen den Bildtext der Eröffnung, den du selbst "
@@ -240,3 +243,97 @@ def evaluate_pure(video_path: Path, result: AnalystResult, run_dir=None) -> Anal
 
 def evaluate_hybrid(video_path: Path, result: AnalystResult, run_dir=None) -> AnalystEvaluationV2:
     return _evaluate(video_path, result, "hybrid", run_dir)
+
+
+# --- V1.2: zwei Calls statt einem ------------------------------------------------------------
+
+def eroeffnungs_kontext(teil1: AnalystEvaluationV2) -> str:
+    """Ergebnis von Call 1 kompakt für Call 2.
+
+    Vorgabe Chris: „wichtig wäre, dass der zweite Run den Kontext auch vom ersten Run bekommt und
+    auch die Bewertung." Ohne den Hook beurteilt Call 2 den Spannungsbogen blind — der Bogen setzt
+    genau dort an, wo die Eröffnung aufhört.
+
+    Bewusst kurz (~300 Zeichen): Der ganze Sinn des Splits ist weniger Kontext pro Call. Was Call 2
+    braucht, ist das Ergebnis, nicht die Herleitung.
+    """
+    h = teil1.hook
+    zeilen = [
+        "ERGEBNIS VON SCHRITT 1 (Eröffnung — schon bewertet, nicht neu bewerten):",
+        f"- Zielgruppe: {teil1.zielgruppe or '(offen)'}",
+        f"- Funnel: {teil1.funnel or '(offen)'}",
+        f"- Sprech-Hook: {h.sprech_hook_score if h.sprech_hook_score is not None else '–'}/5"
+        f" — {h.sprech_hook_grund or '(ohne Begründung)'}",
+        f"- Text-Hook: {h.text_hook_score if h.text_hook_score is not None else '–'}/5"
+        + (f" — Wortlaut: „{h.text_hook_wortlaut}“" if h.text_hook_wortlaut else " — kein Bildtext"),
+        f"- Visueller Hook: {h.visuell_hook_score if h.visuell_hook_score is not None else '–'}/5",
+        f"- Protagonist spricht ab Sek. {teil1.protagonist_ab_sek:.1f}",
+        "Nutze das als gegebene Ausgangslage: Der Spannungsbogen setzt dort an, wo die Eröffnung "
+        "aufhört. Wiederhole KEINE Hook-Bewertung und schreib keine Hook-Empfehlung — das ist erledigt.",
+    ]
+    return "\n".join(zeilen)
+
+
+_TEIL_AUFGABE = {
+    "eroeffnung": (
+        "DEINE AUFGABE IN DIESEM SCHRITT: Bewerte ausschließlich die ERÖFFNUNG — die drei "
+        "Hook-Ebenen (gesprochen, Bildtext, visuell), Zielgruppe, Funnel und ab wann der "
+        "Protagonist inhaltlich spricht. Alles andere (Struktur, Schnitt, Ton, Bild, Untertitel) "
+        "bewertet ein zweiter Schritt — lass diese Felder weg und schreib dazu keine Empfehlungen.\n"
+    ),
+    "handwerk": (
+        "DEINE AUFGABE IN DIESEM SCHRITT: Bewerte das HANDWERK über das ganze Video — Struktur, "
+        "Spannungsbogen, Schnitt und Pacing, Sprechqualität, visuelle Ästhetik, Untertitel, "
+        "Dynamik, Energie und Blickkontakt. Die Eröffnung ist bereits bewertet (Ergebnis unten) — "
+        "bewerte die Hooks NICHT erneut.\n"
+    ),
+}
+
+
+def _evaluate_teil(video_file, result: AnalystResult, teil: str, run_dir,
+                   kontext: str = "") -> AnalystEvaluationV2:
+    """Ein Teil-Call. Das Video wird als bereits hochgeladene Datei-Referenz übergeben — die Files
+    API erlaubt die Wiederverwendung über mehrere Requests, es wird also nicht zweimal geladen."""
+    system = analyst_eval.build_system_prompt(teil=teil)
+    user = _TEIL_AUFGABE[teil] + _user_message(result, "hybrid")
+    if kontext:
+        user += "\n\n" + kontext
+    cfg = types.GenerateContentConfig(
+        system_instruction=system, response_mime_type="application/json", temperature=0.0,
+    )
+    raw = (_generate([video_file, user], cfg, f"analyst_eval_split_{teil}").text or "")
+    parsed = AnalystEvaluationV2(**analyst_eval._extract_json(raw))
+    analyst_prompt_log.log_call(
+        run_dir, call=f"eval_split_{teil}", recipient="Gemini",
+        model=analyst_vlm.letztes_modell or gemini_service.GEMINI_MODEL,
+        system_prompt=system, user_message=user, output_raw=raw, output_parsed=parsed,
+        attachments=[f"Video: {result.filename}"],
+        inputs={
+            "engine": "v2_split", "teil": teil, "filename": result.filename,
+            "duration_sec": result.duration_sec,
+            "geplante_texthook": getattr(result, "geplante_texthook", ""),
+            "gewaehltes_format": getattr(result, "gewaehltes_format", ""),
+            "whisper_modell": settings.whisper_model,
+            "transkript_hash": getattr(result, "transkript_hash", ""),
+            "system_prompt_zeichen": len(system),
+        },
+    )
+    return parsed
+
+
+def evaluate_split(video_path: Path, result: AnalystResult, run_dir=None) -> AnalystEvaluationV2:
+    """V1.2 — zwei Calls statt einem, geschnitten nach Kriterien.
+
+    Call 1 bewertet die Eröffnung, Call 2 das Handwerk über das ganze Video und bekommt das
+    Ergebnis von Call 1 als gegebene Ausgangslage mit. Beide sehen dieselbe hochgeladene
+    Videodatei und dasselbe Transkript.
+
+    Die Nachbearbeitung läuft EINMAL über das zusammengeführte Ergebnis — sonst würden Regeln wie
+    der Score-Deckel oder die Empfehlungs-Verteilung zweimal auf Teilmengen greifen und die Top 3
+    aus einer unvollständigen Liste bilden.
+    """
+    video_file = gemini_service._upload_video_to_gemini(video_path)
+    teil1 = _evaluate_teil(video_file, result, "eroeffnung", run_dir)
+    teil2 = _evaluate_teil(video_file, result, "handwerk", run_dir,
+                           kontext=eroeffnungs_kontext(teil1))
+    return analyst_eval.nachbearbeiten(analyst_eval.merge_teilergebnisse(teil1, teil2), result)

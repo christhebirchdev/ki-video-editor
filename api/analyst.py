@@ -68,7 +68,10 @@ async def upload_video(file: UploadFile = File(...)):
 # `build_system_prompt()`. Der Skill ist inzwischen für den Modus „du siehst das Video"
 # geschrieben — solange V1 aufrufbar wäre, bekäme er dort einen faktisch falschen Prompt.
 # Der Code von `_run_v1` liegt noch im Engine-Modul; ihn zu entfernen ist eine eigene Aufräumaktion.
-ENGINES = {"v2_pure", "v2_hybrid"}
+# v2_split = V1.2: derselbe Prompt-Inhalt, aber auf zwei Calls geteilt (Eröffnung / Handwerk).
+# Läuft bewusst NEBEN v2_hybrid (V1.1) statt es zu ersetzen — nur so lässt sich messen, ob der
+# Split etwas bringt. Beide Engines nutzen dieselben Bewertungsfelder und dieselbe Nachbearbeitung.
+ENGINES = {"v2_pure", "v2_hybrid", "v2_split"}
 
 
 @router.post("/{run_id}/start")

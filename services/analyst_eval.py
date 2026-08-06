@@ -26,7 +26,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-08-01"
+PROMPT_VERSION = "2026-08-06"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -112,6 +112,13 @@ SAMMEL_GRUPPEN = frozenset({"sprechqualitaet", "aesthetik", "spannungsbogen", "s
 # einen videospezifischen Schritt mit echter Sekundenangabe frei.
 MAX_SAMMEL_OBEN = 2
 
+# Gruppen, die NIE in die Top 3 dürfen, egal wie früh ihr Zeitpunkt liegt. Vorgabe Chris zu den
+# Effekten: „ich würde nicht sagen, dass der Effekt-Tipp in die Top 3 kommen muss. Das ist eher eine
+# ergänzende Empfehlung, falls sonst keine weiteren großen Empfehlungen anfallen."
+# Der Deckel MAX_SAMMEL_OBEN reicht dafür nicht: Ein Effekt bei Sekunde 1 würde sonst vor jedem
+# Schritt landen, der eine spätere Stelle betrifft.
+NUR_UNTEN = frozenset({"effekte"})
+
 
 def _normtext(s: str) -> str:
     """Anweisung auf Kern normalisieren, damit „Sprechpause rausschneiden" an drei Stellen als
@@ -174,6 +181,9 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
     rest: list[ActionStep] = []
     sammel = 0
     for _, gruppe, schritt in schritte:
+        if gruppe in NUR_UNTEN:
+            rest.append(schritt)
+            continue
         ist_sammel = gruppe in SAMMEL_GRUPPEN
         if len(oben) < TOP_ACTION_STEPS and not (ist_sammel and sammel >= MAX_SAMMEL_OBEN):
             oben.append(schritt)
@@ -575,16 +585,29 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
         return parsed
     varianten = gueltige_texthook_varianten(parsed.texthook_varianten)
     vorhanden = bool(parsed.hook.text_hook_vorhanden)
-    # Eigene Formulierungen des Modells zur Texthook ERSETZEN, nicht ergänzen — sonst stehen zwei
-    # Empfehlungen zur selben Sache. Der Filter läuft jetzt immer, nicht nur bei Varianten: Im Lauf
-    # c12db030 gab es keine Varianten-Ersetzung, aber trotzdem eine Modell-eigene Texthook-Empfehlung.
-    parsed.empfehlungen = [e for e in parsed.empfehlungen
-                           if not _TEXTHOOK_THEMA.search(e.anweisung or "")]
     # `geklemmt` gehört gleichberechtigt neben `th == 0`: Wurde der Score erst im Code gedeckelt
     # (Fremd-Texthook oder gemessene Redundanz), konnte das Modell davon nichts wissen und hat
     # entsprechend keine Varianten geliefert. Im Lauf 5502bb37 hat genau diese Lücke die wichtigste
     # Empfehlung verschluckt: falscher Score 4 → Varianten unterdrückt → keine Texthook-Empfehlung.
     geklemmt = bool(getattr(parsed.hook, "text_hook_score_geklemmt", False))
+
+    # TEMPLATE IST RÜCKFALL, NICHT ERSATZ (Vorgabe Chris): Hat das Modell selbst eine Empfehlung zur
+    # Texthook geschrieben, bleibt SIE stehen. Sie nennt die konkrete Schwäche dieses Videos („statt
+    # Neongelb ein ruhiges Weiß"), der Baustein nur die allgemeine Fassung. Über 10 Läufe vom
+    # 2026-08-06 stand 9× ein wortgleicher Template-Satz in den Top 3 — genau deshalb.
+    # Erkannt wird die eigene Empfehlung über `betrifft`, nicht über Textmuster: Dasselbe Feld nutzt
+    # erzwinge_empfehlungen_bei_schwachen_scores schon, und Stichwort-Erkennung ist hier dreimal
+    # danebengegangen (siehe Kommentar an _DIMENSIONEN).
+    # AUSNAHME `geklemmt`/`th == 0`: Dort fiel der Score erst NACH dem Modell-Call. Seine Empfehlung
+    # beschreibt dann eine Hook, die es so gar nicht gibt (Fremdvideo-Text), und muss weichen.
+    if not geklemmt and th != 0 and any((e.betrifft or "").strip() == "text_hook"
+                                        for e in parsed.empfehlungen):
+        return parsed
+
+    # Kein eigener Schritt vorhanden → die Baustein-Fassung ersetzt lose Modell-Formulierungen zum
+    # selben Thema, damit nicht zwei Empfehlungen zur selben Sache dastehen (Lauf c12db030).
+    parsed.empfehlungen = [e for e in parsed.empfehlungen
+                           if not _TEXTHOOK_THEMA.search(e.anweisung or "")]
     if varianten or th == 0 or geklemmt or vorhanden:
         parsed.empfehlungen.insert(0, Empfehlung(
             zeitpunkt_sek=0.0, gruppe="texthook", betrifft="text_hook",
@@ -802,6 +825,141 @@ def erzwinge_empfehlungen_bei_schwachen_scores(parsed: AnalystEvaluationV2) -> A
     return parsed
 
 
+EFFEKTE_MAX = 3
+
+# Ab wie vielen offenen Empfehlungen ein Video NICHT mehr als „fast fertig" gilt. Chris zum zweiten
+# Auslöser: „wenn das Video schon sehr, sehr gut ist, fast keine Handlungsempfehlung mehr gibt und
+# damit nochmal Feintuning betrieben werden kann." Drei ist die Größe der Top-3-Liste — sind alle
+# drei Plätze mit echten Baustellen belegt, ist Feinschliff nicht das Thema.
+EFFEKT_FEINSCHLIFF_GRENZE = 3
+
+
+def baue_effekt_schritt(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Aus `effekt_vorschlaege` EINEN Schritt bauen — aber nur, wenn er gerade zählt.
+
+    Zwei Auslöser, beide von Chris (2026-08-06):
+    (1) GERINGE DYNAMIK — „wenn das Video wenig Bewegung beinhaltet, nicht viel passiert, können
+        durch solche Effekte mehr Abwechslung erzeugt werden, was zu einer höheren Watch Time führt."
+    (2) FEINSCHLIFF — „wenn das Video schon sehr, sehr gut ist, fast keine Handlungsempfehlung mehr
+        gibt und damit quasi nochmal das Letzte herausgeholt werden kann."
+
+    Trifft keiner zu, hat das Video größere Baustellen und der Effekt-Tipp würde nur Platz kosten.
+    Genau so ist die Einblendungs-Empfehlung zum Dauerläufer geworden (53 % aller Läufe).
+
+    Der Schritt landet NIE in den Top 3 — siehe NUR_UNTEN in verteile_empfehlungen.
+    """
+    if not parsed.effekt_vorschlaege:
+        return parsed
+    if any(e.gruppe == "effekte" for e in parsed.empfehlungen):
+        return parsed
+    gering = (parsed.dynamik.urteil or "").strip().lower() == "gering"
+    feinschliff = len(parsed.empfehlungen) < EFFEKT_FEINSCHLIFF_GRENZE
+    if not (gering or feinschliff):
+        return parsed
+    stellen = sorted(parsed.effekt_vorschlaege, key=lambda e: e.zeitpunkt_sek)[:EFFEKTE_MAX]
+    liste = ", ".join(
+        f"bei Sek. {round(s.zeitpunkt_sek):g}" + (f" ({s.zweck})" if s.zweck else "")
+        for s in stellen
+    )
+    parsed.empfehlungen.append(Empfehlung(
+        zeitpunkt_sek=stellen[0].zeitpunkt_sek, gruppe="effekte",
+        anweisung=(
+            f"Setz an diesen Stellen einen kurzen Soundeffekt oder einen kleinen visuellen Effekt "
+            f"— ein Whoosh, ein leiser Klick, ein kurzer Flash beim Übergang: {liste}. "
+            f"Das bringt Abwechslung ins Bild und hält die Zuschauer länger dran."
+        ),
+    ))
+    return parsed
+
+
+# Baustein je gemeldetem Untertitel-Mangel — dieselbe Bauart wie _TEXTHOOK_BAUSTEINE: Der Code setzt
+# NUR die Sätze zusammen, die das Modell als schwach markiert hat. Eine Prüfliste auf Verdacht
+# abzuarbeiten hat bei der Ästhetik dazu geführt, dass praktisch jeder Lauf einen Mangel bekam.
+UNTERTITEL_BAUSTEINE = {
+    "position":    "setz sie direkt unter das Kinn statt an den unteren Bildrand",
+    "statisch":    "schneide sie synchron zum Gesprochenen in kurze Blöcke von 2 bis 4 Wörtern statt "
+                   "lange Textblöcke stehen zu lassen",
+    "groesse":     "mach sie größer, damit man sie auch auf einem kleinen Display mühelos liest",
+    "lesbarkeit":  "gib ihnen mehr Kontrast zum Hintergrund, etwa durch eine Kontur oder einen "
+                   "leichten Schatten",
+    "wortzahl":    "reduziere auf 2 bis 4 Wörter pro Block",
+    "timing":      "zieh sie zeitlich exakt auf das gesprochene Wort",
+}
+
+UNTERTITEL_MANGEL_ARTEN = tuple(UNTERTITEL_BAUSTEINE)
+
+UNTERTITEL_FEHLEN = (
+    "Leg mitlaufende Untertitel über das Video — jedes gesprochene Wort soll lesbar sein. Ein "
+    "großer Teil der Zuschauer schaut ohne Ton; ohne Untertitel scrollen sie weiter. Setz sie "
+    "direkt unter das Kinn und schneide sie synchron zum Gesprochenen in kurze Blöcke von 2 bis "
+    "4 Wörtern."
+)
+
+
+def erzwinge_untertitel_empfehlung(parsed: AnalystEvaluationV2,
+                                   result: AnalystResult | None = None) -> AnalystEvaluationV2:
+    """Untertitel-Schritt bauen — bei fehlenden Untertiteln oder bei gemeldeten Mängeln.
+
+    Vorgabe Chris (2026-08-06): „ein Untertitel, der mitläuft, ist im Video absolut essentiell und
+    muss immer dazugehören. Wenn im Video gesprochen wird und es ein Transkript gibt, muss quasi
+    jedes gesprochene Wort auch als Untertitel lesbar sein."
+
+    Das kehrt die frühere Regel um — vorher galt das Fehlen als Formatentscheidung. Ausgelöst wird
+    nur, wenn überhaupt gesprochen wird: Ein reines Bild-Ton-Format hat nichts zu untertiteln.
+    Ohne `result` (Altaufrufe) bleibt es beim reinen Mängel-Fall, damit kein stummes Video
+    fälschlich einen Tipp bekommt.
+
+    Bei vorhandenen Untertiteln baut der Schritt sich NUR aus gemeldeten Mängeln — vereinzelt
+    fehlende Wörter sind laut Chris ausdrücklich kein Mangel.
+    """
+    if any(e.gruppe == "untertitel" for e in parsed.empfehlungen):
+        return parsed
+    ut = parsed.untertitel
+    if not ut.vorhanden:
+        gesprochen = bool((getattr(result, "transcript", "") or "").strip()) if result else False
+        if not gesprochen:
+            return parsed
+        parsed.empfehlungen.append(Empfehlung(
+            zeitpunkt_sek=0.0, gruppe="untertitel", anweisung=UNTERTITEL_FEHLEN))
+        return parsed
+    punkte = [UNTERTITEL_BAUSTEINE[m] for m in ut.maengel if m in UNTERTITEL_BAUSTEINE]
+    if not punkte:
+        return parsed
+    parsed.empfehlungen.append(Empfehlung(
+        zeitpunkt_sek=0.0, gruppe="untertitel",
+        anweisung="Überarbeite deine Untertitel: " + "; ".join(punkte) + "."))
+    return parsed
+
+
+BLICK_EMPFEHLUNG = (
+    "Richte den Blick in die Linse. Schneide die Stellen raus, an denen du erkennbar abliest, oder "
+    "leg dort eine Einblendung oder eine kurze B-Roll drüber — direkter Blickkontakt entscheidet "
+    "darüber, ob du glaubwürdig wirkst."
+)
+
+
+def erzwinge_blick_empfehlung(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Abgelesener Blick MUSS als Schritt auftauchen — auch ohne Score dahinter.
+
+    Vorgabe Chris (2026-08-06): „falls die Blickrichtung negativ auffallen sollte, dass sie auch
+    definitiv als Handlungsempfehlung mit reinkommt … sie hat schon einen starken Einfluss auf die
+    Wirkung des Videos."
+
+    `betrifft` bleibt LEER: Das Feld verweist auf eine Score-Dimension, und genau daraus wurde die
+    Blickrichtung herausgelöst. Ein Label dort würde sie über
+    erzwinge_empfehlungen_bei_schwachen_scores wieder an einen Score koppeln.
+
+    Der Schritt liegt auf Sekunde 0 und wird ANGEHÄNGT, nicht vorn eingefügt — Hooks und Anlauf
+    behalten Vorrang (bestehende Vorgabe zur Reihenfolge)."""
+    if (parsed.blickkontakt.urteil or "").strip().lower() != "abgelesen":
+        return parsed
+    if any(e.gruppe == "blick" for e in parsed.empfehlungen):
+        return parsed          # das Modell hat den Schritt schon selbst geschrieben
+    parsed.empfehlungen.append(
+        Empfehlung(zeitpunkt_sek=0.0, gruppe="blick", anweisung=BLICK_EMPFEHLUNG))
+    return parsed
+
+
 STUMM_HINWEIS = (
     "In diesem Video wird nicht gesprochen. Das ist eine Entscheidung fürs Format und kein Fehler — "
     "der Sprech-Hook wird deshalb nicht bewertet."
@@ -830,8 +988,15 @@ def neutralisiere_stumme_scores(parsed: AnalystEvaluationV2, result: AnalystResu
 # den ersten Sekunden darüber, ob überhaupt jemand dranbleibt. Danach Spannungsbogen, Struktur,
 # Schnitt & Pacing. Vorher bestimmte das Modell den Score frei: über 11 Läufe kam fünfmal exakt 68
 # heraus, und Chris hielt ihn mehrfach für zu mild.
+# 2026-08-06: Die visuelle Hook-Ebene ist dazugekommen (Vorgabe Chris — „Bewegung im Bild, ein
+# Zoom-In-Effekt"). Sie teilt sich das Hook-Budget mit den beiden anderen Ebenen: vorher 18+18=36,
+# jetzt 13+13+10=36. Der visuelle Hook wiegt bewusst etwas weniger — er trägt selten allein, kann
+# aber laut Referenz (S1) einen schwachen Hook-Text retten. Die übrigen Gewichte bleiben unverändert,
+# damit sich der Score gegenüber V1.1 nur durch die neue Ebene verschiebt und nicht durch eine
+# Neubewertung von allem.
 SCORE_GEWICHTE = {
-    "sprech_hook": 18, "text_hook": 18, "sprechqualitaet": 17, "visuelle_aesthetik": 17,
+    "sprech_hook": 13, "text_hook": 13, "visuell_hook": 10,
+    "sprechqualitaet": 17, "visuelle_aesthetik": 17,
     "spannungsbogen": 10, "struktur": 10, "schnitt_pacing": 10,
 }
 
@@ -847,6 +1012,9 @@ def berechne_performance_score(parsed: AnalystEvaluationV2) -> AnalystEvaluation
     dimensionen = {
         "sprech_hook": (parsed.hook.sprech_hook_score, 1),
         "text_hook": (parsed.hook.text_hook_score, 0),
+        # Minimum 1 wie beim Sprech-Hook: None heißt „nicht beurteilbar" und fällt raus, sein
+        # Gewicht verteilt sich auf den Rest. Altläufe ohne das Feld verhalten sich damit wie bisher.
+        "visuell_hook": (parsed.hook.visuell_hook_score, 1),
         "sprechqualitaet": (parsed.sprechqualitaet.score, 1),
         "visuelle_aesthetik": (parsed.visuelle_aesthetik.score, 1),
         "spannungsbogen": (parsed.spannungsbogen.score, 1),
@@ -889,6 +1057,13 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = deckle_hooks_ohne_haken(parsed)
     parsed = erzwinge_hook_empfehlungen(parsed)
     parsed = erzwinge_anlauf_schnitt(parsed, result)
+    # Blick hat keinen Score und wird deshalb von erzwinge_empfehlungen_bei_schwachen_scores nicht
+    # erfasst — der Schritt entsteht hier. Angehängt, damit Hooks und Anlauf vorn bleiben.
+    parsed = erzwinge_blick_empfehlung(parsed)
+    parsed = erzwinge_untertitel_empfehlung(parsed, result)
+    # ZULETZT vor der Verteilung: baue_effekt_schritt zählt die offenen Empfehlungen, um zu
+    # entscheiden, ob Feinschliff überhaupt das Thema ist. Es muss also alle anderen schon sehen.
+    parsed = baue_effekt_schritt(parsed)
     # NACH den Hook- und Anlauf-Schritten: Alle liegen auf Sekunde 0, die Einfügereihenfolge
     # entscheidet damit über die Reihenfolge im Output. Hook- und Anlauf-Schritte werden vorne
     # eingefügt, diese hier angehängt — Hooks behalten Vorrang (Vorgabe Chris).
@@ -938,11 +1113,13 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
     "sprech_hook_offene_frage": "<PFLICHT: die Frage, die dein Einstieg beim Zuschauer offen lässt, in EINEM Satz. Lässt er keine offen: leer>",
     "sprech_hook_mechanik": "<PFLICHT, einer aus: provokation | neugierluecke | zahl | erwartungsbruch | pov | konflikt | versprechen | keine>",
     "text_hook_vorhanden": <true|false>,
-    "text_hook_score": <int 0-5; 0 wenn in der Eröffnung kein nicht-gesprochener Bildtext zu sehen ist (Untertitel zählen nie)>,
+    "text_hook_score": <int 0-5; 0 wenn in der Eröffnung gar kein Bildtext zu sehen ist oder der sichtbare Text nach der Regel „UNTERTITEL sind KEIN Text-Hook" eine Untertitelspur ist. Ein mitgesprochener Textblock ist KEIN Grund für 0 — er ist redundant, nicht abwesend>,
     "text_hook_wortlaut": "<PFLICHT: der Eröffnungs-Bildtext WÖRTLICH — auch wenn er nicht als Hook zählt. Nur wenn gar kein Bildtext zu sehen war: leer>",
     "text_hook_offene_frage": "<PFLICHT wenn text_hook_vorhanden=true: die Frage, die der Bildtext offen lässt, in EINEM Satz. Lässt er keine offen: leer>",
     "text_hook_mechanik": "<PFLICHT wenn text_hook_vorhanden=true, einer aus: provokation | neugierluecke | zahl | erwartungsbruch | pov | konflikt | versprechen | keine>",
-    "text_hook_grund": "<1-2 Sätze; bei score 0 die Ansage + Tipp (3 Varianten über Instagram-Testreel testen)>"
+    "text_hook_grund": "<1-2 Sätze; bei score 0 die Ansage + Tipp (3 Varianten über Instagram-Testreel testen)>",
+    "visuell_hook_score": <int 1-5, oder null wenn die Eröffnung nicht beurteilbar ist — die DRITTE Hook-Ebene: passiert in den ersten Sekunden optisch etwas, das den Daumen stoppt? Bewegung der Person, Zoom, harter Schnitt, ein Objekt das ins Bild kommt, ein Settingwechsel. Ein reines Standbild ohne jede Bewegung ist 1>,
+    "visuell_hook_grund": "<1-2 Sätze: WAS optisch passiert (oder eben nicht) und wie es wirkt>"
   },
   "struktur": {
     "score": <int 1-5>,
@@ -953,6 +1130,11 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "schnitt_pacing": {"score": <int 1-5>, "kommentar": "<1-2 Sätze, format-bewusst>"},
   "spannungsbogen": {"score": <int 1-5>, "kommentar": "<1-2 Sätze>"},
   "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},
+  "blickkontakt": {"urteil": "<in_der_linse | abgelesen | unklar — siehe Abschnitt „Blickkontakt"; fließt in KEINEN Score>", "kommentar": "<1 Satz, was du siehst>"},
+  "energie": {"urteil": "<traegt | flach | uebertrieben — passt die Energie im Auftreten zum Inhalt? Fließt in KEINEN Score>", "kommentar": "<1 Satz>"},
+  "untertitel": {"vorhanden": <true|false — laufen Untertitel mit? Keine sind KEIN Mangel>, "maengel": ["<NUR was wirklich schwach ist, aus: position | statisch | groesse | lesbarkeit | wortzahl | timing. Sind sie in Ordnung: []>"], "kommentar": "<1 Satz>"},
+  "dynamik": {"urteil": "<gering | mittel | hoch — wie viel passiert im Bild? gering = ein Kamerawinkel, kaum Schnitte, kein Zoom, keine Einblendungen, statisches Bild. Fließt in KEINEN Score, steuert nur die Effekt-Empfehlung>", "kommentar": "<1 Satz>"},
+  "effekt_vorschlaege": [{"zeitpunkt_sek": <float>, "art": "<sound | visuell>", "zweck": "<was der Effekt an dieser Stelle verstärkt — z.B. Übergang, erscheinende Zahl, Pointe>"}],
   "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],
   "top_tipps": ["<3-5 wichtigste Hebel, je 1-2 Sätze, nach Wirkung priorisiert>"],
   "pausen_urteile": [{"start_sec": <float: die start_sec EINER gemessenen Pause aus der Sprachstatistik, unverändert übernommen>, "urteil": "<raus | lassen | unklar — siehe „Sprechpausen — nach FUNKTION beurteilen">"}],
@@ -989,9 +1171,147 @@ def load_reference() -> str:
     return REFERENCE_PATH.read_text(encoding="utf-8").strip()
 
 
-def build_system_prompt() -> str:
-    """Skill-Body (Logik) + optionale Editing-Referenz + strikter JSON-Vertrag (Pipeline-Modus)."""
-    parts = [load_skill_body()]
+# --- V1.2: Prompt-Split auf zwei Calls -------------------------------------------------------
+#
+# Warum überhaupt: Nicht die Kontextgröße ist das Problem — 42.000 Zeichen sind bei 1.048.576
+# Input-Tokens von gemini-3.5-flash rund 3 % Auslastung. Das Problem ist die ANZAHL gleichzeitig
+# geltender Anweisungen. IFScale (arXiv 2507.11538) misst dazu einen systematischen Primacy-Bias:
+# früh im Prompt stehende Regeln werden zuverlässiger befolgt als späte. Genau dazu passt das
+# Feedback-Muster — die Beanstandungen häufen sich bei Kriterien, die hinten stehen.
+# Für die Zerlegung selbst: DeCE (arXiv 2509.16093) misst kriterienweise Bewertung mit r = 0,78
+# gegen Expertenurteil, gegenüber r = 0,35 wenn alles in einem Durchgang bewertet wird.
+#
+# Schnitt nach KRITERIEN, nicht nach Zeit: Untertitel, Bildqualität und Ton gelten über das ganze
+# Video und müssten bei einem Zeit-Schnitt in beide Prompts — die Ersparnis wäre weg. Der Hook ist
+# dagegen inhaltlich abgeschlossen.
+#
+# EINE Quelle: Der Skill bleibt eine Datei, die Abschnitte werden zur Laufzeit gefiltert. Zwei
+# gepflegte Prompt-Dateien wären in zwei Wochen auseinandergelaufen.
+BEIDE = "beide"
+
+ABSCHNITT_ZUORDNUNG = {
+    # gemeinsame Basis — ohne sie liefert ein Call unbrauchbare Freitexte
+    "Sprache des Outputs — Laiensprache (WICHTIG)": BEIDE,
+    "Leitprinzip": BEIDE,
+    "Referenz (separat angehängt — nutzen, nicht nachplappern)": BEIDE,
+    "Videos ohne gesprochenes Wort": BEIDE,   # betrifft sprech_hook UND sprechqualitaet
+    "Performance-Score — berechnet das SYSTEM, nicht du": BEIDE,
+    "Empfehlungen — die kanonische Regel (gilt in JEDEM Modus)": BEIDE,
+    "Harte Regeln": BEIDE,
+    # Call 1 — die ersten Sekunden
+    "Hook (immer anwenden)": "eroeffnung",
+    "Legitimation & Hook-Start (Referenz S2/P3)": "eroeffnung",
+    "Zielgruppe": "eroeffnung",
+    "Funnel — genaue Definitionen (zuerst bestimmen, steuert den Score)": "eroeffnung",
+    # Call 2 — das ganze Video
+    "Struktur (1–5)": "handwerk",
+    "Sprache & Verständlichkeit": "handwerk",
+    "Sprechqualität (1–5)": "handwerk",
+    "Schnitt & Pacing (1–5) — format-abhängig, konservativ": "handwerk",
+    "Sprechpausen — nach FUNKTION beurteilen, nicht nach Länge": "handwerk",
+    "Spannungsbogen (1–5) — Watchtime": "handwerk",
+    "Visuelle Ästhetik (1–5) — gegen einen konkreten Referenz-Standard prüfen": "handwerk",
+    "Untertitel — eigenes Feld, und PFLICHT sobald gesprochen wird": "handwerk",
+    "Dynamik & Effekte": "handwerk",
+    "Energie im Auftreten — eigenes Urteil, KEIN Score": "handwerk",
+    "Blickkontakt — eigenes Urteil, KEIN Score": "handwerk",
+}
+
+# Welche Top-Level-Felder welcher Call liefert. `performance_score` fehlt bewusst in beiden — den
+# rechnet der Code. `format` und `protagonist_ab_sek` liegen bei der Eröffnung, weil dort die
+# Format-Instruktion und der Sprechbeginn gebraucht werden.
+TEIL_FELDER = {
+    "eroeffnung": (
+        "zielgruppe", "format", "protagonist_ab_sek", "funnel", "hook",
+        "texthook_varianten", "texthook_maengel", "empfehlungen",
+    ),
+    "handwerk": (
+        "struktur", "sprechqualitaet", "schnitt_pacing", "spannungsbogen", "visuelle_aesthetik",
+        "untertitel", "dynamik", "effekt_vorschlaege", "blickkontakt", "energie",
+        "staerken", "top_tipps", "pausen_urteile", "einblendungen", "empfehlungen",
+    ),
+}
+
+
+def _skill_fuer(teil: str | None) -> str:
+    """Skill-Abschnitte für einen Teil-Call. `teil=None` → alles (V1.1-Verhalten, unverändert)."""
+    body = load_skill_body()
+    if not teil:
+        return body
+    # Vorspann vor der ersten „## "-Überschrift gehört immer dazu (Rollenbeschreibung).
+    stellen = [(m.start(), m.group(1)) for m in re.finditer(r"^## (.+)$", body, re.M)]
+    if not stellen:
+        return body
+    raus = [body[:stellen[0][0]].strip()]
+    grenzen = [s for s, _ in stellen] + [len(body)]
+    for i, (start, titel) in enumerate(stellen):
+        ziel = ABSCHNITT_ZUORDNUNG.get(titel, BEIDE)   # unbekannt → sicherheitshalber in beide
+        if ziel in (BEIDE, teil):
+            raus.append(body[start:grenzen[i + 1]].strip())
+    return "\n\n".join(p for p in raus if p)
+
+
+def _schema_fuer(teil: str | None) -> str:
+    """Ausgabe-Vertrag auf die Felder dieses Teils eindampfen.
+
+    Gefiltert wird über die Top-Level-Schlüssel im Schema-Text. Das ist bewusst textuell und nicht
+    über ein generiertes Schema: Die ausformulierten Feldbeschreibungen SIND die Anweisung — ein
+    aus Pydantic erzeugtes Schema hätte sie nicht.
+    """
+    if not teil:
+        return OUTPUT_SCHEMA
+    kopf, _, rest = OUTPUT_SCHEMA.partition("{\n")
+    zeilen = rest.split("\n")
+    behalten, tiefe, nimm = [], 0, False
+    for z in zeilen:
+        if tiefe == 0:
+            m = re.match(r'\s*"([a-z_]+)":', z)
+            if m:
+                nimm = m.group(1) in TEIL_FELDER[teil]
+            elif z.strip() in ("}", ""):
+                nimm = False
+        if nimm:
+            behalten.append(z)
+            tiefe += z.count("{") + z.count("[") - z.count("}") - z.count("]")
+    fuss = OUTPUT_SCHEMA.split("}\n\n", 1)[1] if "}\n\n" in OUTPUT_SCHEMA else ""
+    koerper = "\n".join(behalten).rstrip().rstrip(",")
+    return f"{kopf}{{\n{koerper}\n}}\n\n{fuss}"
+
+
+def merge_teilergebnisse(eroeffnung: AnalystEvaluationV2,
+                         handwerk: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Zwei Teilantworten zu einem Ergebnis. Jedes Feld kommt aus dem Call, der es liefern sollte;
+    `empfehlungen` werden aneinandergehängt — die Sortierung macht danach verteile_empfehlungen.
+
+    DOPPLER RAUS: Der Split macht sie wahrscheinlicher als ein einzelner Call. Beide Teile sehen
+    dasselbe Video und können dieselbe Beobachtung melden; in V1.1 fiel das dem Modell selbst auf,
+    weil alles in einer Antwort stand. Verglichen wird der normalisierte Anweisungstext — dieselbe
+    Schwelle wie beim Bündeln in verteile_empfehlungen, und aus demselben Grund eng gehalten: ein
+    Doppler ist ärgerlich, ein fälschlich verworfener Schritt unterschlägt einen echten Mangel.
+    """
+    ergebnis = eroeffnung.model_copy(deep=True)
+    for feld in TEIL_FELDER["handwerk"]:
+        if feld == "empfehlungen":
+            continue
+        setattr(ergebnis, feld, getattr(handwerk, feld))
+    zusammen, gesehen = [], set()
+    for e in list(eroeffnung.empfehlungen) + list(handwerk.empfehlungen):
+        schluessel = _normtext(e.anweisung)
+        if schluessel in gesehen:
+            continue
+        gesehen.add(schluessel)
+        zusammen.append(e)
+    ergebnis.empfehlungen = zusammen
+    return ergebnis
+
+
+def build_system_prompt(teil: str | None = None) -> str:
+    """Skill-Body (Logik) + optionale Editing-Referenz + strikter JSON-Vertrag (Pipeline-Modus).
+
+    `teil` steuert den V1.2-Split: „eroeffnung" oder „handwerk". Ohne Angabe entsteht exakt der
+    Prompt von V1.1 — die beiden Versionen laufen so nebeneinander und bleiben vergleichbar.
+    """
+    parts = [_skill_fuer(teil)]
     ref = load_reference()
     if ref:
         parts.append(
@@ -1000,7 +1320,7 @@ def build_system_prompt() -> str:
             "KEIN Ausgabe-Template — der Output bleibt strikt knapp + JSON wie unten definiert.\n\n"
             + ref
         )
-    parts.append(OUTPUT_SCHEMA)
+    parts.append(_schema_fuer(teil))
     return "\n\n".join(parts)
 
 
