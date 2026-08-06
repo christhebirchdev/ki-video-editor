@@ -1,7 +1,7 @@
 # models/analyst.py
 """Pydantic-Modelle für den AI Video Analyst."""
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class BildFakten(BaseModel):
@@ -254,6 +254,7 @@ class AnalystEvaluationV2(BaseModel):
     format: str = ""                   # vom Nutzer gewählt (FORMATE), Code überschreibt das Modell-Feld
     protagonist_ab_sek: float = 0.0    # ab wann der Protagonist selbst spricht; >0 z.B. bei Reaction
                                        # (davor läuft fremdes Audio — das ist NICHT sein Sprech-Hook)
+                                       # null vom Modell → 0.0, siehe _null_ist_sekunde_null unten
     performance_score: int = 0         # 0–100
     funnel: str = ""                   # TOFU / MOFU / BOFU / Mischung
     hook: HookEval = Field(default_factory=HookEval)
@@ -276,6 +277,19 @@ class AnalystEvaluationV2(BaseModel):
     # Die beiden folgenden Listen berechnet der Code aus `empfehlungen` — das Modell füllt sie nicht:
     action_steps: list[ActionStep] = Field(default_factory=list)  # die 3 frühesten Handlungsempfehlungen
     weitere_empfehlungen: list[ActionStep] = Field(default_factory=list)  # alle übrigen (aufklappbar)
+
+    @field_validator("protagonist_ab_sek", mode="before")
+    @classmethod
+    def _null_ist_sekunde_null(cls, v):
+        """Gemini schreibt `null`, wenn es keinen Sprechbeginn erkennt — bei drei Läufen
+        (102130ce, 3dce018c, d5ff1737, alle Format „Andere") ist daran die komplette Analyse
+        gescheitert: ein `float_type`-Fehler, `phase: error`, Ergebnis weg.
+        Kein Sprechbeginn wird wie „ab Sekunde 0" behandelt. Das ist derselbe Wert, den jeder
+        Altlauf ohne das Feld bekommt, und kein Code liest ihn weiter aus — er geht nur in den
+        Prompt und in `tools/vergleiche_laeufe.py`.
+        Ein abgebrochener Lauf ist die teuerste aller Antworten: das Video ist schon durch
+        Whisper und durch Gemini gelaufen, bezahlt und verworfen."""
+        return 0.0 if v is None else v
 
 
 class AnalystResult(BaseModel):
