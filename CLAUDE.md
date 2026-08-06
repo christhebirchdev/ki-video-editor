@@ -306,6 +306,13 @@ Urteils-Korrekturen, dann die Eingriffe in `empfehlungen`, `verteile_empfehlunge
   3** bewertet (Verteilung 3×20, 4×11, 5×4). Die Regel bleibt wirkungslos, solange das Modell die
   Skala nicht nach unten nutzt — deshalb stehen im Skill jetzt Anker für 1 und 2. Ob das reicht,
   zeigt erst ein echter Lauf.
+- `AnalystEvaluationV2._null_ist_sekunde_null()` — **`protagonist_ab_sek: null` darf den Lauf nicht
+  abbrechen.** Gemini liefert `null` statt einer Zahl, wenn es keinen Sprechbeginn erkennt; Pydantic warf
+  `float_type` und die gesamte Analyse war verloren (Läufe 102130ce, 3dce018c, d5ff1737 — alle Format
+  „Andere"). Der Validator setzt `null` auf `0.0`, denselben Wert, den jeder Altlauf ohne das Feld
+  bekommt. Kein Code liest das Feld weiter aus, es geht nur in den Prompt und in
+  `tools/vergleiche_laeufe.py`. Bewusst **kein** zusätzlicher Prompt-Satz „schreib nie null": ein
+  abgebrochener Lauf hat Whisper und Gemini bereits bezahlt, das darf nicht an einer Bitte hängen.
 - `verteile_empfehlungen()` — Top-3-`action_steps` **strikt nach frühestem Zeitpunkt im Video**, Rest nach
   `weitere_empfehlungen`. Gebündelt wird nur bei gleichem Label *und* gleicher Anweisung (Label allein
   führte zu Fehlmerges). **Bekannte Grenze:** Bei Sprechpausen greift die Bündelung faktisch nie, weil

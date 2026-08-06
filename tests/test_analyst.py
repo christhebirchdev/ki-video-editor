@@ -68,6 +68,25 @@ def test_pausen_txt_rendert_position_und_schwelle_in_den_prompt():
     assert "keine Pausen >0.8s gemessen" in leer
 
 
+# ---------- Modell-Antwort mit null statt Zahl ----------
+
+def test_protagonist_ab_sek_null_bricht_den_lauf_nicht_ab():
+    """Läufe 102130ce, 3dce018c und d5ff1737 sind hart abgebrochen: Gemini liefert für
+    `protagonist_ab_sek` ein `null`, wenn es keinen Sprechbeginn erkennt (alle drei Format
+    „Andere"). Pydantic warf `float_type`, und die gesamte Analyse war verloren — 3 von 70
+    gespeicherten Läufen. Kein erkannter Sprechbeginn wird wie „ab Sekunde 0" behandelt:
+    das ist der Pydantic-Default des Feldes und derselbe Wert, den jeder Altlauf ohne das
+    Feld bekommt."""
+    from models.analyst import AnalystEvaluationV2
+    ev = AnalystEvaluationV2.model_validate({"protagonist_ab_sek": None})
+    assert ev.protagonist_ab_sek == 0.0
+
+
+def test_protagonist_ab_sek_zahl_bleibt_unveraendert():
+    from models.analyst import AnalystEvaluationV2
+    assert AnalystEvaluationV2.model_validate({"protagonist_ab_sek": 4.2}).protagonist_ab_sek == 4.2
+
+
 # ---------- Format-Auswahl (Befund 0: bindend statt Modell-Rateversuch) ----------
 
 def _result(**kw):
