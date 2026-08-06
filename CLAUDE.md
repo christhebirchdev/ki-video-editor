@@ -372,6 +372,46 @@ Der Wert wird an jedes gespeicherte Feedback gestempelt (`analyst_runs/<id>/feed
 Erhöhung ist altes Feedback später nicht von neuem unterscheidbar. Aktuell: `"2026-07-29b"` — bei einer
 zweiten inhaltlichen Änderung am selben Tag wird ein Buchstabe angehängt.
 
+### Mehrere Läufe parallel (`ANALYST_MAX_CONCURRENT`)
+
+Der Schalter existiert seit jeher in der `.env` und geht in einen `threading.BoundedSemaphore`
+(`analyst_engine._SLOTS`). Es braucht **keinen Code und kein Multiprocessing** — auf dem VPS
+`.env` ändern und `docker compose up -d` (nicht `restart`: die geänderte `env_file` greift erst
+beim Neuerstellen des Containers).
+
+Threads sind hier richtig, nicht Prozesse: der GIL ist an keiner Stelle die Bremse. Whisper
+rechnet in CTranslate2 (C++, ohne GIL), der Gemini-Call wartet auf Netz. Prozesse würden nur
+den RAM verdoppeln.
+
+**Was ein zweiter Slot bringt — und was nicht.** `WhisperModel` wird ohne `num_workers`
+erzeugt (Default 1), gleichzeitige `transcribe()`-Aufrufe auf derselben Instanz serialisieren
+also intern. Zwei Läufe transkribieren **nicht** parallel. Der Gewinn entsteht allein aus der
+Überlappung: Lauf A wartet auf Gemini (CPU idle), Lauf B transkribiert.
+
+**Vor dem Hochdrehen zu klären, in dieser Reihenfolge:**
+
+1. **Free- oder Paid-Tier des Gemini-Keys.** 429 wird bewusst nicht wiederholt
+   (`gemini_service.py`), sondern fällt sofort aufs Fallback-Modell oder bricht ab. Parallele
+   Läufe verdoppeln die Anfragerate genau dort. Auf Free-Tier tauscht man eine funktionierende
+   Warteschlange gegen abgebrochene Läufe.
+2. **CPU.** `docker-compose.yml` gibt dem Container `cpus: 1.5` auf einem 2-vCPU-VPS, auf dem
+   auch n8n läuft. Die Drosselung ist Absicht, kein Versehen.
+3. **`_models` in `whisper_service.py` ist ein Dict ohne Lock.** Starten zwei Läufe kalt
+   gleichzeitig, bauen beide ein `WhisperModel` — kurzzeitig doppelter RAM bei `mem_limit: 5g`.
+   Nach dem Aufwärmen harmlos. Ein `threading.Lock` wären drei Zeilen; noch nicht gebaut, weil
+   der Fall bei einem Slot nicht auftreten kann.
+
+Mehr als **2** ist bei 1.5 CPUs und serialisiertem Whisper Risiko ohne Gegenwert.
+
+**Phasenzeiten (`phasen_sek` in `analysis.json`, seit 2026-08-06)** sind die Datengrundlage für
+diese Entscheidung: `transkript` / `messwerte` / `bewertung`, gemessen über
+`analyst_engine.messe_phase()`. Vorher stand dort nur `elapsed_sec` für den Gesamtlauf (über 59
+v2_hybrid-Läufe: Median 80 s, Spanne 30–120 s) — daraus lässt sich das Verhältnis CPU-Last zu
+Netz-Wartezeit nicht ableiten, und ohne das ist jede Durchsatzprognose geraten.
+Die Zeit wird **auch bei einer Exception** geschrieben (`finally` in `messe_phase` und um den
+Bewertungsblock in `_run_v2`) — gerade der abgebrochene Lauf ist der teure. Nur `_run_v2`
+instrumentiert; V1 ist Legacy und läuft nicht mehr über das Frontend. Altläufe: leeres Dict.
+
 **Die Determinismus-Zeilen in `services/whisper_service.py` nicht „aufräumen".** `temperature=0.0`,
 `condition_on_previous_text=False` und `beam_size=5` gehören zusammen und sind einzeln begründet
 (siehe Kommentare dort). Ohne sie schwankt der Wortlaut zwischen Läufen — real beobachtet: 99 vs. 111

@@ -309,6 +309,11 @@ class AnalystResult(BaseModel):
     evaluation: Optional[AnalystEvaluationV2] = None
     engine: str = "v1"                 # v1 (Claude) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte)
     elapsed_sec: float = 0.0           # reine Verarbeitungszeit (ohne Warteschlange), für Engine-Vergleich
+    phasen_sek: dict[str, float] = Field(default_factory=dict)
+    # Dauer je Phase (transkript / messwerte / bewertung). Entscheidungsgrundlage für
+    # ANALYST_MAX_CONCURRENT: „transkript" belegt die CPU, „bewertung" wartet nur auf das
+    # Gemini-Netz. Nur aus dem Verhältnis lässt sich sagen, ob ein zweiter paralleler Lauf
+    # Durchsatz bringt oder nur zwei Läufe gleichzeitig ausbremst. Altläufe: leeres Dict.
     geplante_texthook: str = ""        # vom Nutzer vor der Analyse eingetragene, geplante Texthook (Freifeld)
     gewaehltes_format: str = ""        # vom Nutzer beim Upload gewähltes Format (Pflicht, genau eines aus
                                        # FORMATE); leer nur bei Altläufen → Modell klassifiziert dann selbst

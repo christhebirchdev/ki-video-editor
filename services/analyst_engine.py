@@ -14,6 +14,7 @@ import json
 import threading
 import time
 import traceback
+from contextlib import contextmanager
 from pathlib import Path
 
 from config import settings
@@ -30,6 +31,20 @@ ANALYST_PATH.mkdir(exist_ok=True)
 # ponytail: einfacher Semaphore statt echter Job-Queue/Redis — reicht für ~3 Nutzer.
 # Mehr Durchsatz nötig → ANALYST_MAX_CONCURRENT hochsetzen (nur bei genug CPU/RAM).
 _SLOTS = threading.BoundedSemaphore(max(1, settings.analyst_max_concurrent))
+
+
+@contextmanager
+def messe_phase(phasen: dict, name: str):
+    """Misst die Dauer eines Pipeline-Abschnitts und legt sie unter `name` ab.
+
+    Die Zeit wird auch bei einer Exception festgehalten (`finally`) — gerade der
+    abgebrochene Lauf ist der teure, bei dem man wissen will, wo er stand.
+    """
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        phasen[name] = round(time.perf_counter() - t0, 1)
 
 
 def write_status(run_dir: Path, phase: str, detail: str = "", done: bool = False, error: str = ""):
@@ -99,18 +114,21 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str):
     from services import analyst_frames, analyst_gemini_eval
 
     filename = meta.get("filename", video.name)
+    phasen: dict[str, float] = {}
 
     if mode == "hybrid":
         from services.whisper_service import transcribe_with_word_timestamps, transkript_hash
         write_status(run_dir, "transcribe", "Transkription läuft…")
-        words, transcript = transcribe_with_word_timestamps(video, model_name=settings.whisper_model)
+        with messe_phase(phasen, "transkript"):
+            words, transcript = transcribe_with_word_timestamps(video, model_name=settings.whisper_model)
         speech_stats = compute_speech_stats(words)
         write_status(run_dir, "quality", "Audio-Messwerte werden erhoben…")
-        try:
-            quality = analyst_quality.measure(video, [])
-        except Exception as e:
-            print(f"  [ANALYST] Qualitäts-Messung fehlgeschlagen: {e}")
-            quality = None
+        with messe_phase(phasen, "messwerte"):
+            try:
+                quality = analyst_quality.measure(video, [])
+            except Exception as e:
+                print(f"  [ANALYST] Qualitäts-Messung fehlgeschlagen: {e}")
+                quality = None
         duration = analyst_frames.probe_duration(video)
         result = AnalystResult(
             id="", filename=filename, duration_sec=duration, scene_count=0, scenes=[],
@@ -125,7 +143,11 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str):
     result.geplante_texthook = meta.get("planned_text_hook", "")
     result.gewaehltes_format = meta.get("format", "")  # leer nur bei Altläufen vor der Pflicht-Auswahl
     evaluate = analyst_gemini_eval.evaluate_hybrid if mode == "hybrid" else analyst_gemini_eval.evaluate_pure
-    result.evaluation = evaluate(video, result, run_dir)
+    try:
+        with messe_phase(phasen, "bewertung"):
+            result.evaluation = evaluate(video, result, run_dir)
+    finally:
+        result.phasen_sek = phasen  # auch bei Abbruch gesetzt, damit der Fehlerfall messbar bleibt
     return result
 
 

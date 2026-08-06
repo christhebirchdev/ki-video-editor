@@ -1825,3 +1825,36 @@ def test_texthook_deckel_wird_markiert():
         text_hook_offene_frage="", text_hook_mechanik="zahl"))
     assert ev.hook.text_hook_score == 2
     assert ev.hook.text_hook_score_geklemmt is True
+
+
+# ---------- Phasenzeiten: Entscheidungsgrundlage für ANALYST_MAX_CONCURRENT ----------
+
+def test_messe_phase_schreibt_die_dauer_unter_ihren_namen():
+    """Ohne Phasenzeiten steht nur `elapsed_sec` für den Gesamtlauf in der analysis.json
+    (59 v2_hybrid-Läufe: Median 80 s, Spanne 30–120 s). Die Frage, ob mehr als ein Lauf
+    parallel etwas bringt, hängt aber genau an der Aufteilung: Whisper belegt die CPU,
+    der Gemini-Call wartet nur auf Netz. Ohne diese zwei Zahlen ist jede Prognose geraten."""
+    import time as _t
+    from services.analyst_engine import messe_phase
+    phasen = {}
+    with messe_phase(phasen, "transkript"):
+        _t.sleep(0.05)
+    assert "transkript" in phasen
+    assert phasen["transkript"] >= 0.05
+
+
+def test_messe_phase_haelt_die_zeit_auch_bei_einem_fehler_fest():
+    """Ein abgebrochener Lauf ist der teuerste — dann will man erst recht wissen,
+    wie weit er gekommen ist und wie lange das gedauert hat."""
+    from services.analyst_engine import messe_phase
+    phasen = {}
+    with pytest.raises(RuntimeError):
+        with messe_phase(phasen, "bewertung"):
+            raise RuntimeError("Gemini 429")
+    assert "bewertung" in phasen
+
+
+def test_altlauf_ohne_phasenzeiten_bleibt_ladbar():
+    from models.analyst import AnalystResult
+    r = AnalystResult(id="x", filename="v.mp4", duration_sec=1.0, scene_count=0, scenes=[])
+    assert r.phasen_sek == {}
