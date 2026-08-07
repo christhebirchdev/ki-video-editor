@@ -1142,8 +1142,12 @@ def test_aesthetik_referenz_gilt_nur_fuer_talking_head():
     from services.analyst_eval import load_skill_body
     skill = load_skill_body()
     assert "dieser Standard gilt NUR für Talking Head" in skill
-    for punkt in ("Kopfraum", "Augenhöhe", "Untertitel-Platzierung", "1080p"):
+    # „Untertitel-Platzierung" stand hier bis 2026-08-06 als Punkt 4 — sie ist in den eigenen
+    # `untertitel`-Block umgezogen, weil sie dort sonst zusätzlich den Ästhetik-Score gedeckelt hätte.
+    for punkt in ("Kopfraum", "Augenhöhe", "1080p"):
         assert punkt in skill, f"{punkt!r} fehlt in der Ästhetik-Referenz"
+    aesthetik = skill.split("## Visuelle Ästhetik")[1].split("\n## ")[0]
+    assert "Abzug, wenn sie das Gesicht" not in aesthetik
 
 
 def test_score_regel_verweist_aufs_system_statt_auf_den_funnel():

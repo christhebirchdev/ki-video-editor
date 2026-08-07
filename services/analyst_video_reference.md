@@ -3,6 +3,9 @@
 > Kompakte Fassung für den System-Prompt (Token-sparend). Die ausführliche Version mit vollen
 > Experten-Zitaten und geschriebenen Musteranalysen liegt separat als Trainings-/Nachschlagedoc.
 > Diese Prinzipien sind **Urteilsgrundlage** — der Output bleibt strikt knapp + JSON wie im Skill definiert.
+> Wo eine Regel hier einem Feld widerspricht, gilt der Skill. Insbesondere: Blickrichtung (P4, T4)
+> gehört ausschließlich in `blickkontakt` und in KEINEN Score; Untertitel (P9) gehören ausschließlich
+> in den `untertitel`-Block; Energie/Auftreten (T4, T5) gehört in `energie`, nicht in `sprechqualitaet`.
 
 ## A1 — Editing
 - **P1 Input-Qualität steuert den Post-Bedarf:** starker Input → Feinschliff; schwacher/monotoner Input → kompensieren. Dieselbe Beobachtung je nach Input anders werten.

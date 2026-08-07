@@ -1132,7 +1132,7 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},
   "blickkontakt": {"urteil": "<in_der_linse | abgelesen | unklar — siehe Abschnitt „Blickkontakt"; fließt in KEINEN Score>", "kommentar": "<1 Satz, was du siehst>"},
   "energie": {"urteil": "<traegt | flach | uebertrieben — passt die Energie im Auftreten zum Inhalt? Fließt in KEINEN Score>", "kommentar": "<1 Satz>"},
-  "untertitel": {"vorhanden": <true|false — laufen Untertitel mit? Keine sind KEIN Mangel>, "maengel": ["<NUR was wirklich schwach ist, aus: position | statisch | groesse | lesbarkeit | wortzahl | timing. Sind sie in Ordnung: []>"], "kommentar": "<1 Satz>"},
+  "untertitel": {"vorhanden": <true|false — laufen Untertitel mit? Wird gesprochen und fehlen sie, ist das ein MANGEL (siehe Abschnitt „Untertitel"); nur ein Video ohne gesprochenes Wort braucht keine>, "maengel": ["<NUR was wirklich schwach ist, aus: position | statisch | groesse | lesbarkeit | wortzahl | timing. Sind sie in Ordnung: []>"], "kommentar": "<1 Satz>"},
   "dynamik": {"urteil": "<gering | mittel | hoch — wie viel passiert im Bild? gering = ein Kamerawinkel, kaum Schnitte, kein Zoom, keine Einblendungen, statisches Bild. Fließt in KEINEN Score, steuert nur die Effekt-Empfehlung>", "kommentar": "<1 Satz>"},
   "effekt_vorschlaege": [{"zeitpunkt_sek": <float>, "art": "<sound | visuell>", "zweck": "<was der Effekt an dieser Stelle verstärkt — z.B. Übergang, erscheinende Zahl, Pointe>"}],
   "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],

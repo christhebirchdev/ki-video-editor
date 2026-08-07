@@ -45,9 +45,17 @@ Short-Form-Performance = CTR × Watchtime.
 Gewichte Hook und Watchtime im performance_score (0–100) am höchsten.
 
 ## Hook (immer anwenden)
-Zwei Hooks, gleiches Gewicht, gleiche Anforderungen:
+DREI Hook-Ebenen, alle drei bewerten (Referenz S1: „Hook auf 3 Ebenen"):
 - **sprech_hook** = die ersten 1–2 Sätze, die der PROTAGONIST sagt.
 - **text_hook** = Text, der ZUSÄTZLICH über die Eröffnung gelegt wird.
+- **visuell_hook** = was in den ersten Sekunden OPTISCH passiert: Bewegung der Person, ein Zoom,
+  ein harter Schnitt, ein Objekt das ins Bild kommt, ein Settingwechsel. Bewertet wird, ob das den
+  Daumen stoppt — nicht, ob es aufwendig produziert ist. Anker: 5 = etwas passiert sofort und
+  bricht die Erwartung. 3 = leichte Bewegung, aber nichts Auffälliges. 1 = reines Standbild, die
+  Person sitzt still im Bild. Eine schwache Text- oder Sprechhook kann durch eine starke visuelle
+  Ebene teilweise getragen werden (Referenz S1) — sag das dann auch.
+Die Schritte A–D unten gelten für Sprech- und Text-Hook; für den visuellen Hook reichen Anker und
+Begründung oben.
 
 Arbeite in dieser Reihenfolge: **A** was ist da → **B** zählt es als Hook → **C** wie stark ist es
 → **D** was empfiehlst du. Vergib den Score erst in Schritt C, nicht vorher.
@@ -254,7 +262,8 @@ in top_tipps (mit einfacher Alternative) und dämpfe Hook-/Struktur-Relevanz, we
 Zielgruppe die Sprache wahrscheinlich nicht versteht.
 
 ## Sprechqualität (1–5)
-Tempo, Energie, Deutlichkeit zu EINEM Score. Stütze dich auf die Sprachstatistik
+Tempo und Deutlichkeit zu EINEM Score. Die ENERGIE gehört NICHT hierher — sie hat ein eigenes,
+score-freies Feld (siehe Abschnitt „Energie im Auftreten"). Stütze dich auf die Sprachstatistik
 (WPM/Füllwörter/Pausen) — nenne die Zahlen NICHT im Output. probleme nur bei
 STARK Auffälligem (monoton, viele Füllwörter, undeutlich), sonst leeres Array.
 
@@ -290,8 +299,8 @@ Visuelle Abwechslung wirkt POSITIV auf Watchtime: Kamera-/Perspektivwechsel (Sub
 zentriert), B-Roll oder Settingwechsel erzeugen Unterhaltungswert — höher bewerten als statische,
 monotone Einstellung, solange das Subjekt klar erkennbar bleibt.
 B-ROLL & EINBLENDUNGEN sind ein starker, mehrfach wirkender Hebel — empfiehl sie aktiv als top_tipp, wo sie passen:
-(1) sie überdecken/kaschieren schlechte Blicke des Sprechers (Ablesen nach unten/zur Seite) an genau den Stellen,
-wo er wegschaut; (2) sie verstärken das Gesagte visuell → das Video wird leichter verständlich, die Botschaft
+(1) sie überdecken die Stellen, an denen der Sprecher wegschaut — den Blick selbst beurteilst du
+aber ausschließlich in `blickkontakt`, und den Schritt dazu baut das System; (2) sie verstärken das Gesagte visuell → das Video wird leichter verständlich, die Botschaft
 kommt an, der Zuschauer nimmt mehr mit (mehr Wert); (3) sie bringen Dynamik ins Bild → höhere Chance, dass
 Zuschauer dranbleiben (bessere Retention). Fehlen sie in einem statischen Video, ist das eine konkrete Chance.
 
@@ -374,10 +383,7 @@ Zwei DEUTLICHE Mängel sind eine 2. Zwei Hinweise sind keine 2 — und auch kein
 auch in dunklen Bereichen, flüssige Bewegung ohne Schlieren bei Gesten. Nutze den Schärfe-Messwert:
 ist er niedrig, benenne die Unschärfe aktiv, statt sie zu übergehen.
 
-**4. Untertitel-Platzierung.** Knapp unter dem Kinn, groß und kontrastreich. Abzug, wenn sie das Gesicht
-verdecken, weit vom Kinn entfernt sitzen, so tief liegen, dass die Plattform-Oberfläche sie überdeckt,
-oder schlecht lesbar sind. Statische Textblöcke statt kurzer Einblendungen (1–4 Wörter, synchron zum
-Gesprochenen geschnitten) sind eine verschenkte Chance auf Aufmerksamkeit → als Empfehlung ausgeben.
+**4. Untertitel gehören NICHT hierher** — eigener Abschnitt, eigenes Feld, kein Abzug hier.
 
 **BLICKRICHTUNG gehört NICHT hierher** — sie hat ein eigenes Feld, siehe Abschnitt „Blickkontakt".
 Schreib sie nicht zusätzlich in `visuelle_aesthetik.probleme` oder `.hinweise`.

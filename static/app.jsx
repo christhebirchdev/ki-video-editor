@@ -312,12 +312,6 @@ const STAGE_SETS = {
   v2_pure: [
     { key: "evaluate", label: "Analyse & Bewertung", est: 50 },
   ],
-  v1: [
-    { key: "transcribe", label: "Transkription", est: 40 },
-    { key: "describe", label: "Bild & Ton", est: 300 },
-    { key: "quality", label: "Audio-Messwerte", est: 6 },
-    { key: "evaluate", label: "Bewertung", est: 40 },
-  ],
 };
 
 // Ein Stufen-Balken pro Bearbeitungsschritt: abgeschlossene Stufen 100 %, die aktive füllt sich zeitbasiert
