@@ -9,8 +9,10 @@ natürliche Blickwechsel, sichtbare Outtakes.
 Mit Retry und Modell-Fallback bei 503-Storms.
 """
 import json
+import mimetypes
 import re
 import time
+import unicodedata
 from pathlib import Path
 from google import genai
 from google.genai import errors as genai_errors
@@ -133,14 +135,32 @@ def _state_name(state) -> str:
     return getattr(state, "name", str(state))
 
 
+def _ascii_safe(name: str) -> str:
+    """'René' → 'Rene'. HTTP-Header müssen ASCII sein, httpx encodiert hart dagegen."""
+    return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+
+
 def _upload_video_to_gemini(video_path: Path):
     size_mb = video_path.stat().st_size / (1024 * 1024)
     print(f"  [GEMINI] Upload-Start: {video_path.name} ({size_mb:.1f} MB)")
     t0 = time.time()
-    video_file = _call_with_retry(
-        "files.upload",
-        lambda: client.files.upload(file=str(video_path)),
-    )
+    # Pfad-String als `file=` lässt das SDK den Basename in den Header
+    # `X-Goog-Upload-File-Name` schreiben; httpx encodiert Header-Werte nach ASCII
+    # → UnicodeEncodeError bei é/ä/ö/ß (z.B. "Anja _ René Neu 01.mp4").
+    # Ein File-Objekt setzt den Header gar nicht erst, dafür wird mime_type Pflicht.
+    # Gegen google-genai 2.8.0 reproduziert und verifiziert.
+    mime_type = mimetypes.guess_type(video_path.name)[0] or "video/mp4"
+    display_name = _ascii_safe(video_path.name) or "video"
+
+    def _upload():
+        # Öffnen im Callable, damit ein Retry wieder am Dateianfang beginnt.
+        with video_path.open("rb") as fh:
+            return client.files.upload(
+                file=fh,
+                config={"mime_type": mime_type, "display_name": display_name},
+            )
+
+    video_file = _call_with_retry("files.upload", _upload)
     print(f"  [GEMINI] ✓ Upload abgeschlossen in {time.time() - t0:.1f}s")
 
     t1 = time.time()
