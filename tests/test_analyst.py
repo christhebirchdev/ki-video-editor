@@ -641,6 +641,56 @@ def test_nachbearbeiten_laeuft_in_der_richtigen_reihenfolge():
     assert all("behalten" not in s.anweisung for s in ev.action_steps)
 
 
+# ---------- Safe Zone, Licht, Ton (Vorgaben Chris 2026-08-07) ----------
+
+def test_safezone_steht_genau_einmal_mit_prozentwerten():
+    """Chris hat die Werte vorgegeben (konservative Faustregel für Instagram UND TikTok).
+    Prozent statt Pixel, weil das Modell keine Pixel im gerenderten Video ausmessen kann.
+    Genau einmal, damit nicht wieder zwei Fassungen auseinanderlaufen."""
+    from services.analyst_eval import load_skill_body
+    skill = " ".join(load_skill_body().split())
+    # Die vier Randwerte stehen als eine zusammenhängende Zeile — genau einmal. Einzelne Prozentzahlen
+    # kommen anderswo legitim vor (Kopfraum „10–15 %"), deshalb wird die ganze Zeile geprüft.
+    zeile = "oben 13 %, unten 21 %, rechts 15 %, links 4 %"
+    assert skill.count(zeile) == 1, f"Safe-Zone-Werte stehen {skill.count(zeile)}× statt einmal"
+    assert "SAFE ZONE" in skill
+
+
+def test_texthook_position_verweist_auf_die_safezone():
+    """Die alte Fassung („oberes Drittel, Abstand zum oberen Rand") nannte eigene Werte — mit der
+    Safe Zone wären das zwei Regeln für dieselbe Sache."""
+    from services.analyst_eval import load_skill_body
+    skill = " ".join(load_skill_body().split())
+    assert "oberes Drittel, mit deutlichem Abstand zum oberen Rand" not in skill
+
+
+def test_sprechqualitaet_prueft_verstaendlichkeit_und_musikbalance():
+    """Chris: „ob man jedes Wort ohne Anstrengung versteht, das in die Sprechqualität mit einfließen
+    lassen" und „Hintergrundmusik subtil, nicht auf derselben Lautstärke wie das gesprochene Wort".
+    """
+    from services.analyst_eval import load_skill_body
+    block = load_skill_body().split("## Sprechqualität")[1].split("\n## ")[0]
+    block = " ".join(block.split())
+    assert "ohne Anstrengung" in block
+    assert "Musik" in block
+
+
+def test_musik_darf_ohne_sprache_laut_sein():
+    """Gegenstück: In einem Video ohne gesprochenes Wort trägt die Musik das Video — dort ist
+    normale Lautstärke richtig und kein Mangel."""
+    from services.analyst_eval import load_skill_body
+    skill = " ".join(load_skill_body().split())
+    assert "Wird nicht gesprochen, darf die Musik" in skill
+
+
+def test_aesthetik_fragt_ob_das_gesicht_erkennbar_ist():
+    """Chris: „einmal eher die Frage stellen: Erkennt man das Gesicht klar?" — als Leitfrage vor
+    der Detailprüfung, damit nicht wieder jede Kleinigkeit zum Mangel wird."""
+    from services.analyst_eval import load_skill_body
+    block = load_skill_body().split("## Visuelle Ästhetik")[1].split("\n## ")[0]
+    assert "Erkennt man das Gesicht klar" in " ".join(block.split())
+
+
 # ---------- V1.2: Prompt-Split auf zwei Calls ----------
 
 def test_jeder_abschnitt_ist_einem_call_zugeordnet():
@@ -1863,8 +1913,10 @@ def test_skill_bewertet_die_gestaltung_der_texthook():
     s = load_skill_body()
     assert "GESTALTUNG der Text-Hook" in s
     assert "mindestens 5 Sekunden" in s
-    assert "oberes Drittel" in s
-    assert "Plattform (Instagram)" in s
+    # Position: seit 2026-08-07 über die SAFE ZONE statt über eigene Angaben („oberes Drittel").
+    gestaltung = s.split("GESTALTUNG der Text-Hook")[1].split("VORSCHLÄGE")[0]
+    assert "SAFE ZONE" in gestaltung
+    assert "oberes Drittel" not in gestaltung
 
 
 def test_aesthetik_skala_hat_anker_fuer_1_und_2():
@@ -2310,3 +2362,125 @@ def test_altlauf_ohne_phasenzeiten_bleibt_ladbar():
     from models.analyst import AnalystResult
     r = AnalystResult(id="x", filename="v.mp4", duration_sec=1.0, scene_count=0, scenes=[])
     assert r.phasen_sek == {}
+
+
+def test_whisper_modellcache_laedt_nur_einmal(monkeypatch):
+    """Zwei kalt startende Läufe dürfen nicht zwei Modelle in den RAM legen.
+
+    Ab ANALYST_MAX_CONCURRENT=2 ist das kein theoretischer Fall mehr: Nach jedem Redeploy ist
+    der Cache kalt, und zwei gleichzeitig gestartete Analysen treffen genau darauf.
+    """
+    import threading
+    from services import whisper_service
+
+    ladevorgaenge = []
+
+    class LangsamesModell:
+        def __init__(self, name, **kw):
+            ladevorgaenge.append(name)
+            threading.Event().wait(0.2)   # Ladefenster aufreißen, in dem der zweite Thread ankommt
+
+    monkeypatch.setattr(whisper_service, "_models", {})
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "faster_whisper",
+        type("M", (), {"WhisperModel": LangsamesModell}),
+    )
+
+    ergebnisse = []
+    threads = [
+        threading.Thread(target=lambda: ergebnisse.append(whisper_service._get_model("small")))
+        for _ in range(2)
+    ]
+    for t in threads: t.start()
+    for t in threads: t.join()
+
+    assert ladevorgaenge == ["small"], f"Modell mehrfach geladen: {ladevorgaenge}"
+    assert ergebnisse[0] is ergebnisse[1], "Threads bekamen verschiedene Instanzen"
+
+
+def test_reaper_markiert_haengende_laeufe(tmp_path, monkeypatch):
+    """Nach einem Neustart existiert zu einem 'laufenden' Status kein Thread mehr."""
+    import json as _json
+    from services import analyst_engine
+
+    monkeypatch.setattr(analyst_engine, "ANALYST_PATH", tmp_path)
+    haengt = tmp_path / "aaa11111"; haengt.mkdir()
+    analyst_engine.write_status(haengt, "evaluate", "Analyse läuft…")
+    fertig = tmp_path / "bbb22222"; fertig.mkdir()
+    analyst_engine.write_status(fertig, "done", "fertig", done=True)
+
+    assert analyst_engine.markiere_abgebrochene_laeufe() == 1
+    assert _json.loads((haengt / "status.json").read_text())["phase"] == "error"
+    assert _json.loads((fertig / "status.json").read_text())["phase"] == "done"
+
+
+def test_letztes_modell_ist_thread_lokal(monkeypatch):
+    """Ab ANALYST_MAX_CONCURRENT=2 laufen zwei Analysen als zwei Threads im selben Prozess.
+    Jeder Lauf muss über `letztes_modell()` SEIN EIGENES Modell sehen — sonst landet im
+    prompt_log.md das Modell des jeweils ANDEREN Laufs. Besonders tückisch: Solange beide Läufe
+    auf dem Primärmodell landen, ist der Wert zufällig richtig; falsch wird er genau dann, wenn
+    einer der beiden auf das Fallback-Modell ausweicht — im einzigen Fall, für den das Feld
+    überhaupt gebaut wurde.
+
+    Deshalb prüft dieser Test den ECHTEN Codepfad (`_generate`) statt nur ein Detail der
+    Speicherung: Zwei Threads rufen `_generate` auf, Thread A landet direkt beim Primärmodell,
+    Thread B fällt auf das erste Fallback-Modell zurück (die Fake-`client`-Antwort hängt vom
+    aufrufenden Thread ab). `_call_with_retry` wird durch einen Direktaufruf ersetzt, damit
+    weder Netzwerk noch echte Wartezeiten ins Spiel kommen. Eine `Barrier` zwingt beide Threads,
+    nach ihrem `_generate`-Aufruf aufeinander zu warten, bevor sie `letztes_modell()` lesen —
+    nur so ist bewiesen, dass beide Werte GLEICHZEITIG existieren müssen. Bei einem geteilten
+    Modul-Global könnte höchstens einer der beiden stimmen; ein `sleep` würde das nur raten statt
+    beweisen.
+    """
+    import threading
+    from types import SimpleNamespace
+    from services import analyst_vlm
+
+    monkeypatch.setattr(analyst_vlm, "_call_with_retry", lambda label, fn: fn())
+
+    class FakeModels:
+        def generate_content(self, model, contents, config):
+            thread = threading.current_thread().name
+            if thread == "A":
+                if model == analyst_vlm.GEMINI_MODEL:
+                    return SimpleNamespace(text="antwort-a")
+                raise AssertionError("Thread A sollte das Primärmodell nie verlassen")
+            if thread == "B":
+                if model == analyst_vlm.GEMINI_MODEL:
+                    raise RuntimeError("Primärmodell down (simuliert)")
+                if model == analyst_vlm.GEMINI_FALLBACK_MODELS[0]:
+                    return SimpleNamespace(text="antwort-b")
+                raise AssertionError(f"unerwartetes Modell für Thread B: {model}")
+            raise AssertionError(f"unerwarteter Thread: {thread}")
+
+    monkeypatch.setattr(analyst_vlm, "client", SimpleNamespace(models=FakeModels()))
+
+    barrier = threading.Barrier(2)
+    ergebnisse = {}
+    fehler = []
+
+    def lauf(name):
+        try:
+            antwort = analyst_vlm._generate(["dummy-content"], None, "test")
+            # Erst NACH dem _generate-Aufruf synchronisieren, VOR dem Lesen von letztes_modell():
+            # beweist, dass beide thread-lokalen Werte gleichzeitig gültig nebeneinander stehen.
+            barrier.wait(timeout=5)
+            ergebnisse[name] = (antwort.text, analyst_vlm.letztes_modell())
+        except Exception as e:
+            fehler.append(e)
+            try:
+                barrier.wait(timeout=5)  # den anderen Thread nicht ewig blockieren lassen
+            except Exception:
+                pass
+
+    t_a = threading.Thread(target=lauf, args=("A",), name="A")
+    t_b = threading.Thread(target=lauf, args=("B",), name="B")
+    t_a.start()
+    t_b.start()
+    t_a.join()
+    t_b.join()
+
+    assert not fehler, f"Fehler in den Threads: {fehler}"
+    assert ergebnisse["A"] == ("antwort-a", analyst_vlm.GEMINI_MODEL)
+    assert ergebnisse["B"] == ("antwort-b", analyst_vlm.GEMINI_FALLBACK_MODELS[0])

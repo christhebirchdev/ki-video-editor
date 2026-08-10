@@ -222,7 +222,7 @@ def _evaluate(video_path: Path, result: AnalystResult, mode: str, run_dir=None) 
         run_dir, call=f"eval_{mode}", recipient="Gemini",
         # Das Modell, das TATSÄCHLICH geantwortet hat — nicht „ggf. Fallback". Sonst lässt sich ein
         # abweichender Lauf nicht von einem Fallback-Lauf unterscheiden.
-        model=analyst_vlm.letztes_modell or gemini_service.GEMINI_MODEL,
+        model=analyst_vlm.letztes_modell() or gemini_service.GEMINI_MODEL,
         system_prompt=system, user_message=user, output_raw=raw, output_parsed=parsed,
         attachments=[f"Video: {result.filename}"],
         inputs={
@@ -305,7 +305,7 @@ def _evaluate_teil(video_file, result: AnalystResult, teil: str, run_dir,
     parsed = AnalystEvaluationV2(**analyst_eval._extract_json(raw))
     analyst_prompt_log.log_call(
         run_dir, call=f"eval_split_{teil}", recipient="Gemini",
-        model=analyst_vlm.letztes_modell or gemini_service.GEMINI_MODEL,
+        model=analyst_vlm.letztes_modell() or gemini_service.GEMINI_MODEL,
         system_prompt=system, user_message=user, output_raw=raw, output_parsed=parsed,
         attachments=[f"Video: {result.filename}"],
         inputs={

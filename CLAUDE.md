@@ -396,10 +396,27 @@ also intern. Zwei Läufe transkribieren **nicht** parallel. Der Gewinn entsteht 
    Warteschlange gegen abgebrochene Läufe.
 2. **CPU.** `docker-compose.yml` gibt dem Container `cpus: 1.5` auf einem 2-vCPU-VPS, auf dem
    auch n8n läuft. Die Drosselung ist Absicht, kein Versehen.
-3. **`_models` in `whisper_service.py` ist ein Dict ohne Lock.** Starten zwei Läufe kalt
-   gleichzeitig, bauen beide ein `WhisperModel` — kurzzeitig doppelter RAM bei `mem_limit: 5g`.
-   Nach dem Aufwärmen harmlos. Ein `threading.Lock` wären drei Zeilen; noch nicht gebaut, weil
-   der Fall bei einem Slot nicht auftreten kann.
+3. ~~`_models` ohne Lock~~ — **erledigt 2026-08-08.** `_get_model()` nutzt doppelt geprüftes
+   Locking (`_models_lock`), zwei kalt startende Läufe laden nur noch ein Modell. Test:
+   `tests/test_analyst.py::test_whisper_modellcache_laedt_nur_einmal`.
+
+**Weitere Voraussetzungen, die mit dem zweiten Slot erledigt wurden (2026-08-08):**
+
+- `upload_video` in `api/analyst.py` ist jetzt `def` statt `async def`. Als `async def` hielt ein
+  großer Upload den Event-Loop an und blockierte bei `--workers 1` die ganze App — inklusive
+  laufender Analysen. Damit wäre der Überlappungsgewinn des zweiten Slots wieder aufgezehrt.
+- `analyst_engine.markiere_abgebrochene_laeufe()` läuft über den `lifespan` in `main.py` bei jedem
+  Start und setzt Läufe, die ein Redeploy mitten in der Pipeline erwischt hat, auf `error`. Ohne
+  das pollt das Frontend endlos, und `_active_runs()` zählt die Leiche als Vordermann in der
+  Warteschlange. Mit zwei Slots wird diese Anzeige erstmals wirklich benutzt.
+- `analyst_vlm.letztes_modell` ist von einem Modul-Global auf `threading.local()` umgestellt. Zwei
+  parallele Läufe hätten sich den Wert überschrieben — und zwar unauffällig: Solange beide auf dem
+  Primärmodell landen, stimmt er zufällig; falsch wird er genau dann, wenn ein Fallback passiert
+  ist, also im einzigen Fall, für den das Feld gebaut wurde. Betroffen war nur der Eintrag im
+  `prompt_log.md`, nicht das Analyseergebnis.
+- **`--workers 1` ist mit dem Reaper noch wichtiger als vorher.** Bei mehreren Workern durchläuft
+  jeder Prozess seinen eigenen `lifespan`; ein langsam startender zweiter Worker könnte einen
+  Lauf, den der erste bereits angenommen hat (`starting`), als abgebrochen markieren.
 
 Mehr als **2** ist bei 1.5 CPUs und serialisiertem Whisper Risiko ohne Gegenwert.
 

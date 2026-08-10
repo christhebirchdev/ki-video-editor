@@ -32,6 +32,10 @@ ANALYST_PATH.mkdir(exist_ok=True)
 # Mehr Durchsatz nötig → ANALYST_MAX_CONCURRENT hochsetzen (nur bei genug CPU/RAM).
 _SLOTS = threading.BoundedSemaphore(max(1, settings.analyst_max_concurrent))
 
+# Phasen, in denen ein Lauf als aktiv gilt. Liegt hier statt in api/analyst.py, weil beide
+# Module sie brauchen — der Reaper unten und die Warteschlangen-Anzeige im API-Modul.
+RUNNING_PHASES = {"queued", "starting", "scenes", "transcribe", "describe", "quality", "evaluate"}
+
 
 @contextmanager
 def messe_phase(phasen: dict, name: str):
@@ -209,3 +213,27 @@ def _run_v1(run_dir: Path, video: Path, meta: dict):
             print(f"  [ANALYST] Claude-Bewertung fehlgeschlagen: {e}")
 
     return result
+
+
+def markiere_abgebrochene_laeufe() -> int:
+    """Setzt Läufe, die beim letzten Prozessende mitten in der Pipeline standen, auf `error`.
+
+    Nach einem Neustart gibt es zu einem „laufenden" Status keinen Thread mehr. Ohne diesen
+    Durchlauf bleibt der Status für immer stehen: das Frontend pollt endlos, und `_active_runs()`
+    zählt die Leiche als Vordermann in der Warteschlange. Der Auto-Deploy baut den Container bei
+    jedem Push neu — der Fall tritt planmäßig ein, nicht nur bei Abstürzen.
+
+    Rückgabe: Anzahl der aufgeräumten Läufe (fürs Startlog).
+    """
+    aufgeraeumt = 0
+    for d in ANALYST_PATH.iterdir():
+        if not d.is_dir():
+            continue
+        try:
+            phase = json.loads((d / "status.json").read_text()).get("phase")
+        except (OSError, json.JSONDecodeError):
+            continue
+        if phase in RUNNING_PHASES:
+            write_status(d, "error", error="Serverneustart während der Analyse — bitte neu starten")
+            aufgeraeumt += 1
+    return aufgeraeumt

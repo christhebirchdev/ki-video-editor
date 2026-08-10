@@ -9,6 +9,7 @@ haben keinen Ton). Gemini beschreibt nur — die Bewertung macht Claude.
 """
 import json
 import re
+import threading
 from pathlib import Path
 
 from google.genai import types
@@ -151,16 +152,23 @@ def _parse_array(raw: str) -> list[dict]:
 # Welches Modell den letzten _generate()-Call tatsächlich beantwortet hat. Ohne das loggt der
 # Lauf nur „Primärmodell; ggf. Fallback" — und ein abweichender Lauf lässt sich nicht von einem
 # Fallback-Lauf unterscheiden, was jeden A/B-Vergleich angreifbar macht.
-# ponytail: Modul-global statt Signaturänderung an 4 Call-Sites. Trägt, weil der Analyst mit
-# --workers 1 läuft und die Calls je Lauf sequenziell sind. Bei parallelen Läufen → _generate
-# auf Rückgabe (response, modell) umstellen.
-letztes_modell: str = ""
+# ponytail: thread-lokal statt Signaturänderung an 4 Call-Sites. Trägt, weil ein Analyse-Lauf
+# komplett in EINEM Thread läuft (`run_analysis` als BackgroundTask im anyio-Threadpool) — bei
+# ANALYST_MAX_CONCURRENT=2 laufen zwei Läufe als zwei Threads im selben Prozess, jeder mit
+# eigenem `threading.local()`-Slot, sie können sich also nicht überschreiben. Threads aus dem
+# Pool werden wiederverwendet, aber das ist unkritisch: `_generate` schreibt den Wert vor jedem
+# Lesen neu, ein Restwert aus einem früheren Lauf im selben Thread wird nie gelesen.
+_thread_state = threading.local()
+
+
+def letztes_modell() -> str:
+    """Modell, das den letzten `_generate()`-Call im AKTUELLEN Thread beantwortet hat."""
+    return getattr(_thread_state, "modell", "")
 
 
 def _generate(contents, cfg, label):
     """generate_content mit Modell-Fallback (2.5-flash → 2.0-flash).
-    Setzt `letztes_modell` auf das Modell, das tatsächlich geantwortet hat."""
-    global letztes_modell
+    Setzt den thread-lokalen Speicher auf das Modell, das tatsächlich geantwortet hat."""
     last_err = None
     for model_name in [GEMINI_MODEL] + GEMINI_FALLBACK_MODELS:
         try:
@@ -168,12 +176,12 @@ def _generate(contents, cfg, label):
                 f"{label}[{model_name}]",
                 lambda m=model_name: client.models.generate_content(model=m, contents=contents, config=cfg),
             )
-            letztes_modell = model_name
+            _thread_state.modell = model_name
             return antwort
         except Exception as e:
             last_err = e
             continue
-    letztes_modell = ""
+    _thread_state.modell = ""
     raise RuntimeError(f"Gemini {label} fehlgeschlagen: {last_err}")
 
 

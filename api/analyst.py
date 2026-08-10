@@ -13,11 +13,9 @@ from pydantic import BaseModel
 from config import settings
 from models.analyst import FORMATE, AnalystResult
 from services import analyst_chat, analyst_vlm
-from services.analyst_engine import ANALYST_PATH, run_analysis, write_status
+from services.analyst_engine import ANALYST_PATH, RUNNING_PHASES, run_analysis, write_status
 
 router = APIRouter()
-
-RUNNING_PHASES = {"queued", "starting", "scenes", "transcribe", "describe", "quality", "evaluate"}
 
 
 def _run_dir(run_id: str):
@@ -46,7 +44,11 @@ def _active_runs():
 
 
 @router.post("/upload")
-async def upload_video(file: UploadFile = File(...)):
+def upload_video(file: UploadFile = File(...)):
+    """Bewusst `def` statt `async def`: `shutil.copyfileobj` unten ist blockierend. In einer
+    `async def`-Funktion würde ein großer Upload den Event-Loop anhalten und bei `--workers 1`
+    die ganze App blockieren — inklusive laufender Analysen. Als `def` läuft der Endpunkt im
+    Threadpool. Gleiche Begründung wie bei `chat_frage`."""
     run_id = str(uuid.uuid4())[:8]
     run_dir = ANALYST_PATH / run_id
     (run_dir / "raw").mkdir(parents=True)

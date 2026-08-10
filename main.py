@@ -1,12 +1,23 @@
 # main.py
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
 from config import settings
 from api import projects, pipeline, feedback, subtitles, shorts, analyst
+from services.analyst_engine import markiere_abgebrochene_laeufe
 
-app = FastAPI(title="KI Video Editor", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    n = markiere_abgebrochene_laeufe()
+    if n:
+        print(f"  [ANALYST] {n} Lauf/Läufe nach Neustart als abgebrochen markiert")
+    yield
+
+
+app = FastAPI(title="KI Video Editor", version="0.1.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 

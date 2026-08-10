@@ -12,6 +12,7 @@ Modell-Wahl:
 - "large-v3" → ~3 GB, beste Qualität, ~5× langsamer
 """
 import hashlib
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -19,21 +20,34 @@ from models.analysis import WhisperWord
 
 # Mehrere Modelle parallel gecached (für A/B-Vergleich verschiedener Engines).
 _models: dict = {}
+# Ab ANALYST_MAX_CONCURRENT>1 können zwei Läufe gleichzeitig auf einen kalten Cache treffen —
+# nach jedem Redeploy ist er das. Ohne Lock baut dann jeder Thread sein eigenes WhisperModel:
+# kurzzeitig doppelter RAM gegen mem_limit 5g ohne Swap.
+_models_lock = threading.Lock()
 DEFAULT_WHISPER_MODEL = "small"  # Default für v5.2 und ältere Engines
 
 
 def _get_model(model_name: str):
     """Lädt ein Modell beim ersten Aufruf (lazy) und cached es pro Name.
     model_name kann eine Größe ("small"/"large-v3") ODER eine HF-Repo-ID eines
-    CTranslate2-Modells sein (z.B. "nyrahealth/faster_CrisperWhisper")."""
+    CTranslate2-Modells sein (z.B. "nyrahealth/faster_CrisperWhisper").
+
+    Doppelt geprüft: Der schnelle Pfad ohne Lock ist nach dem Aufwärmen der Normalfall und
+    darf keine Transkription hinter einem Lock anstellen. Die zweite Prüfung im Lock fängt
+    den Thread ab, der zwischen erster Prüfung und Lock-Erwerb angekommen ist.
+    """
     m = _models.get(model_name)
-    if m is None:
-        from faster_whisper import WhisperModel
-        print(f"  [WHISPER] Lade Modell '{model_name}' (erstes Mal: Download + 1-2 Min, dann gecached)…")
-        # CPU-Modus, int8 quantisiert → schnell + RAM-arm. GPU würde compute_type="float16" nutzen.
-        m = WhisperModel(model_name, device="cpu", compute_type="int8")
-        _models[model_name] = m
-        print(f"  [WHISPER] Modell '{model_name}' bereit")
+    if m is not None:
+        return m
+    with _models_lock:
+        m = _models.get(model_name)
+        if m is None:
+            from faster_whisper import WhisperModel
+            print(f"  [WHISPER] Lade Modell '{model_name}' (erstes Mal: Download + 1-2 Min, dann gecached)…")
+            # CPU-Modus, int8 quantisiert → schnell + RAM-arm. GPU würde compute_type="float16" nutzen.
+            m = WhisperModel(model_name, device="cpu", compute_type="int8")
+            _models[model_name] = m
+            print(f"  [WHISPER] Modell '{model_name}' bereit")
     return m
 
 
