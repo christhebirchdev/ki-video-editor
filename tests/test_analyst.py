@@ -2484,3 +2484,210 @@ def test_letztes_modell_ist_thread_lokal(monkeypatch):
     assert not fehler, f"Fehler in den Threads: {fehler}"
     assert ergebnisse["A"] == ("antwort-a", analyst_vlm.GEMINI_MODEL)
     assert ergebnisse["B"] == ("antwort-b", analyst_vlm.GEMINI_FALLBACK_MODELS[0])
+
+
+def test_video_part_setzt_abtastrate():
+    """Gemini tastet Videos sonst mit 1 Bild/Sekunde ab. Im Lauf b08f73bd war der Eröffnungs-Zoom
+    nach 0,4 s vorbei und lag vollständig zwischen den Abtastpunkten 0,0 s und 1,0 s — das Modell
+    konnte ihn nicht sehen und empfahl, einen Zoom einzubauen, den es schon gab.
+
+    Der Test prüft die Verdrahtung, nicht die Zahl: Ohne `video_metadata` am Part greift der
+    Default, und der Fehler kommt geräuschlos zurück.
+    """
+    from types import SimpleNamespace
+    from services import analyst_gemini_eval as age
+
+    handle = SimpleNamespace(uri="files/abc123", mime_type="video/mp4")
+    part = age._video_part(handle)
+
+    assert part.video_metadata is not None, "ohne video_metadata tastet Gemini mit 1 fps ab"
+    assert part.video_metadata.fps == age.VIDEO_FPS
+    assert age.VIDEO_FPS >= 2, "unter 2 fps ist der Zweck der Änderung verfehlt"
+    assert part.file_data.file_uri == "files/abc123"
+    assert part.file_data.mime_type == "video/mp4"
+
+
+def test_video_part_faellt_auf_mp4_zurueck():
+    """Ein File-Handle ohne `mime_type` darf den Lauf nicht kosten — an dieser Stelle sind Whisper
+    und der Gemini-Upload bereits bezahlt."""
+    from types import SimpleNamespace
+    from services import analyst_gemini_eval as age
+
+    part = age._video_part(SimpleNamespace(uri="files/x", mime_type=None))
+    assert part.file_data.mime_type == "video/mp4"
+
+
+def test_einblendungen_bereits_vorhandene_werden_nicht_empfohlen():
+    """Läufe 7230d0f8 und b08f73bd: An den genannten Stellen HATTE das Video bereits Grafiken und
+    kleine Videoeinblendungen — das Modell hatte sie sogar gesehen und in schnitt_pacing gelobt.
+    Der Vertrag fragte nur, wo eine Einblendung verstärken WÜRDE, nie ob dort schon eine ist.
+    Chris dazu: „im video sind grafiken und sogar kleine videoeinblendungen integriert. das muss
+    der ki auffallen können."
+    """
+    from models.analyst import AnalystEvaluationV2, Einblendung
+    from services.analyst_eval import baue_einblendungs_schritt
+
+    ev = AnalystEvaluationV2(einblendungen=[
+        Einblendung(zeitpunkt_sek=5.0, verstaerkt="Konflikte", bereits_vorhanden=True),
+        Einblendung(zeitpunkt_sek=9.5, verstaerkt="Stress", bereits_vorhanden=False),
+    ])
+    ev = baue_einblendungs_schritt(ev)
+    schritte = [e for e in ev.empfehlungen if e.gruppe == "einblendungen"]
+    assert len(schritte) == 1
+    # zeitpunkt_sek statt Textsuche prüfen: round(9.5) landet dank Python-Banker's-Rounding bei
+    # "10", ein Substring-Check auf "9" wäre hier ein Rundungsartefakt, kein echter Verhaltenstest.
+    assert schritte[0].zeitpunkt_sek == 9.5
+    assert "Stress" in schritte[0].anweisung
+    assert "Konflikte" not in schritte[0].anweisung, "bestehende Einblendung wurde erneut empfohlen"
+
+
+def test_einblendungen_alle_vorhanden_erzeugt_keinen_schritt():
+    """Sind an allen genannten Stellen schon Einblendungen, gibt es nichts zu empfehlen. Ein
+    Schritt „blende etwas ein" wäre dann nicht nur nutzlos, sondern beweist dem Nutzer, dass nicht
+    hingesehen wurde — und er verbraucht einen der nur drei Top-Plätze."""
+    from models.analyst import AnalystEvaluationV2, Einblendung
+    from services.analyst_eval import baue_einblendungs_schritt
+
+    ev = AnalystEvaluationV2(einblendungen=[
+        Einblendung(zeitpunkt_sek=5.0, verstaerkt="Konflikte", bereits_vorhanden=True),
+        Einblendung(zeitpunkt_sek=9.5, verstaerkt="Stress", bereits_vorhanden=True),
+    ])
+    ev = baue_einblendungs_schritt(ev)
+    assert not [e for e in ev.empfehlungen if e.gruppe == "einblendungen"]
+
+
+def test_altlaeufe_ohne_das_feld_verhalten_sich_wie_bisher():
+    """Gespeicherte Läufe kennen `bereits_vorhanden` nicht. Der Default muss deshalb False sein —
+    sonst verschwindet die Empfehlung rückwirkend aus jedem Altlauf."""
+    from models.analyst import Einblendung
+    assert Einblendung(zeitpunkt_sek=1.0).bereits_vorhanden is False
+
+
+def test_untertitel_loesen_keinen_vorlese_deckel_aus():
+    """Lauf 225cf73b: Untertitel sind wortgleich zum Gesprochenen, das Modell trug sie in
+    `text_hook_wortlaut` ein, und der Redundanz-Check schloss daraus auf Vorlesen. Der Kunde bekam
+    „Deine ersten Worte lesen den Bildtext vor" plus Punktabzug — beides falsch, die Untertitel
+    FOLGEN seiner Sprache. Chris dazu: „das sind ja auch die untertitel die da mit zum gesprochenen
+    text laufen. das sollte erkannt werden, auch wenn dort keine Texthook vorhanden ist."
+    """
+    from models.analyst import AnalystEvaluationV2, AnalystResult
+    from services.analyst_eval import bereinige_redundante_texthook
+
+    ev = AnalystEvaluationV2()
+    ev.hook.text_hook_wortlaut = "Viele Männer haben ein Problem mit Pornos"
+    ev.hook.text_hook_wortlaut_ist_untertitel = True
+    ev.hook.sprech_hook_score = 5
+    ev.hook.text_hook_score = 5
+    res = AnalystResult(id="t", filename="t.mp4", duration_sec=10.0, scene_count=0, scenes=[],
+                        transcript="Viele Männer haben ein Problem mit Pornos, wissen es aber nicht.")
+
+    ev = bereinige_redundante_texthook(ev, res)
+
+    assert ev.hook.sprech_hook_score == 5, "Untertitel dürfen den Sprech-Hook nicht deckeln"
+    assert ev.hook.text_hook_score == 5
+    assert ev.hook.text_hook_score_geklemmt is False
+
+
+def test_vorgelesener_bildtext_wird_weiterhin_gedeckelt():
+    """Regressionsschutz für Lauf 5502bb37: Eine Grafik-Überschrift, die vorgelesen wird, ist eine
+    verschenkte Hook-Ebene und MUSS weiter deckeln — auch wenn sie nicht als Text-Hook zählt.
+    Genau deshalb hängt der Check nicht an `text_hook_vorhanden`."""
+    from models.analyst import AnalystEvaluationV2, AnalystResult
+    from services.analyst_eval import bereinige_redundante_texthook
+
+    ev = AnalystEvaluationV2()
+    ev.hook.text_hook_wortlaut = "Viele Männer haben ein Problem mit Pornos"
+    ev.hook.text_hook_wortlaut_ist_untertitel = False   # statischer Bildtext
+    ev.hook.sprech_hook_score = 5
+    ev.hook.text_hook_score = 5
+    res = AnalystResult(id="t", filename="t.mp4", duration_sec=10.0, scene_count=0, scenes=[],
+                        transcript="Viele Männer haben ein Problem mit Pornos, wissen es aber nicht.")
+
+    ev = bereinige_redundante_texthook(ev, res)
+
+    assert ev.hook.sprech_hook_score == 3
+    assert ev.hook.text_hook_score == 2
+    assert ev.hook.text_hook_score_geklemmt is True
+
+
+def test_altlaeufe_ohne_herkunftsfeld_verhalten_sich_wie_bisher():
+    """Gespeicherte Läufe kennen das Feld nicht. Default False = statischer Bildtext, damit die
+    Nachbearbeitung an Altläufen exakt dasselbe Ergebnis liefert wie vorher."""
+    from models.analyst import HookEval
+    assert HookEval().text_hook_wortlaut_ist_untertitel is False
+
+
+def test_zoom_empfehlung_faellt_weg_wenn_die_eroeffnung_schon_bewegung_hat():
+    """Läufe 225cf73b, b08f73bd und 7230d0f8 empfahlen alle „Nutze direkt zu Beginn einen
+    schnellen digitalen Zoom" — das Video hatte ihn längst. Chris: „Zu beginn gibt es schon einen
+    schnellen digitalen zoom auf das gesicht." Der Zoom ist nach 0,4 s vorbei (gemessen bei 10 fps:
+    MAD 25,3 / 14,7 / 9,4 bei 0,1 / 0,2 / 0,3 s)."""
+    from models.analyst import AnalystEvaluationV2, Empfehlung
+    from services.analyst_eval import entferne_vorhandene_bewegungs_empfehlung
+
+    ev = AnalystEvaluationV2()
+    ev.hook.eroeffnung_hat_bewegung = True
+    ev.hook.eroeffnung_bewegung = "schneller digitaler Zoom auf das Gesicht"
+    ev.empfehlungen = [
+        Empfehlung(zeitpunkt_sek=0.0,
+                   anweisung="Nutze direkt zu Beginn einen schnellen digitalen Zoom auf dein Gesicht."),
+        Empfehlung(zeitpunkt_sek=0.0, anweisung="Formuliere deinen ersten gesprochenen Satz um."),
+    ]
+
+    ev = entferne_vorhandene_bewegungs_empfehlung(ev)
+
+    texte = [e.anweisung for e in ev.empfehlungen]
+    assert not any("Zoom" in t for t in texte), "vorhandene Bewegung wurde erneut empfohlen"
+    assert any("Formuliere" in t for t in texte), "unbeteiligte Empfehlung wurde mitgelöscht"
+
+
+def test_ohne_bewegung_bleibt_die_zoom_empfehlung_stehen():
+    """Hat die Eröffnung wirklich keine Bewegung, ist der Tipp richtig und muss bleiben."""
+    from models.analyst import AnalystEvaluationV2, Empfehlung
+    from services.analyst_eval import entferne_vorhandene_bewegungs_empfehlung
+
+    ev = AnalystEvaluationV2()
+    ev.hook.eroeffnung_hat_bewegung = False
+    ev.empfehlungen = [Empfehlung(zeitpunkt_sek=0.0,
+                                  anweisung="Nutze direkt zu Beginn einen schnellen Zoom auf dein Gesicht.")]
+    ev = entferne_vorhandene_bewegungs_empfehlung(ev)
+    assert len(ev.empfehlungen) == 1
+
+
+def test_ohne_beschreibung_wird_nicht_gefiltert():
+    """Ohne benannte Bewegung kein Filter — geraten wird nicht. Dieselbe Regel gilt schon bei
+    `text_hook_wortlaut` („Ohne zitierten Wortlaut kein Check"): Ein Flag allein, das das Modell
+    auch halluzinieren kann, darf keine berechtigte Empfehlung unterdrücken."""
+    from models.analyst import AnalystEvaluationV2, Empfehlung
+    from services.analyst_eval import entferne_vorhandene_bewegungs_empfehlung
+
+    ev = AnalystEvaluationV2()
+    ev.hook.eroeffnung_hat_bewegung = True
+    ev.hook.eroeffnung_bewegung = ""          # nichts benannt
+    ev.empfehlungen = [Empfehlung(zeitpunkt_sek=0.0,
+                                  anweisung="Setz zu Beginn einen kleinen Zoom auf dein Gesicht.")]
+    ev = entferne_vorhandene_bewegungs_empfehlung(ev)
+    assert len(ev.empfehlungen) == 1
+
+
+def test_spaetere_bewegungs_tipps_bleiben_unberuehrt():
+    """Das Ist-Feld beschreibt NUR die Eröffnung. Ein Bewegungstipp für Sekunde 12 sagt darüber
+    nichts aus und darf nicht mitgelöscht werden."""
+    from models.analyst import AnalystEvaluationV2, Empfehlung
+    from services.analyst_eval import entferne_vorhandene_bewegungs_empfehlung
+
+    ev = AnalystEvaluationV2()
+    ev.hook.eroeffnung_hat_bewegung = True
+    ev.hook.eroeffnung_bewegung = "schneller Zoom"
+    ev.empfehlungen = [Empfehlung(zeitpunkt_sek=12.0,
+                                  anweisung="Setz bei Sekunde 12 einen Zoom auf dein Gesicht.")]
+    ev = entferne_vorhandene_bewegungs_empfehlung(ev)
+    assert len(ev.empfehlungen) == 1
+
+
+def test_altlaeufe_ohne_bewegungsfeld_verhalten_sich_wie_bisher():
+    """Gespeicherte Läufe kennen die Felder nicht. Default False bzw. leer = kein Filter."""
+    from models.analyst import HookEval
+    h = HookEval()
+    assert h.eroeffnung_hat_bewegung is False
+    assert h.eroeffnung_bewegung == ""

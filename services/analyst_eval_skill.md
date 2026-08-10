@@ -65,6 +65,19 @@ Arbeite in dieser Reihenfolge: **A** was ist da → **B** zählt es als Hook →
 als Hook zählt. Das Feld dokumentiert, WAS im Bild stand. Nur wenn gar kein Bildtext zu sehen war,
 bleibt es leer.
 
+`text_hook_wortlaut_ist_untertitel`: PFLICHT. Setz `true`, wenn der zitierte Text der mitlaufende
+Untertitel ist — erkennbar daran, dass er wortgleich zum Gesprochenen ist UND über das Video hinweg
+laufend neue Blöcke kommen. Setz `false` bei statischem Bildtext, einer Grafik-Überschrift oder einer
+Titelkarte. Diese Angabe entscheidet, ob dem Nutzer „du liest deinen Bildtext vor" vorgeworfen wird.
+Bei Untertiteln wäre dieser Vorwurf falsch: Sie folgen der Sprache, sie gehen ihr nicht voraus.
+
+`eroeffnung_hat_bewegung` / `eroeffnung_bewegung`: PFLICHT. Prüfe die ersten rund 2 Sekunden auf
+Kamerabewegung und Bildeffekte — Zoom, Kamerafahrt, harter Schnitt, Übergangseffekt. Sieh genau hin:
+Ein schneller Zoom kann nach einer halben Sekunde vorbei sein und ist trotzdem da. Ist Bewegung
+vorhanden, setz das Flag und benenne sie in wenigen Worten. Empfiehl dann NICHT, Bewegung
+hinzuzufügen — das hat der Nutzer bereits getan. Willst du sie verbessern, sag konkret was (z.B.
+langsamer, weiter, später), statt sie neu zu fordern.
+
 ### B — Zählt es als Hook
 
 ERSTER PRÜFSCHRITT — gehört der Text zum grafischen Inhalt?
@@ -513,8 +526,13 @@ Dies ist die einzige Stelle, an der die Empfehlungs-Regeln stehen. Alles andere 
   (z.B. „einen kurzen Woosh-Ton einfügen, der 2 Sekunden hält", „ein kleines Foto vom Hof oben rechts
   einblenden").
 - **Visuelle Einblendungen gehören ins Feld `einblendungen`, nicht hierher.** Trag dort HÖCHSTENS 3
-  Stellen ein: `zeitpunkt_sek` plus das Wort/die Aussage, die dort verstärkt werden soll. Das System
-  baut daraus EINEN Schritt, der alle Stellen nennt und dem Nutzer die Wahl zwischen Grafik, Symbol,
+  Stellen ein: `zeitpunkt_sek` plus das Wort/die Aussage, die dort verstärkt werden soll.
+  **Setz `bereits_vorhanden` bei jeder Stelle.** `true`, wenn dort im Video schon eine Einblendung,
+  Grafik, ein Foto oder eine B-Roll liegt — `false` nur, wenn dort wirklich nichts ist. Der Nutzer
+  bekommt einen Handlungsschritt ausschließlich für die `false`-Stellen. Eine Einblendung zu
+  empfehlen, die schon da ist, ist der schlimmste Einzelfehler dieses Schritts: Sie beweist dem
+  Nutzer, dass nicht hingesehen wurde, und verbraucht einen der nur drei Top-Plätze.
+  Das System baut daraus EINEN Schritt, der alle Stellen nennt und dem Nutzer die Wahl zwischen Grafik, Symbol,
   Emoji, Foto und kurzer B-Roll lässt. Welches Motiv zu einem Begriff passt, entscheidet der Nutzer —
   ein vorgeschriebenes Motiv, das nicht passt, entwertet den ganzen Schritt.
   Gemeint sind Einblendungen, die den INHALT verstärken. Andere visuelle Elemente (Folgen-Knopf,

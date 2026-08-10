@@ -98,8 +98,23 @@ class HookEval(BaseModel):
     # Bildtext steht also nirgends im Ergebnis — ohne dieses Feld kann der Code die Redundanz zum
     # Transkript nicht messen.
     text_hook_wortlaut: str = ""
+    # True, wenn der oben zitierte Wortlaut der mitlaufende UNTERTITEL ist, nicht ein statischer
+    # Bildtext. Untertitel sind per Definition wortgleich zum Gesprochenen — ohne diese Unterscheidung
+    # liest `bereinige_redundante_texthook` sie als vorgelesenen Bildtext und deckelt zu Unrecht
+    # (Lauf 225cf73b: „Deine ersten Worte lesen den Bildtext vor" bei mitlaufenden Untertiteln, die der
+    # Sprache nur FOLGTEN). Default False, damit Altläufe ohne dieses Feld sich wie bisher verhalten.
+    text_hook_wortlaut_ist_untertitel: bool = False
     text_hook_offene_frage: str = ""   # wie sprech_hook_offene_frage, für die Text-Hook
     text_hook_mechanik: str = ""       # wie sprech_hook_mechanik, für die Text-Hook
+    # Ist-Angabe zur Eröffnung, analog zu `text_hook_wortlaut`: Ohne sie empfiehlt der Analyst
+    # Bewegung, die schon da ist. Läufe 225cf73b, b08f73bd und 7230d0f8 (dasselbe Video) empfahlen
+    # alle „Nutze direkt zu Beginn einen schnellen digitalen Zoom auf dein Gesicht" — den Zoom gab
+    # es längst, er war nach 0,4 s vorbei (10-fps-Frameanalyse: MAD 25,3/14,7/9,4 bei 0,1/0,2/0,3 s).
+    # Das Modell benannte ihn in KEINEM Feld; „Zoom" stand im ganzen Ergebnis nur in der Empfehlung.
+    # Das Benennen zwingt das Modell zum Hinsehen — dieselbe Wirkung wie `text_hook_wortlaut` beim
+    # Bildtext. Default False/leer, damit sich Altläufe ohne diese Felder wie bisher verhalten.
+    eroeffnung_hat_bewegung: bool = False   # Zoom, Kamerafahrt, Schnitt o.ä. in den ersten ~2 s
+    eroeffnung_bewegung: str = ""           # was genau — Pflicht, wenn das Flag True ist
     # DRITTE HOOK-EBENE (Vorgabe Chris, 2026-08-06): Bewegung im Bild, Zoom, Schnitt, ein visueller
     # Bruch in den ersten Sekunden. Die Referenz kennt sie seit jeher (S1: „Hook auf 3 Ebenen —
     # Sprech × Text × visuell"), das Schema hatte nur zwei — die Ebene fiel damit still weg.
@@ -255,9 +270,15 @@ class Einblendung(BaseModel):
     3185d209: „den tipp mit den grafiken kann man auch zusammenfassen. maximal an 3 stellen
     empfehlen."). Sie im Prompt über `gruppe` zu bündeln ist keine Option — dabei hat das Modell
     schon einmal drei verschiedene Motive zu einer falschen Empfehlung verschmolzen (Lauf 702f9c11).
+
+    `bereits_vorhanden` trennt Beobachtung von Empfehlung: Ohne dieses Feld nennt das Modell die
+    inhaltlich stärksten Momente — und das sind genau die, an denen ein guter Cutter längst eine
+    Einblendung gesetzt hat. Default False, damit gespeicherte Altläufe sich nicht rückwirkend
+    ändern.
     """
     zeitpunkt_sek: float = 0.0
     verstaerkt: str = ""   # das Wort oder die Aussage, die verstärkt werden soll
+    bereits_vorhanden: bool = False   # True = an dieser Stelle liegt schon eine Einblendung
 
 
 class Empfehlung(BaseModel):

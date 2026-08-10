@@ -11,9 +11,17 @@ import time
 
 
 def test_queue_serializes(monkeypatch):
-    """Bei Default ANALYST_MAX_CONCURRENT=1 darf nie mehr als 1 Analyse gleichzeitig
-    durch die schwere Pipeline laufen — der Rest wartet in der Schlange."""
+    """Bei ANALYST_MAX_CONCURRENT=1 darf nie mehr als 1 Analyse gleichzeitig durch die schwere
+    Pipeline laufen — der Rest wartet in der Schlange.
+
+    Der Semaphore wird hier gesetzt statt geerbt: `_SLOTS` entsteht beim Modulimport aus der
+    `.env`, und seit dort auf Entwicklungsrechnern `ANALYST_MAX_CONCURRENT=2` stehen kann, hat
+    dieser Test seine eigene Voraussetzung nur noch behauptet statt hergestellt (er schlug dann
+    mit „2 liefen parallel" fehl, obwohl die Warteschlange korrekt arbeitete).
+    """
     from services import analyst_engine as ae
+
+    monkeypatch.setattr(ae, "_SLOTS", threading.BoundedSemaphore(1))
 
     concurrent = 0
     max_seen = 0

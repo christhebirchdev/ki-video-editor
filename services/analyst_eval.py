@@ -26,7 +26,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-08-08"
+PROMPT_VERSION = "2026-08-10c"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
@@ -274,7 +274,19 @@ def bereinige_redundante_texthook(parsed: AnalystEvaluationV2, result: AnalystRe
     Beide Scores werden nur gedeckelt, nie erhöht. Die Deckel lösen zugleich die vorhandenen
     Erzwingungen aus: Sprech-Score ≤3 triggert die Sprechhook-Empfehlung,
     `text_hook_score_geklemmt` die Texthook-Empfehlung.
+
+    **Wächter `text_hook_wortlaut_ist_untertitel`:** Untertitel sind per Definition wortgleich zum
+    Gesprochenen — sie als „vorgelesenen Bildtext" zu werten dreht Ursache und Wirkung um. Im Lauf
+    225cf73b trug das Modell den mitlaufenden Untertitel in `text_hook_wortlaut` ein, der Check
+    schloss daraus auf Vorlesen und kostete den Sprech-Hook zwei Punkte samt der falschen Aussage
+    „Deine ersten Worte lesen den Bildtext vor" — während derselbe Output an anderer Stelle korrekt
+    festhielt, dass Untertitel nicht als Text-Hook zählen. Der Wächter bricht deshalb VOR dem
+    Stringvergleich ab. Das ändert nichts an der bewussten Nicht-Kopplung an `text_hook_vorhanden`
+    oben: Ein vorgelesener statischer Bildtext (Lauf 5502bb37) muss weiterhin deckeln, auch wenn er
+    selbst nicht als Hook zählt.
     """
+    if getattr(parsed.hook, "text_hook_wortlaut_ist_untertitel", False):
+        return parsed
     wortlaut = _normalisiert(getattr(parsed.hook, "text_hook_wortlaut", ""))
     if len(wortlaut.split()) < 2:
         return parsed          # nichts zitiert oder zu kurz für einen belastbaren Vergleich
@@ -331,6 +343,41 @@ def entferne_bestaetigungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
         parsed.empfehlungen = [
             e for e in parsed.empfehlungen if not _BESTAETIGUNG.search(e.anweisung or "")
         ]
+    return parsed
+
+
+# Nur ergänzende Verben — „Mach den Zoom langsamer" ist eine Verbesserung des Vorhandenen und
+# muss stehen bleiben. Deshalb wird das Hinzufügen adressiert, nicht das Wort „Zoom" allein.
+_BEWEGUNG_HINZUFUEGEN = re.compile(
+    r"(nutze|setz|setze|füge|fuege|bring|bringe|starte|beginne|ergänze|ergaenze|arbeite mit)"
+    r"[^.]{0,80}(zoom|kamerafahrt|kameraschwenk|bewegung ins bild|bildbewegung)",
+    re.IGNORECASE,
+)
+
+EROEFFNUNG_FENSTER_SEK = 2.0
+
+
+def entferne_vorhandene_bewegungs_empfehlung(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """Verwirft Empfehlungen, die Bewegung in der Eröffnung FORDERN, obwohl dort schon welche ist.
+
+    Läufe 225cf73b, b08f73bd und 7230d0f8 (dasselbe Video) empfahlen alle „Nutze direkt zu Beginn
+    einen schnellen digitalen Zoom" — den es längst gab. Das Modell benannte ihn in keinem Feld;
+    „Zoom" stand im ganzen Ergebnis nur in der Empfehlung. Die Ursache ist nicht die Abtastrate
+    (die liegt seit 2026-08-10 bei 4 fps und hat die Wahrnehmung messbar verbessert), sondern das
+    fehlende Ist-Feld: Gefragt wurde nur, was die Eröffnung besser machen WÜRDE.
+
+    **Ohne benannte Bewegung kein Filter** — dieselbe Regel wie bei `text_hook_wortlaut`. Ein Flag
+    allein, das das Modell auch halluzinieren kann, darf keine berechtigte Empfehlung unterdrücken.
+    """
+    if not parsed.hook.eroeffnung_hat_bewegung:
+        return parsed
+    if not (parsed.hook.eroeffnung_bewegung or "").strip():
+        return parsed
+    parsed.empfehlungen = [
+        e for e in parsed.empfehlungen
+        if not (e.zeitpunkt_sek <= EROEFFNUNG_FENSTER_SEK
+                and _BEWEGUNG_HINZUFUEGEN.search(e.anweisung or ""))
+    ]
     return parsed
 
 
@@ -457,7 +504,13 @@ def baue_einblendungs_schritt(parsed: AnalystEvaluationV2) -> AnalystEvaluationV
     """
     if not parsed.einblendungen:
         return parsed
-    stellen = sorted(parsed.einblendungen, key=lambda e: e.zeitpunkt_sek)[:EINBLENDUNGEN_MAX]
+    # Stellen, an denen schon eine Einblendung liegt, sind Beobachtung — keine Handlung. Ohne
+    # diesen Filter empfiehlt der Schritt dem Nutzer, was er bereits getan hat (Läufe 7230d0f8 und
+    # b08f73bd: an 5,0 s und 9,5 s lagen Grafiken, das Modell hatte sie in schnitt_pacing gelobt).
+    offen = [e for e in parsed.einblendungen if not e.bereits_vorhanden]
+    if not offen:
+        return parsed
+    stellen = sorted(offen, key=lambda e: e.zeitpunkt_sek)[:EINBLENDUNGEN_MAX]
     # Eigene Einblendungs-Empfehlungen des Modells an genau diesen Stellen verwerfen. Der
     # Zeitpunkt-Treffer (±2 s) hält den Filter eng: ein „Folgen-Knopf einblenden" am Videoende ist
     # ein CTA und keine Inhalts-Verstärkung — der bleibt.
@@ -1048,6 +1101,10 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = bereinige_redundante_texthook(parsed, result)
     parsed = neutralisiere_stumme_scores(parsed, result)
     parsed = entferne_bestaetigungen(parsed)
+    # Verwirft modell-eigene Empfehlungen und gehört damit zu den Filtern am Anfang, vor allen
+    # Erzwingungen — sonst zählt baue_effekt_schritt() eine Empfehlung mit, die gleich wieder
+    # verschwindet.
+    parsed = entferne_vorhandene_bewegungs_empfehlung(parsed)
     parsed = baue_pausen_schritt(parsed)
     parsed = baue_einblendungs_schritt(parsed)
     # VOR den Erzwingungen: Benannte Probleme deckeln den Score, damit die ≤3-Regel danach
@@ -1115,6 +1172,9 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
     "text_hook_vorhanden": <true|false>,
     "text_hook_score": <int 0-5; 0 wenn in der Eröffnung gar kein Bildtext zu sehen ist oder der sichtbare Text nach der Regel „UNTERTITEL sind KEIN Text-Hook" eine Untertitelspur ist. Ein mitgesprochener Textblock ist KEIN Grund für 0 — er ist redundant, nicht abwesend>,
     "text_hook_wortlaut": "<PFLICHT: der Eröffnungs-Bildtext WÖRTLICH — auch wenn er nicht als Hook zählt. Nur wenn gar kein Bildtext zu sehen war: leer>",
+    "text_hook_wortlaut_ist_untertitel": <PFLICHT bool: true, wenn der oben zitierte Text der mitlaufende UNTERTITEL ist (wortgleich zum Gesprochenen, laufend neue Blöcke) — false bei statischem Bildtext, Grafik-Überschrift oder Titelkarte>,
+    "eroeffnung_hat_bewegung": <PFLICHT bool: true, wenn in den ersten rund 2 Sekunden eine Kamerabewegung oder ein Bildeffekt stattfindet — Zoom, Kamerafahrt, harter Schnitt, Übergangseffekt. Sieh GENAU hin: ein schneller Zoom kann nach einer halben Sekunde vorbei sein>,
+    "eroeffnung_bewegung": "<PFLICHT wenn oben true: was genau passiert, in wenigen Worten — z.B. schneller digitaler Zoom auf das Gesicht. Sonst leer>",
     "text_hook_offene_frage": "<PFLICHT wenn text_hook_vorhanden=true: die Frage, die der Bildtext offen lässt, in EINEM Satz. Lässt er keine offen: leer>",
     "text_hook_mechanik": "<PFLICHT wenn text_hook_vorhanden=true, einer aus: provokation | neugierluecke | zahl | erwartungsbruch | pov | konflikt | versprechen | keine>",
     "text_hook_grund": "<1-2 Sätze; bei score 0 die Ansage + Tipp (3 Varianten über Instagram-Testreel testen)>",
@@ -1140,7 +1200,7 @@ OUTPUT_SCHEMA = """Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, exakt diese F
   "pausen_urteile": [{"start_sec": <float: die start_sec EINER gemessenen Pause aus der Sprachstatistik, unverändert übernommen>, "urteil": "<raus | lassen | unklar — siehe „Sprechpausen — nach FUNKTION beurteilen">"}],
   "texthook_varianten": ["<bis zu 3 Vorschläge für eine bessere Text-Hook, je HÖCHSTENS 9 Wörter, je andere Mechanik; LEER LASSEN, wenn text_hook_score 4 oder 5 ist>"],
   "texthook_maengel": ["<NUR die Aspekte, die an der VORHANDENEN Text-Hook wirklich schwach sind, aus: wortlaut | laenge | redundanz | groesse | farbe | lesbarkeit | dauer | position. Ist die Hook in Ordnung: []>"],
-  "einblendungen": [{"zeitpunkt_sek": <float: Stelle, an der eine visuelle Einblendung den Inhalt verstärken würde>, "verstaerkt": "<das Wort oder die Aussage, die dort verstärkt werden soll — z.B. Hof, Selbstbewusstsein>"}],
+  "einblendungen": [{"zeitpunkt_sek": <float: Stelle, an der eine visuelle Einblendung den Inhalt verstärkt oder verstärken würde>, "verstaerkt": "<das Wort oder die Aussage, die dort verstärkt wird — z.B. Hof, Selbstbewusstsein>", "bereits_vorhanden": <bool: true, wenn an dieser Stelle im Video SCHON eine Einblendung, Grafik, ein Foto oder eine B-Roll liegt; false, wenn dort nichts ist>}],
   "empfehlungen": [{"zeitpunkt_sek": <float: die Sekunde im Video, auf die sich die Handlung bezieht — Richtwert, ±1–2 s>, "anweisung": "<EINE konkrete Handlung, die etwas VERÄNDERT, in SUPER EINFACHER Sprache>", "gruppe": "<Label nur für die WÖRTLICH GLEICHE Handlung an mehreren Stellen, sonst leer>", "betrifft": "<welche Bewertungsdimension diese Handlung behebt, aus: sprech_hook | text_hook | sprechqualitaet | visuelle_aesthetik | spannungsbogen | struktur | schnitt_pacing. Gehört sie zu keiner: leer>"}]
 }
 

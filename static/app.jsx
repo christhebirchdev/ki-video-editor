@@ -289,30 +289,21 @@ const ANALYST_FEATURES = [
 
 // Bewertungs-Engines zum Vergleich. Gleiches Ergebnis-Layout, gleicher Bewertungsprompt —
 // nur WER/WIE bewertet ändert sich.
-const ANALYST_ENGINES = [
-  { id: "v2_hybrid", label: "V1.1", hint: "Ein Bewertungs-Durchgang für alle Kriterien. Schneller." },
-  { id: "v2_split",  label: "V1.2", hint: "Zwei Durchgänge: erst die Eröffnung, dann das Handwerk. Jeder Schritt bekommt weniger Regeln gleichzeitig — dauert länger, sollte aber genauer sein." },
-];
-const ENGINE_LABEL = Object.fromEntries(ANALYST_ENGINES.map((e) => [e.id, e.label]));
+// Nur eine produktive Engine (v2_split, intern „V1.2"). Frontend nennt keine Version, damit
+// nichts über den Hintergrund preisgibt. Backend-Param bleibt `v2_split` — Server-Vertrag stabil.
+const ANALYST_ENGINE = "v2_split";
 
-// Stufen pro Engine für die Fortschrittsbalken. est = geschätzte Dauer in Sekunden (aus echten Läufen +
-// Architektur; die Gemini-Phase enthält den Video-Upload und ist mit Abstand am längsten).
-const STAGE_SETS = {
-  v2_hybrid: [
-    { key: "transcribe", label: "Transkription", est: 28 },
-    { key: "quality", label: "Audio-Messwerte", est: 6 },
-    { key: "evaluate", label: "Analyse & Bewertung", est: 85 },
-  ],
-  // V1.2: zwei Bewertungs-Calls hintereinander → die Bewertungsphase dauert entsprechend länger.
-  v2_split: [
-    { key: "transcribe", label: "Transkription", est: 28 },
-    { key: "quality", label: "Audio-Messwerte", est: 6 },
-    { key: "evaluate", label: "Bewertung in zwei Schritten", est: 150 },
-  ],
-  v2_pure: [
-    { key: "evaluate", label: "Analyse & Bewertung", est: 50 },
-  ],
-};
+// Stufen für die Fortschrittsbalken. est = geschätzte Dauer in Sekunden aus echten Läufen. Die
+// Labels sind bewusst neutral — sie sollen nicht verraten, welches Werkzeug im Hintergrund läuft
+// (Vorgabe Chris 2026-08-10: keine „Transkription"-o.Ä.-Meldungen mehr).
+const STAGE_SET = [
+  { key: "transcribe", label: "Vorbereitung",        est: 28 },
+  { key: "quality",    label: "Prüfung",             est: 6 },
+  { key: "evaluate",   label: "Analyse & Bewertung", est: 150 },
+];
+// Frontend-Fortschrittstext, unabhängig vom (technisch benannten) Backend-Detail. Ein einziger
+// Text für alle Phasen — der visuelle Fortschritt kommt aus StageBars.
+const ANALYSE_LAEUFT = "Analyse läuft …";
 
 // Ein Stufen-Balken pro Bearbeitungsschritt: abgeschlossene Stufen 100 %, die aktive füllt sich zeitbasiert
 // (gedeckelt bei 96 %, bis die Stufe wirklich fertig ist). So gibt es pro Stufe ein „voll"-Erlebnis.
@@ -714,9 +705,12 @@ function ChatPanel({ runId, filename, dauerSec = 0 }) {
 function VideoAnalystPage({ adminPw = "", chat = false }) {
   const [runId, setRunId] = useState("");   // für die Feedback-Zuordnung in der Admin-Ansicht
   const [analysisFile, setAnalysisFile] = useState(null);
-  // Bewertungs-Version. V1.1 = ein Call, V1.2 = zwei Calls (Eröffnung / Handwerk). Läuft bewusst
+  const [dragActive, setDragActive] = useState(false);   // visueller Hover-Zustand beim Draggen
+  // Bewertungs-Version fest = v2_split. Version-Auswahl im Frontend entfernt (2026-08-10):
+  // Nur eine sichtbare Variante, damit der Kunde nicht mit „V1.1 vs. V1.2" konfrontiert wird.
+  // Alter Kommentar: V1.1 = ein Call, V1.2 = zwei Calls (Eröffnung / Handwerk). Läuft bewusst
   // nebeneinander, damit sich vergleichen lässt, ob der Split die Bewertung verbessert.
-  const [engine, setEngine] = useState("v2_hybrid");
+  const engine = ANALYST_ENGINE;   // fest; kein Umschalter im Frontend
   const [plannedTextHook, setPlannedTextHook] = useState("");  // Freifeld: geplante Texthook (falls noch nicht im Video)
   // Format-Auswahl (Pflicht, genau eines). Muss zu models.analyst.FORMATE passen — die API validiert dagegen.
   const [format, setFormat] = useState("");
@@ -779,7 +773,9 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       if (cancelledRef.current) return null;
       if (data.phase === "error") throw new Error(data.error || "Analyse fehlgeschlagen");
       setQueueInfo(data.phase === "queued" ? (data.queue || null) : null);
-      setProgress(data.detail || "Analyse läuft …");
+      // data.detail bewusst NICHT anzeigen — es enthält technische Phasennamen
+      // („Transkription läuft…", „Audio-Messwerte…") und würde verraten, was intern läuft.
+      setProgress(ANALYSE_LAEUFT);
       if (data.phase && data.phase !== activePhaseRef.current) {
         activePhaseRef.current = data.phase;
         setActivePhase(data.phase);
@@ -799,12 +795,12 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     activePhaseRef.current = "";
     setPhaseStartMs(0);
     try {
-      setProgress("Video wird hochgeladen …");
+      setProgress("Video wird hochgeladen …");   // neutral; verrät nichts
       const fd = new FormData();
       fd.append("file", analysisFile.file);
       const up = await api("POST", "/api/analyst/upload", fd);
       setRunId(up.id);
-      setProgress("Analyse startet …");
+      setProgress(ANALYSE_LAEUFT);
       await api("POST", `/api/analyst/${up.id}/start?engine=${engine}&planned_text_hook=${encodeURIComponent(plannedTextHook)}&format=${encodeURIComponent(format)}`);
       const res = await pollUntilDone(up.id);
       if (res) {
@@ -924,8 +920,21 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
               onChange={onPickFile}
             />
             <div
-              className={"dropzone" + (analysisFile ? " has" : "")}
+              className={"dropzone" + (analysisFile ? " has" : "") + (dragActive ? " drag-over" : "")}
               onClick={() => fileRef.current?.click()}
+              onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+              onDrop={(e) => {
+                // Ohne preventDefault öffnet der Browser die Datei direkt in einem neuen Tab —
+                // genau das war der gemeldete Bug. onPickFile erwartet das native change-Event,
+                // aber { target: { files } } genügt: es liest nur target.files[0].
+                e.preventDefault();
+                setDragActive(false);
+                if (e.dataTransfer?.files?.length) {
+                  onPickFile({ target: { files: e.dataTransfer.files } });
+                }
+              }}
             >
               <div className="dz-ico"><Ico.upload /></div>
               {/* title: Der Name wird per CSS abgeschnitten — der volle Name bleibt im Tooltip. */}
@@ -1054,41 +1063,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             </div>
           </div>
 
-          {/* Bewertungs-Version. V1.1 und V1.2 laufen nebeneinander, damit sich der Zwei-Schritt-
-              Ansatz gegen den bisherigen vergleichen lässt. Gleiche Felder, gleiche Nachbearbeitung. */}
-          <div style={{ marginBottom: 12 }} role="radiogroup" aria-label="Version">
-            <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-              Version
-            </label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {ANALYST_ENGINES.map((e) => {
-                const on = engine === e.id;
-                return (
-                  <button
-                    key={e.id}
-                    type="button"
-                    role="radio"
-                    title={e.hint}
-                    disabled={phase === "running"}
-                    onClick={() => setEngine(e.id)}
-                    aria-checked={on}
-                    style={{
-                      padding: "6px 12px", fontSize: 13, borderRadius: 999, cursor: "pointer",
-                      border: `1px solid ${on ? "var(--accent, #2d6cdf)" : "var(--line-strong)"}`,
-                      background: on ? "var(--accent, #2d6cdf)" : "transparent",
-                      color: on ? "#fff" : "inherit",
-                      fontWeight: on ? 600 : 400,
-                    }}
-                  >
-                    {e.label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              {(ANALYST_ENGINES.find((e) => e.id === engine) || {}).hint}
-            </div>
-          </div>
+          {/* Version-Auswahl entfernt (2026-08-10) — nur eine sichtbare Variante. */}
 
           {/* Freifeld: geplante Texthook (falls sie erst nach dem Upload ins Video kommt) */}
           <div style={{ marginBottom: 12 }}>
@@ -1115,14 +1090,14 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             onClick={startAnalysis}
           >
             {phase === "running" ? (
-              <><span className="spinner" /> {progress || "Analyse läuft …"}</>
+              <><span className="spinner" /> {progress || ANALYSE_LAEUFT}</>
             ) : (
               <><Ico.play /> Videoanalyse starten</>
             )}
           </button>
           {phase === "running" && (
             <StageBars
-              stages={STAGE_SETS[engine] || STAGE_SETS.v2_hybrid}
+              stages={STAGE_SET}
               activePhase={activePhase}
               phaseStartMs={phaseStartMs}
               tick={tick}
@@ -1147,9 +1122,9 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
           icon={<Ico.check />}
           title="Analyse abgeschlossen"
           sub={[
+            // Kein Engine-Label (verrät „V1.2"). Länge und Zeit reichen als Info fürs Ergebnis.
             result.filename,
             fmtSec(result.duration_sec),
-            ENGINE_LABEL[result.engine] || result.engine,
             result.elapsed_sec ? `⏱ ${result.elapsed_sec}s` : null,
             result.scene_count ? `${result.scene_count} Szenen` : null,
           ].filter(Boolean).join(" · ")}
@@ -2386,10 +2361,11 @@ function VideoEditorPage() {
 }
 
 /* ===== Hauptkomponente ===== */
+// Nur noch eine Analyst-Ansicht (2026-08-10). Der Rückfragen-Chat bleibt als Feature erhalten
+// und lebt in derselben Seite; er heißt intern „V1.1", wurde im Frontend aber entlabelt.
 const PAGES = [
-  { id: "editor",      label: "Video Editor",       Icon: Ico.scissors },
-  { id: "analyst",     label: "Video Analyst",      Icon: Ico.brain },
-  { id: "analyst_v11", label: "Video Analyst V1.1", Icon: Ico.sparkles },
+  { id: "editor",  label: "Video Editor",  Icon: Ico.scissors },
+  { id: "analyst", label: "Video Analyst", Icon: Ico.brain },
 ];
 
 const PAGE_META = {
@@ -2400,13 +2376,8 @@ const PAGE_META = {
   },
   analyst: {
     title: "AI Video Analyst",
-    desc: "Analysiere jedes Video auf Inhalt, Sprach-Qualität, Schnitt-Pacing & Plattform-Potenzial — lade einfach dein Video hoch.",
+    desc: "Analysiere jedes Video auf Inhalt, Sprach-Qualität, Schnitt-Pacing & Plattform-Potenzial — lade einfach dein Video hoch. Nach der Analyse kannst du Rückfragen zur Bewertung stellen.",
     appTitle: "AI Video Analyst",
-  },
-  analyst_v11: {
-    title: "AI Video Analyst V1.1",
-    desc: "Wie der Video Analyst — plus Chat: Stell Rückfragen zur fertigen Analyse, lass dir erklären, warum ein Tipp wichtig ist, und frag nach konkreteren Hinweisen zu deinem Video.",
-    appTitle: "AI Video Analyst V1.1",
   },
 };
 
@@ -2480,12 +2451,10 @@ function App() {
       {!ANALYST_ONLY && (
         <div className={activePage !== "editor" ? "page-hidden" : ""}><VideoEditorPage /></div>
       )}
+      {/* EINE Analyst-Ansicht mit Chat. Vor 2026-08-10 lief hier eine zweite Instanz derselben
+          Komponente unter dem Label „V1.1" — Chris will nur noch V1.2 sichtbar, der Chat bleibt
+          aber als Feature erhalten und ist damit in der einzigen Ansicht direkt verfügbar. */}
       <div className={activePage !== "analyst" ? "page-hidden" : ""}>
-        <VideoAnalystPage adminPw={adminPw} />
-      </div>
-      {/* V1.1: zweite Instanz derselben Komponente, nur mit Chat. Zwei Instanzen = zwei
-          getrennte Zustände — gewollt, V1.1 ist eine eigene Ansicht, kein Umschalter. */}
-      <div className={activePage !== "analyst_v11" ? "page-hidden" : ""}>
         <VideoAnalystPage adminPw={adminPw} chat />
       </div>
     </div>

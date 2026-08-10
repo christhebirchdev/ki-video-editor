@@ -46,6 +46,25 @@ Bildbeschreibung lokal lief. Beschreibung und Bewertung laufen heute beide über
 `analyst_engine.py`): Gemini/VLM beschreibt in Segmenten, danach bewertet **Claude** über
 `analyst_eval.evaluate()`. Nur dieser Pfad nutzt die Anthropic-API.
 
+### Abtastrate des Videos (seit 2026-08-10)
+
+Der Bewertungs-Call übergibt das Video als `types.Part` mit `video_metadata.fps = VIDEO_FPS`
+(`services/analyst_gemini_eval.py`, aktuell **4**). Ohne das tastet Gemini mit **1 Bild/Sekunde** ab.
+`types.Part.from_uri()` nimmt kein `video_metadata` entgegen — der Part wird deshalb direkt gebaut.
+
+**Warum:** Im Lauf `b08f73bd` beanstandete Chris „im ersten moment des video gibt es einen schnellen
+zoom. du hast ihn nicht gesehen." Eine Frameanalyse des Videos bei 10 fps ergab Bildänderungen (MAD)
+von 25,3 / 14,7 / 9,4 bei t = 0,1 / 0,2 / 0,3 s und unter 5 ab 0,5 s: Der Zoom ist nach 0,4 s vorbei
+und lag vollständig zwischen den Abtastpunkten 0,0 s und 1,0 s. Das Modell konnte ihn nicht sehen —
+und empfahl folgerichtig, einen Zoom einzubauen, den es längst gab.
+
+**Der Preis ist linear:** 4 fps sind viermal so viele Videotokens pro Call, und `v2_split` schickt das
+Video zweimal. Bei Kostendruck ist der nächste Hebel `media_resolution` (LOW ≈ 66 statt 258 Tokens pro
+Frame), **nicht** das Zurückdrehen der Rate — die Rate löst genau das Wahrnehmungsproblem.
+
+**Nicht betroffen:** `analyst_vlm.py` (Audio- und Blick-Pass) gehört zum V1-Pfad und bleibt bei 1 fps;
+beim Audio-Pass wäre eine höhere Bildrate ohnehin sinnlos.
+
 ### V1.1: Rückfragen-Chat (Stand 2026-07-29)
 
 Zweite Analyst-Ansicht **neben** der bestehenden, Tab „Video Analyst V1.1". Beide rendern
@@ -249,6 +268,17 @@ Urteils-Korrekturen, dann die Eingriffe in `empfehlungen`, `verteile_empfehlunge
   mit gleichem Text: Beim Bündeln über `verteile_empfehlungen` überlebt nur eine Anweisung, und dann
   wäre weg, WAS an welcher Stelle verstärkt werden soll. Der Filter gegen Modell-eigene Einblendungen
   greift nur bei Zeitpunkt-Treffer (±2 s) — ein „Folgen-Knopf" am Ende ist ein CTA und bleibt stehen.
+  **Nachtrag 2026-08-10 — `bereits_vorhanden`:** Stellen mit `bereits_vorhanden=true` werden
+  herausgefiltert; bleibt nichts übrig, entsteht kein Schritt. Vorher fragte der Vertrag nur, wo eine
+  Einblendung verstärken *würde* — das Modell nannte daraufhin die inhaltlich stärksten Momente, also
+  genau die, an denen ein guter Cutter längst eine gesetzt hat. Es war dabei nicht blind: Im selben
+  Ergebnis lobte `schnitt_pacing` die vorhandenen Einblendungen wörtlich, während der Schritt darunter
+  empfahl, welche einzubauen (Feedback 7230d0f8 und b08f73bd: „im video sind grafiken und sogar kleine
+  videoeinblendungen integriert. das muss der ki auffallen können"). Gemessen: `einblendungen` war in
+  9 von 9 Läufen mit aktuellem Schema befüllt, die Empfehlung feuerte also ausnahmslos.
+  Das Muster ist verallgemeinerbar: **Ein Feld, das nur nach dem Soll-Zustand fragt, taugt nicht als
+  Grundlage für eine Handlungsaufforderung** — es braucht die Ist-Angabe daneben. `baue_effekt_schritt()`
+  löst dasselbe Problem über `dynamik.urteil` als Auslöser-Wächter.
 - `gueltige_texthook_varianten()` + `_texthook_anweisung()` — Varianten kommen als Liste aus
   `texthook_varianten`, der Code zählt die Wörter (max. 9) und baut die Empfehlung. Die Regel stand im
   Prompt samt „zähle die Wörter" und wurde trotzdem gerissen (Feedback f2312dc9: 13 Wörter). Zählen ist
@@ -273,6 +303,33 @@ Urteils-Korrekturen, dann die Eingriffe in `empfehlungen`, `verteile_empfehlunge
   `hook.text_hook_wortlaut` im Schema Pflicht, wenn eine Text-Hook erkannt wurde; bei `v2_hybrid`
   ist `scenes` leer, der Bildtext steht also sonst nirgends im Ergebnis. Altläufe haben das Feld
   nicht und bleiben dadurch unverändert.
+  **Nachtrag 2026-08-10 — Untertitel-Wächter:** `hook.text_hook_wortlaut_ist_untertitel=true` bricht
+  den Check ab, bevor der Stringvergleich läuft. Grund: **Untertitel sind per Definition wortgleich
+  zum Gesprochenen.** Trägt das Modell sie in `text_hook_wortlaut` ein, schließt der Vergleich
+  zwangsläufig auf Vorlesen — der Check feuerte damit potenziell bei jedem untertitelten Video. Im
+  Lauf `225cf73b` kostete das den Sprech-Hook zwei Punkte (5→3) und produzierte die sachlich falsche
+  Aussage „Deine ersten Worte lesen den Bildtext vor", während `hook.text_hook_grund` im selben
+  Output korrekt festhielt, dass Untertitel nicht zählen. Ursache und Wirkung waren vertauscht: Die
+  Untertitel folgen der Sprache, sie gehen ihr nicht voraus (Feedback 225cf73b).
+  Die **Nicht-Kopplung an `text_hook_vorhanden` bleibt bewusst bestehen** — ein vorgelesener
+  statischer Bildtext (5502bb37) muss weiter deckeln, auch wenn er selbst nicht als Hook zählt.
+  Genau deshalb ein eigenes Herkunftsfeld statt einer Kopplung an das vorhandene.
+- `entferne_vorhandene_bewegungs_empfehlung()` (2026-08-10) — verwirft Empfehlungen, die Bewegung in
+  der Eröffnung FORDERN, obwohl `hook.eroeffnung_hat_bewegung` sie meldet. Die Läufe 225cf73b,
+  b08f73bd und 7230d0f8 (dasselbe Video) empfahlen alle „Nutze direkt zu Beginn einen schnellen
+  digitalen Zoom" — den es längst gab (Feedback 225cf73b: „Zu beginn gibt es schon einen schnellen
+  digitalen zoom auf das gesicht"). Das Modell benannte ihn in keinem Feld; „Zoom" stand im ganzen
+  Ergebnis nur in der Empfehlung.
+  **Nicht die Abtastrate war die Ursache** — die liegt seit demselben Tag bei 4 fps und hat die
+  Wahrnehmung messbar verbessert (der weiße Übergangseffekt bei Sek. 2 wird seitdem benannt). Es
+  fehlte das Ist-Feld: Gefragt wurde nur, was die Eröffnung besser machen *würde*.
+  **Ohne benannte Bewegung kein Filter** (`eroeffnung_bewegung` muss gefüllt sein) — dieselbe Regel
+  wie bei `text_hook_wortlaut`: Ein Flag allein, das das Modell halluzinieren kann, darf keine
+  berechtigte Empfehlung unterdrücken. Der Regex `_BEWEGUNG_HINZUFUEGEN` adressiert bewusst nur
+  ergänzende Verben — „Mach den Zoom langsamer" bleibt stehen, „Nutze zu Beginn einen Zoom" fliegt.
+  **Bekannte Grenze:** „Setze den Zoom später ein" (reine Zeitverschiebung) trifft der Filter
+  ebenfalls; das ist der Preis dafür, den Regex eng an den Verben statt am Wort „Zoom" zu führen.
+  Fenster: `EROEFFNUNG_FENSTER_SEK = 2.0` — spätere Bewegungstipps bleiben unberührt.
 - `erzwinge_hook_empfehlungen()` — zusätzlich zu `text_hook_score == 0` löst jetzt auch
   `hook.text_hook_score_geklemmt` die Texthook-Empfehlung aus. Grund: Wurde der Score erst im Code
   gedeckelt, konnte das Modell davon nichts wissen und hat keine Varianten geliefert. Im Lauf

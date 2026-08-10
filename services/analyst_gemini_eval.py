@@ -23,6 +23,29 @@ from models.analyst import AnalystEvaluationV2, AnalystResult
 from services import analyst_eval, analyst_prompt_log, analyst_vlm, gemini_service
 from services.analyst_vlm import _generate  # generate_content mit Modell-Fallback
 
+# Gemini tastet Videos standardmäßig mit 1 Bild/Sekunde ab. Schnelle Bewegungen fallen damit
+# zwischen zwei Abtastpunkte: Im Lauf b08f73bd war der Eröffnungs-Zoom nach 0,4 s vorbei und lag
+# vollständig zwischen Frame 0,0 s und Frame 1,0 s — das Modell konnte ihn nicht sehen und empfahl
+# daraufhin, einen Zoom einzubauen, den es schon gab (Feedback Chris, 2026-08-10).
+# Der Preis ist linear: 4 fps sind viermal so viele Videotokens pro Call. Bei Kostendruck ist der
+# nächste Hebel `media_resolution` (LOW ≈ 66 statt 258 Tokens/Frame), nicht die Rate.
+VIDEO_FPS = 4.0
+
+
+def _video_part(video_file):
+    """Videohandle mit erhöhter Abtastrate.
+
+    `types.Part.from_uri()` nimmt kein `video_metadata` entgegen (Signatur: file_uri, mime_type,
+    media_resolution) — der Part wird deshalb direkt gebaut.
+    """
+    return types.Part(
+        file_data=types.FileData(
+            file_uri=video_file.uri,
+            mime_type=getattr(video_file, "mime_type", None) or "video/mp4",
+        ),
+        video_metadata=types.VideoMetadata(fps=VIDEO_FPS),
+    )
+
 
 def _metrics_txt(result: AnalystResult) -> str:
     # Eine Stelle für die Entscheidung „sind Bildwerte echte Messungen?" — v2 zieht keine Frames,
@@ -216,7 +239,7 @@ def _evaluate(video_path: Path, result: AnalystResult, mode: str, run_dir=None) 
         response_mime_type="application/json",
         temperature=0.0,
     )
-    raw = (_generate([video_file, user], cfg, f"analyst_eval_{mode}").text or "")
+    raw = (_generate([_video_part(video_file), user], cfg, f"analyst_eval_{mode}").text or "")
     parsed = analyst_eval.nachbearbeiten(AnalystEvaluationV2(**analyst_eval._extract_json(raw)), result)
     analyst_prompt_log.log_call(
         run_dir, call=f"eval_{mode}", recipient="Gemini",
@@ -301,7 +324,7 @@ def _evaluate_teil(video_file, result: AnalystResult, teil: str, run_dir,
     cfg = types.GenerateContentConfig(
         system_instruction=system, response_mime_type="application/json", temperature=0.0,
     )
-    raw = (_generate([video_file, user], cfg, f"analyst_eval_split_{teil}").text or "")
+    raw = (_generate([_video_part(video_file), user], cfg, f"analyst_eval_split_{teil}").text or "")
     parsed = AnalystEvaluationV2(**analyst_eval._extract_json(raw))
     analyst_prompt_log.log_call(
         run_dir, call=f"eval_split_{teil}", recipient="Gemini",

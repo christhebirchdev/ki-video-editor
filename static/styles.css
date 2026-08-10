@@ -112,6 +112,7 @@
   padding:30px;text-align:center;transition:border-color .15s, background .15s;cursor:pointer;
 }
 .dropzone:hover{border-color:var(--gold);background:var(--gold-tint-2);}
+.dropzone.drag-over{border-color:var(--gold);background:var(--gold-tint-2);border-style:solid;}
 .dropzone.has{border-style:solid;border-color:var(--gold);background:var(--gold-tint-2);}
 .dropzone .dz-ico{width:46px;height:46px;border-radius:12px;background:var(--gold-tint);color:var(--gold-deep);
   display:flex;align-items:center;justify-content:center;margin:0 auto 12px;}
