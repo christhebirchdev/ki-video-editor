@@ -26,7 +26,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-08-06"
+PROMPT_VERSION = "2026-08-08"
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom

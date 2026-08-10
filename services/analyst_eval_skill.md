@@ -210,8 +210,8 @@ Eine inhaltlich gute Hook, die gestalterisch nicht funktioniert, stoppt niemande
   Videos wirkt billig.
 - **Einblendungsdauer:** mindestens 5 Sekunden. Wer scrollt, braucht Zeit zum Lesen — kürzer ist
   die Hook praktisch nicht vorhanden.
-- **Position:** oberes Drittel, mit deutlichem Abstand zum oberen Rand. Ganz oben überdeckt die
-  Oberfläche der Plattform (Instagram) den Text.
+- **Position:** im oberen Bereich, aber innerhalb der SAFE ZONE (Werte im Abschnitt „Visuelle
+  Ästhetik"). Ganz oben überdeckt die App den Text.
 Benenne jeden schwachen Punkt im `text_hook_grund` und trage ihn in `texthook_maengel` ein.
 Die Score-Wirkung steht in C — hier nicht wiederholen.
 
@@ -262,10 +262,23 @@ in top_tipps (mit einfacher Alternative) und dämpfe Hook-/Struktur-Relevanz, we
 Zielgruppe die Sprache wahrscheinlich nicht versteht.
 
 ## Sprechqualität (1–5)
-Tempo und Deutlichkeit zu EINEM Score. Die ENERGIE gehört NICHT hierher — sie hat ein eigenes,
-score-freies Feld (siehe Abschnitt „Energie im Auftreten"). Stütze dich auf die Sprachstatistik
-(WPM/Füllwörter/Pausen) — nenne die Zahlen NICHT im Output. probleme nur bei
+LEITFRAGE ZUERST: Versteht man jedes Wort ohne Anstrengung? Muss man sich konzentrieren oder
+zurückspulen, ist das der Mangel — alles andere ist Detail.
+Tempo, Deutlichkeit und TONQUALITÄT zu EINEM Score. Die ENERGIE gehört NICHT hierher — sie hat ein
+eigenes, score-freies Feld (siehe Abschnitt „Energie im Auftreten"). Stütze dich auf die
+Sprachstatistik (WPM/Füllwörter/Pausen) — nenne die Zahlen NICHT im Output. probleme nur bei
 STARK Auffälligem (monoton, viele Füllwörter, undeutlich), sonst leeres Array.
+
+TON — das musst du HÖREN, die Messwerte sagen darüber nichts:
+- **Störgeräusche:** Rauschen, Brummen, Hall, Übersteuerung, Klopfen, Wind. Entscheidend ist nicht,
+  ob etwas da ist, sondern ob es beim Zuhören STÖRT. Eine leise Umgebung im Hintergrund ist normal;
+  ein Kratzen mitten im Satz nicht.
+- **Mikrofonabstand:** Klingt es dumpf und übersteuert, sitzt das Mikro zu nah am Mund oder es wird
+  zu laut hineingesprochen. Klingt es hallig und fern, ist es zu weit weg.
+- **Hintergrundmusik neben Sprache:** Sie muss deutlich LEISER liegen als die Stimme — hörbar, aber
+  klar untergeordnet. Liegt sie auf gleicher Lautstärke, kämpft sie mit dem Gesprochenen: als
+  Problem benennen. Wird nicht gesprochen, darf die Musik normal laut sein und trägt das Video —
+  dann ist Lautstärke kein Mangel.
 
 ## Videos ohne gesprochenes Wort
 Spricht im Video niemand (nur Musik, Geräusche und/oder Text), ist das eine FORMATENTSCHEIDUNG
@@ -336,9 +349,20 @@ Hält die Spannung über die Länge? Wo kippt sie, und endet das Video zeitnah d
 Dramaturgischer Leerlauf am Ende = niedriger Score. kommentar = 1–2 Sätze.
 
 ## Visuelle Ästhetik (1–5) — gegen einen konkreten Referenz-Standard prüfen
+LEITFRAGE ZUERST: Erkennt man das Gesicht klar? Ist die Antwort ja, ist die Bildqualität in Ordnung —
+unabhängig davon, ob professionell ausgeleuchtet wurde. Erst wenn nein, gibt es einen echten Mangel.
 Bewerte an vier Punkten. Was auffällt, kommt in `probleme` UND als Empfehlung mit einer konkreten
 Anweisung (Kameraabstand, Licht, Hintergrund, Schriftposition) — sonst weiß der Nutzer nicht, was tun.
 Ist alles in Ordnung: leeres Array, kein Abzug.
+
+**SAFE ZONE — die App legt ihre Oberfläche über dein Video.** Gilt für Instagram und TikTok
+gleichermaßen (konservative Faustregel, deckt beide ab). Zu meiden sind, gemessen an der Bildhöhe
+bzw. -breite: oben 13 %, unten 21 %, rechts 15 %, links 4 %. Alles darin wird von Profilname,
+Caption, Buttons oder der Like-Spalte überdeckt.
+Prüfe für JEDEN wichtigen Bildinhalt — Texthook, Untertitel, eingeblendete Grafiken, das Gesicht —
+ob er in dieser Randzone liegt. Ragt er hinein, ist er für den Zuschauer teilweise unsichtbar: als
+Problem benennen und die Verschiebung in die mittlere Fläche empfehlen. Liegt alles innerhalb, ist
+das eine Stärke und kein Thema.
 
 **1. Bildausschnitt — dieser Standard gilt NUR für Talking Head.** Bei Reaction, Sketch, Tutorial, Vlog
 oder „Andere" bewertest du den Ausschnitt nach dem, was das Format braucht, und ziehst hier nichts ab.
@@ -400,8 +424,8 @@ und `maengel` leer, ohne Kritik.
 Laufen Untertitel mit, beurteile sie in `untertitel` und NICHT in `schnitt_pacing` oder
 `visuelle_aesthetik`.
 Trag in `maengel` nur ein, was wirklich schwach ist:
-- `position` — sie sitzen am unteren Bildrand statt direkt unter dem Kinn, oder so tief, dass die
-  Plattform-Oberfläche sie überdeckt.
+- `position` — sie sitzen am unteren Bildrand statt direkt unter dem Kinn, oder ragen unten aus der
+  SAFE ZONE heraus, wo Caption und Buttons sie überdecken.
 - `statisch` — lange Textblöcke stehen bleiben, statt synchron zum Gesprochenen in kurze Blöcke
   geschnitten zu sein.
 - `wortzahl` — mehr als 4 Wörter pro Block.
