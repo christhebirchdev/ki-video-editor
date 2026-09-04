@@ -12,8 +12,12 @@ services:
       - traefik.http.routers.analyst.rule=Host(`analyst.srv1691345.hstgr.cloud`)
       - traefik.http.routers.analyst.entrypoints=websecure
       - traefik.http.routers.analyst.tls.certresolver=letsencrypt
-      # Passwortschutz: Middleware liegt als Traefik-Dynamic-File (analyst-auth@file).
-      - traefik.http.routers.analyst.middlewares=analyst-auth@file
+      # Kein Passwortschutz mehr (Entscheidung Chris, 2026-09-04): der Server soll ohne
+      # Login per Reverse-Proxy von einem zweiten System aus erreichbar sein. Die
+      # Middleware-Definition liegt evtl. noch als Traefik-Dynamic-File auf dem VPS
+      # (analyst-auth@file) — ungenutzt, kann dort aufgeräumt werden, ist aber harmlos.
+      # ACHTUNG: Ab hier ist der Analyst ohne jede Zugriffskontrolle im Internet erreichbar,
+      # solange keine andere Stelle (z.B. der anbindende Proxy) den Zugriff einschränkt.
       - traefik.http.services.analyst.loadbalancer.server.port=8001
     volumes:
       - analyst_runs:/app/analyst_runs   # Uploads + Ergebnisse überleben Redeploys
