@@ -24,15 +24,13 @@
 .brand-divider{width:1px;height:30px;background:var(--line-strong);margin:0 4px;}
 .app-name{display:flex;flex-direction:column;line-height:1.15;}
 .app-name .kicker{font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--gold-deep);}
-.app-name .title{font-size:18px;font-weight:700;color:var(--ink);}
-.topbar-right{display:flex;align-items:center;gap:14px;}
-.userchip{
-  display:flex;align-items:center;gap:10px;background:var(--paper);
-  border:1px solid var(--line);border-radius:999px;padding:6px 14px 6px 6px;box-shadow:var(--shadow-sm);
+.app-name .title{font-size:18px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:8px;}
+.beta-badge{
+  display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;
+  background:var(--gold-tint);color:var(--gold-press);border:1px solid var(--gold);
+  font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
 }
-.avatar{width:30px;height:30px;border-radius:50%;background:var(--gold);color:#fff;
-  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;}
-.userchip .who{font-size:13px;font-weight:600;color:var(--ink-2);}
+.topbar-right{display:flex;align-items:center;gap:14px;}
 
 /* ===== Page intro ===== */
 .page-head{margin:14px 0 26px;}

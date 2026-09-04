@@ -2378,6 +2378,7 @@ const PAGE_META = {
     title: "AI Video Analyst",
     desc: "Analysiere jedes Video auf Inhalt, Sprach-Qualität, Schnitt-Pacing & Plattform-Potenzial — lade einfach dein Video hoch. Nach der Analyse kannst du Rückfragen zur Bewertung stellen.",
     appTitle: "AI Video Analyst",
+    badge: "Beta",
   },
 };
 
@@ -2401,7 +2402,10 @@ function App() {
           <div className="brand-divider" />
           <div className="app-name">
             <span className="kicker">Studio</span>
-            <span className="title">{meta.appTitle}</span>
+            <span className="title">
+              {meta.appTitle}
+              {meta.badge && <span className="beta-badge">{meta.badge}</span>}
+            </span>
           </div>
         </div>
         <div className="topbar-right" style={{ display: "flex", alignItems: "center" }}>
@@ -2411,10 +2415,6 @@ function App() {
             onLogin={setAdminPw}
             onLogout={() => setAdminPw("")}
           />
-          <div className="userchip">
-            <span className="avatar">C</span>
-            <span className="who">chris@meinfluss.de</span>
-          </div>
         </div>
       </header>
 
