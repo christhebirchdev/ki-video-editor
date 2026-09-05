@@ -224,21 +224,6 @@ function playDoneChime() {
   } catch (_) { /* Sound ist Bonus — nie die Pipeline stören */ }
 }
 
-function Logo() {
-  // Marken-Logo: drei goldene Schräg-Balken wie im MEINFLUSS-Screenshot.
-  // Die Wortmarke „MEINFLUSS" steht daneben als HTML-Textmarke (dunkel = auf der
-  // hellen Kopfleiste sichtbar; die helle Screenshot-Variante wäre creme-auf-creme unsichtbar).
-  return (
-    <svg className="mark" width="40" height="34" viewBox="0 0 40 34" fill="none" aria-hidden="true">
-      <g fill="#BD9F66">
-        <path d="M6 28 L14 6 L18 6 L10 28 Z"/>
-        <path d="M15 28 L23 6 L27 6 L19 28 Z"/>
-        <path d="M24 28 L32 6 L36 6 L28 28 Z"/>
-      </g>
-    </svg>
-  );
-}
-
 function Card({ num, icon, title, sub, action, children }) {
   return (
     <section className="card">
@@ -2397,9 +2382,6 @@ function App() {
       {/* Topbar */}
       <header className="topbar">
         <div className="brand">
-          <Logo />
-          <span className="wordmark">MEINFLUSS</span>
-          <div className="brand-divider" />
           <div className="app-name">
             <span className="kicker">Studio</span>
             <span className="title">
@@ -2440,9 +2422,10 @@ function App() {
         );
       })()}
 
-      {/* Page Header */}
+      {/* Page Header — die Überschrift entfällt, wenn sie denselben Text trägt wie der
+          Titel in der Topbar (Analyst). Beim Editor unterscheiden sich beide, dort bleibt sie. */}
       <div className="page-head">
-        <h1>{meta.title}</h1>
+        {meta.title !== meta.appTitle && <h1>{meta.title}</h1>}
         <p>{meta.desc}</p>
       </div>
 
