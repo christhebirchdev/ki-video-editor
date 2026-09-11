@@ -702,6 +702,12 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   const [phase, setPhase] = useState("idle");   // idle | running | done
   const [progress, setProgress] = useState("");
   const [queueInfo, setQueueInfo] = useState(null);  // {ahead,total} während "queued"
+  // Gesetzt, wenn dieses Ergebnis aus einer früheren Analyse derselben Datei stammt.
+  // Ohne Hinweis wirkt ein Ergebnis, das nach null Sekunden da ist, wie ein Fehler.
+  const [cacheInfo, setCacheInfo] = useState(null);   // {from, at}
+  // Nur Admin: identische Datei trotzdem neu analysieren (für Prompt-Vergleiche).
+  // Überlebt bewusst `reset()` — bei Eval-Serien will man das nicht jedes Mal neu klicken.
+  const [cacheUmgehen, setCacheUmgehen] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [activePhase, setActivePhase] = useState("");   // aktuelle Bearbeitungsstufe (transcribe/quality/evaluate)
@@ -758,6 +764,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       if (cancelledRef.current) return null;
       if (data.phase === "error") throw new Error(data.error || "Analyse fehlgeschlagen");
       setQueueInfo(data.phase === "queued" ? (data.queue || null) : null);
+      if (data.cached_from) setCacheInfo({ from: data.cached_from, at: data.cached_at || "" });
       // data.detail bewusst NICHT anzeigen — es enthält technische Phasennamen
       // („Transkription läuft…", „Audio-Messwerte…") und würde verraten, was intern läuft.
       setProgress(ANALYSE_LAEUFT);
@@ -776,6 +783,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     setError("");
     setPhase("running");
     setResult(null);
+    setCacheInfo(null);
     setActivePhase("");
     activePhaseRef.current = "";
     setPhaseStartMs(0);
@@ -786,7 +794,10 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       const up = await api("POST", "/api/analyst/upload", fd);
       setRunId(up.id);
       setProgress(ANALYSE_LAEUFT);
-      await api("POST", `/api/analyst/${up.id}/start?engine=${engine}&planned_text_hook=${encodeURIComponent(plannedTextHook)}&format=${encodeURIComponent(format)}`);
+      // Body nur im Admin-Modus: er enthält das Passwort für den Force-Rerun. Ohne Body
+      // greift serverseitig der Cache — identische Datei liefert dann das alte Ergebnis.
+      await api("POST", `/api/analyst/${up.id}/start?engine=${engine}&planned_text_hook=${encodeURIComponent(plannedTextHook)}&format=${encodeURIComponent(format)}`,
+                adminPw && cacheUmgehen ? { password: adminPw, force: true } : undefined);
       const res = await pollUntilDone(up.id);
       if (res) {
         setResult(res);
@@ -804,6 +815,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     setResult(null);
     setProgress("");
     setQueueInfo(null);
+    setCacheInfo(null);   // cacheUmgehen bleibt bewusst stehen (Admin-Serienläufe)
     setError("");
     setPlannedTextHook("");
     setFormat("");
@@ -1069,6 +1081,21 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             </div>
           </div>
 
+          {/* Nur in der Admin-Ansicht: denselben Clip erneut durch die Pipeline schicken.
+              Für normale Nutzer bewusst unsichtbar — zwei Ergebnisse zum selben Video sind
+              genau die Verwirrung, die der Cache verhindern soll. */}
+          {!!adminPw && (
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={cacheUmgehen}
+                disabled={phase === "running"}
+                onChange={(e) => setCacheUmgehen(e.target.checked)}
+              />
+              Cache umgehen — auch bei identischer Datei neu analysieren
+            </label>
+          )}
+
           <button
             className="btn btn-primary analyst-start-btn"
             disabled={!canStart || phase === "running"}
@@ -1119,6 +1146,13 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             </button>
           }
         >
+          {cacheInfo && (
+            <div className="analyst-cache-hinweis">
+              Dieses Video wurde bereits{cacheInfo.at ? ` am ${new Date(cacheInfo.at).toLocaleDateString("de-DE")}` : ""} analysiert
+              — du siehst das gespeicherte Ergebnis. So bleiben die Handlungsempfehlungen dieselben wie beim ersten Mal.
+            </div>
+          )}
+
           {result.evaluation && (() => {
             const ev = result.evaluation;
             const ez = scoreEinordnung(ev.performance_score);

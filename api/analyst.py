@@ -3,7 +3,6 @@
 import json
 import re
 import secrets
-import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from config import settings
 from models.analyst import FORMATE, AnalystResult
-from services import analyst_chat, analyst_vlm
+from services import analyst_cache, analyst_chat, analyst_vlm
 from services.analyst_engine import ANALYST_PATH, RUNNING_PHASES, run_analysis, write_status
 
 router = APIRouter()
@@ -54,12 +53,14 @@ def upload_video(file: UploadFile = File(...)):
     (run_dir / "raw").mkdir(parents=True)
     safe_name = re.sub(r"[^\w.\-äöüÄÖÜß ]", "_", file.filename or "video.mp4")
     dest = run_dir / "raw" / safe_name
-    with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)  # streamt — lädt große Files nicht in den RAM
+    # streamt (lädt große Files nicht in den RAM) und liefert den Inhalts-Hash gleich mit —
+    # er ist die Grundlage des Analyse-Caches, siehe services/analyst_cache.py
+    sha256 = analyst_cache.schreibe_und_hashe(file.file, dest)
     (run_dir / "meta.json").write_text(json.dumps({
         "id": run_id,
         "filename": safe_name,
         "created_at": datetime.now().isoformat(),
+        "sha256": sha256,
     }, ensure_ascii=False))
     write_status(run_dir, "uploaded", "Bereit zur Analyse")
     return {"id": run_id, "filename": safe_name}
@@ -76,15 +77,30 @@ def upload_video(file: UploadFile = File(...)):
 ENGINES = {"v2_pure", "v2_hybrid", "v2_split"}
 
 
+class StartIn(BaseModel):
+    """Optionaler Body von POST /{run_id}/start — nur für den Admin-Force-Rerun.
+
+    Das Passwort steht bewusst im Body und nicht in der Query: Query-Parameter landen in den
+    Zugriffslogs von Traefik und Uvicorn, ein Passwort dort wäre im Klartext protokolliert.
+    """
+    password: str = ""
+    force: bool = False
+
+
 @router.post("/{run_id}/start")
 async def start_analysis(
     run_id: str, background: BackgroundTasks, skip_eval: bool = False, engine: str = "v2_hybrid",
-    planned_text_hook: str = "", format: str = "",
+    planned_text_hook: str = "", format: str = "", body: StartIn | None = None,
 ):
     """engine: v1 (Claude bewertet aus Text) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte).
     skip_eval=true → nur lokale Rohanalyse (Whisper/Quality), KEIN Bewertungs-Call (nur v1 sinnvoll).
     format: Pflicht, genau EIN Wert aus models.analyst.FORMATE. Die Auswahl ist BINDEND —
-    das Modell klassifiziert das Format nicht mehr selbst (der Nutzer kennt sein Video)."""
+    das Modell klassifiziert das Format nicht mehr selbst (der Nutzer kennt sein Video).
+
+    Wurde dieselbe Datei mit denselben Eingaben schon analysiert, wird das gespeicherte Ergebnis
+    übernommen statt neu gerechnet (Antwort: status "cached"). Grund: zwei leicht abweichende
+    Bewertungen zum selben Video lassen den Nutzer im Unklaren, welche Empfehlungen gelten.
+    Der Body {"force": true, "password": "…"} umgeht den Cache — nur mit Admin-Passwort."""
     if engine not in ENGINES:
         raise HTTPException(status_code=422, detail=f"Unbekannte Engine '{engine}'. Erlaubt: {', '.join(sorted(ENGINES))}")
     gewaehlt = (format or "").strip()
@@ -99,9 +115,11 @@ async def start_analysis(
     status = json.loads((run_dir / "status.json").read_text())
     if status.get("phase") in RUNNING_PHASES:
         raise HTTPException(status_code=409, detail="Analyse läuft bereits")
-    ok, msg = analyst_vlm.is_available()
-    if not ok:
-        raise HTTPException(status_code=503, detail=msg)
+    force = bool(body and body.force)
+    if force and not _admin_ok(body.password):
+        raise HTTPException(status_code=401, detail="Falsches Passwort")
+    from services.analyst_eval import PROMPT_VERSION
+
     # engine + skip_eval in meta.json persistieren, damit die Engine sie liest
     meta_path = run_dir / "meta.json"
     meta = json.loads(meta_path.read_text())
@@ -109,7 +127,24 @@ async def start_analysis(
     meta["engine"] = engine
     meta["planned_text_hook"] = (planned_text_hook or "").strip()
     meta["format"] = gewaehlt
+    # Teil des Cache-Keys: dieselbe Datei unter geändertem Bewertungs-Prompt ist ein anderer Lauf.
+    meta["prompt_version"] = PROMPT_VERSION
     meta_path.write_text(json.dumps(meta, ensure_ascii=False))
+
+    # Cache-Prüfung VOR is_available(): ein gespeichertes Ergebnis braucht kein Modell.
+    if not force:
+        quelle = analyst_cache.finde_treffer(ANALYST_PATH, analyst_cache.cache_key(meta), run_id)
+        if quelle:
+            herkunft = analyst_cache.uebernehmen(quelle, run_dir)
+            meta.update(herkunft)
+            meta_path.write_text(json.dumps(meta, ensure_ascii=False))
+            write_status(run_dir, "done", "Analyse abgeschlossen", done=True)
+            return {"id": run_id, "status": "cached", **herkunft,
+                    "engine": engine, "format": gewaehlt}
+
+    ok, msg = analyst_vlm.is_available()
+    if not ok:
+        raise HTTPException(status_code=503, detail=msg)
     write_status(run_dir, "starting", "Analyse startet…")
     background.add_task(run_analysis, run_id)
     return {"id": run_id, "status": "started", "skip_eval": skip_eval, "engine": engine, "format": gewaehlt}
@@ -125,6 +160,15 @@ async def get_analysis(run_id: str):
         total = len(ids)
         ahead = ids.index(run_id) if run_id in ids else 0
         out["queue"] = {"ahead": ahead, "total": total}
+    try:
+        meta = json.loads((run_dir / "meta.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        meta = {}
+    if meta.get("cached_from"):
+        # Das Frontend zeigt damit „bereits am … analysiert" an — sonst wirkt ein Ergebnis,
+        # das nach 0 Sekunden da ist, wie ein Fehler.
+        out["cached_from"] = meta["cached_from"]
+        out["cached_at"] = meta.get("cached_at", "")
     analysis = run_dir / "analysis.json"
     if status.get("done") and analysis.exists():
         out["result"] = json.loads(analysis.read_text())
