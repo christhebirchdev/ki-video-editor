@@ -633,6 +633,62 @@ def baue_pausen_schritt(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
     return parsed
 
 
+# Wie viel Luft nach dem letzten gesprochenen Wort stehen darf (Vorgabe Chris, Lauf dc5c0a3d):
+# „1-2 sekunden leerlauf wären in ordnung. alles darüber wäre zu lang."
+# Anlass: Das Modell empfahl, einen „unnötigen Leerlauf" zu kürzen, den es nicht gab — gemessen
+# waren 0,24 s. Die Zahl stand als duration_sec und sprech_dauer_sec im Prompt; das Modell hat sie
+# nicht verrechnet. Deshalb rechnet das jetzt der Code.
+NACHLAUF_MIN_SEC = 1.0
+NACHLAUF_MAX_SEC = 2.0
+
+NACHLAUF_ZU_KURZ_ANWEISUNG = (
+    "Häng am Ende 1 bis 2 Sekunden Puffer an — das Bild darf nach dem letzten Wort kurz stehen "
+    "bleiben, sonst wirkt der Schluss abgehackt."
+)
+NACHLAUF_ZU_LANG_ANWEISUNG = (
+    "Kürze den Schluss: Nach dem letzten Wort sollen höchstens 2 Sekunden stehen bleiben."
+)
+
+# Modell-Empfehlungen zum Videoende. Wie bei den Pausen wird verworfen, was das Modell dazu selbst
+# schreibt — der Satz entsteht aus dem Messwert.
+_VIDEOENDE_EMPFEHLUNG = re.compile(
+    r"(leerlauf|am ende (des videos )?(ab)?schneid|beende das video|letzten satz (leicht )?(ab)?kürz"
+    r"|nachlauf|ende des videos (ab)?kürz)", re.IGNORECASE)
+
+
+def baue_videoende_schritt(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
+    """Den Schluss des Videos aus Messwerten beurteilen statt aus dem Bauch des Modells.
+
+    `nachlauf = duration_sec - (sprechbeginn_sec + sprech_dauer_sec)` — die Zeit nach dem letzten
+    gesprochenen Wort. Unter NACHLAUF_MIN_SEC wirkt der Schluss abgehackt, über NACHLAUF_MAX_SEC
+    plätschert er aus. Dazwischen: kein Schritt.
+
+    Nur V3 (Ziel gesetzt). Ohne gesprochenes Wort gibt es keinen Nachlauf zu messen.
+
+    Die Verzweigung hängt an `gewaehltes_ziel`, NICHT an `result.engine`: engine wird von
+    analyst_engine._run() erst NACH der Nachbearbeitung gesetzt.
+    """
+    if not (getattr(result, "gewaehltes_ziel", "") or "").strip():
+        return parsed
+    stats = getattr(result, "speech_stats", None)
+    if not stats or not stats.wort_anzahl or not stats.sprech_dauer_sec:
+        return parsed
+    dauer = getattr(result, "duration_sec", 0.0) or 0.0
+    sprechende = (stats.sprechbeginn_sec or 0.0) + stats.sprech_dauer_sec
+    nachlauf = dauer - sprechende
+    # Das Modell hat sich zum Videoende schon geirrt (Lauf dc5c0a3d) — was es dazu selbst
+    # formuliert, fliegt raus, unabhängig davon, ob der Messwert danach einen Schritt erzeugt.
+    parsed.empfehlungen = [
+        e for e in parsed.empfehlungen if not _VIDEOENDE_EMPFEHLUNG.search(e.anweisung or "")
+    ]
+    if NACHLAUF_MIN_SEC <= nachlauf <= NACHLAUF_MAX_SEC:
+        return parsed
+    anweisung = NACHLAUF_ZU_KURZ_ANWEISUNG if nachlauf < NACHLAUF_MIN_SEC else NACHLAUF_ZU_LANG_ANWEISUNG
+    parsed.empfehlungen.append(Empfehlung(
+        zeitpunkt_sek=round(sprechende, 1), gruppe="videoende", anweisung=anweisung))
+    return parsed
+
+
 EINBLENDUNGEN_MAX = 3
 
 # Eine Empfehlung, die eine visuelle Einblendung vorschlägt. Wird nur zusammen mit einem
@@ -1263,6 +1319,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     # verschwindet.
     parsed = entferne_vorhandene_bewegungs_empfehlung(parsed)
     parsed = baue_pausen_schritt(parsed)
+    parsed = baue_videoende_schritt(parsed, result)
     parsed = baue_einblendungs_schritt(parsed)
     # VOR den Erzwingungen: Benannte Probleme deckeln den Score, damit die ≤3-Regel danach
     # überhaupt greift (Lauf 041770c1: zwei Probleme benannt, Score trotzdem 4).

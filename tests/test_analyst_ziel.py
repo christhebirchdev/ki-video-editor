@@ -388,3 +388,74 @@ def test_v3_staerken_vertrag_steht_auch_im_handwerk_teil():
     from services.analyst_eval import build_system_prompt
     p = build_system_prompt(teil="handwerk", ziel="MOFU")
     assert '"staerken": [{"text"' in p
+
+
+# --- Videoende: Nachlauf messen statt raten (Lauf dc5c0a3d) ---
+
+def _result_mit(duration=25.0, sprechbeginn=0.0, sprech_dauer=24.7, ziel="MOFU",
+                lufs=-14.0, true_peak=-2.0):
+    from models.analyst import AnalystResult, SpeechStats, QualityMetrics
+    return AnalystResult(
+        id="x", filename="c.mp4", duration_sec=duration, scene_count=0, scenes=[],
+        gewaehltes_ziel=ziel,
+        speech_stats=SpeechStats(wort_anzahl=80, sprech_dauer_sec=sprech_dauer, wpm=180,
+                                 filler_count=0, filler_words=[], pausen_count=0,
+                                 laengste_pause_sec=0.0, sprechbeginn_sec=sprechbeginn),
+        quality_metrics=QualityMetrics(lufs_integrated=lufs, true_peak_db=true_peak),
+    )
+
+
+def test_kurzer_nachlauf_verlangt_puffer():
+    """Lauf dc5c0a3d: 0,24s Nachlauf, das Modell empfahl trotzdem zu kuerzen."""
+    from services.analyst_eval import baue_videoende_schritt
+    ev = _eval_mit_scores()
+    out = baue_videoende_schritt(ev, _result_mit(duration=24.92, sprech_dauer=24.68))
+    schritte = [e for e in out.empfehlungen if e.gruppe == "videoende"]
+    assert len(schritte) == 1
+    assert "Puffer" in schritte[0].anweisung or "puffer" in schritte[0].anweisung
+
+
+def test_nachlauf_im_korridor_erzeugt_keinen_schritt():
+    from services.analyst_eval import baue_videoende_schritt
+    for nachlauf in (1.0, 1.5, 2.0):
+        ev = _eval_mit_scores()
+        out = baue_videoende_schritt(ev, _result_mit(duration=24.7 + nachlauf, sprech_dauer=24.7))
+        assert [e for e in out.empfehlungen if e.gruppe == "videoende"] == [], nachlauf
+
+
+def test_langer_nachlauf_verlangt_kuerzen():
+    from services.analyst_eval import baue_videoende_schritt
+    ev = _eval_mit_scores()
+    out = baue_videoende_schritt(ev, _result_mit(duration=30.0, sprech_dauer=24.7))
+    schritte = [e for e in out.empfehlungen if e.gruppe == "videoende"]
+    assert len(schritte) == 1
+    assert "kürz" in schritte[0].anweisung.lower()
+
+
+def test_videoende_verwirft_die_modell_empfehlung():
+    """Das Modell darf zum Videoende nichts mehr selbst formulieren — es hat sich geirrt."""
+    from models.analyst import Empfehlung
+    from services.analyst_eval import baue_videoende_schritt
+    ev = _eval_mit_scores()
+    ev.empfehlungen = [Empfehlung(zeitpunkt_sek=23.0, betrifft="spannungsbogen",
+                                  anweisung="Beende das Video direkt nach dem letzten Wort, um "
+                                            "unnötigen Leerlauf am Ende zu vermeiden.")]
+    out = baue_videoende_schritt(ev, _result_mit(duration=24.92, sprech_dauer=24.68))
+    assert not any("Leerlauf" in e.anweisung for e in out.empfehlungen)
+
+
+def test_videoende_ohne_ziel_bleibt_unveraendert():
+    from models.analyst import Empfehlung
+    from services.analyst_eval import baue_videoende_schritt
+    ev = _eval_mit_scores()
+    ev.empfehlungen = [Empfehlung(zeitpunkt_sek=23.0, anweisung="Leerlauf am Ende vermeiden")]
+    out = baue_videoende_schritt(ev, _result_mit(duration=24.92, sprech_dauer=24.68, ziel=""))
+    assert len(out.empfehlungen) == 1
+
+
+def test_videoende_ohne_gesprochenes_wort_wird_nicht_geprueft():
+    from services.analyst_eval import baue_videoende_schritt
+    ev = _eval_mit_scores()
+    r = _result_mit(duration=24.92, sprech_dauer=0.0)
+    r.speech_stats.wort_anzahl = 0
+    assert baue_videoende_schritt(ev, r).empfehlungen == []
