@@ -193,3 +193,74 @@ def test_gute_scores_haben_keinen_kritischen_mangel():
     ev = _eval_mit_scores(sprech=4, text=4, visuell=4, spannung=4,
                           struktur=4, sprechq=4, aesthetik=4, schnitt=4)
     assert kritische_dimensionen(ev, "MOFU") == set()
+
+
+def _mit_empfehlungen(*eintraege, **scores):
+    """eintraege: (zeitpunkt_sek, anweisung, betrifft, gruppe)"""
+    from models.analyst import Empfehlung
+    ev = _eval_mit_scores(**scores)
+    ev.empfehlungen = [
+        Empfehlung(zeitpunkt_sek=t, anweisung=a, betrifft=b, gruppe=g)
+        for t, a, b, g in eintraege
+    ]
+    return ev
+
+
+def test_ohne_ziel_bleibt_die_sortierung_nach_zeitpunkt():
+    from services.analyst_eval import verteile_empfehlungen
+    ev = _mit_empfehlungen(
+        (2.0, "frueh und harmlos", "schnitt_pacing", ""),
+        (20.0, "spaet und schwer", "spannungsbogen", ""),
+        spannung=1, schnitt=4,
+    )
+    out = verteile_empfehlungen(ev, ziel="")
+    assert out.action_steps[0].anweisung == "frueh und harmlos"
+
+
+def test_mit_ziel_steht_der_schwerere_mangel_oben():
+    from services.analyst_eval import verteile_empfehlungen
+    ev = _mit_empfehlungen(
+        (2.0, "frueh und harmlos", "schnitt_pacing", ""),
+        (20.0, "spaet und schwer", "spannungsbogen", ""),
+        spannung=1, schnitt=4,
+    )
+    out = verteile_empfehlungen(ev, ziel="MOFU")
+    assert out.action_steps[0].anweisung == "spaet und schwer"
+
+
+def test_kritischer_mangel_steht_vor_allem_anderen():
+    from services.analyst_eval import verteile_empfehlungen
+    ev = _mit_empfehlungen(
+        (1.0, "a", "schnitt_pacing", ""),
+        (2.0, "b", "sprechqualitaet", ""),
+        (3.0, "c", "struktur", ""),
+        (4.0, "kritisch", "spannungsbogen", ""),
+        spannung=1, schnitt=4, sprechq=4, struktur=4,
+    )
+    out = verteile_empfehlungen(ev, ziel="MOFU")
+    assert out.action_steps[0].anweisung == "kritisch"
+
+
+def test_bei_gleicher_schwere_gewinnt_der_fruehere_zeitpunkt():
+    from services.analyst_eval import verteile_empfehlungen
+    ev = _mit_empfehlungen(
+        (20.0, "spaet", "spannungsbogen", ""),
+        (5.0, "frueh", "spannungsbogen", ""),
+        spannung=2,
+    )
+    out = verteile_empfehlungen(ev, ziel="MOFU")
+    assert out.action_steps[0].anweisung == "frueh"
+
+
+def test_hoher_score_ohne_kritischen_mangel_zeigt_weniger_als_drei_schritte():
+    from services.analyst_eval import verteile_empfehlungen
+    ev = _mit_empfehlungen(
+        (5.0, "feinschliff a", "schnitt_pacing", ""),
+        (9.0, "feinschliff b", "struktur", ""),
+        (12.0, "feinschliff c", "sprechqualitaet", ""),
+        sprech=5, text=5, visuell=5, spannung=5, struktur=5, sprechq=5, aesthetik=5, schnitt=5,
+    )
+    ev.performance_score = 92
+    out = verteile_empfehlungen(ev, ziel="MOFU")
+    assert len(out.action_steps) <= 2
+    assert len(out.weitere_empfehlungen) >= 1

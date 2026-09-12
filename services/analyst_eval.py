@@ -104,6 +104,13 @@ def metrics_txt(qm) -> str:
 
 TOP_ACTION_STEPS = 3
 
+# Ab diesem Score gilt ein Video als stark: Ohne kritischen Mangel werden dann höchstens
+# TOP_STEPS_BEI_GUTEM_SCORE Schritte gezeigt statt drei erzwungen. Anlass Lauf 56748c94
+# (Score 92, alle Dimensionen 4–5): Schritt 1 war „Ersetze das Text-Overlay '16 LITER'" — der
+# Umbau des stärksten Elements im Video (Vorgabe Chris, 2026-09-11).
+GUTER_SCORE = 85
+TOP_STEPS_BEI_GUTEM_SCORE = 2
+
 # Gruppen, die aus einem schwachen Dimensions-Score entstehen — allgemeine Sammel-Tipps ohne echte
 # Stelle im Video. Hooks und Anlauf gehören NICHT dazu: die betreffen die ersten Sekunden und
 # behalten Vorrang.
@@ -212,13 +219,18 @@ def kritische_dimensionen(parsed: AnalystEvaluationV2, ziel: str) -> set:
     return kritisch
 
 
-def verteile_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
-    """Bündeln → sortieren → Top-3 abtrennen. Deterministisch im Code statt per Prompt-Regel.
+def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEvaluationV2:
+    """Bündeln → sortieren → Top-N abtrennen. Deterministisch im Code statt per Prompt-Regel.
 
     Das Modell liefert eine flache `empfehlungen`-Liste und entscheidet nur, WELCHE Einträge
     dieselbe Handlung sind (Feld `gruppe`) — das ist Urteil. Der Rest ist Arithmetik und stand
     vorher 3× fast wortgleich im Prompt, ohne sicher zu greifen (Befund 3):
     „sortiere nach Zeitpunkt, nimm die 3 frühesten, der Rest nach weitere_empfehlungen".
+
+    Sortierung ohne `ziel` (v2 und Altläufe): nach Zeitpunkt, unverändert.
+    Sortierung mit `ziel` (v3): kritische Mängel zuerst, dann Hook, dann Schwere absteigend, bei
+    Gleichstand der frühere Zeitpunkt. Die Schwere hängt an denselben Gewichten wie der Score —
+    was den Score am stärksten drückt, steht oben.
 
     Liefert das Modell `empfehlungen` nicht (Altlauf/altes Schema), bleiben die geparsten
     action_steps unverändert stehen.
@@ -236,22 +248,42 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
         key = f"{label}\x00{_normtext(e.anweisung)}" if label else f"\x00einzeln{i}"
         gruppen.setdefault(key, []).append(e)
 
-    # (Zeitpunkt, Gruppen-Label, Schritt) — das Label muss durch die Sortierung mitlaufen,
+    kritisch = kritische_dimensionen(parsed, ziel) if ziel else set()
+    scores = dimensions_scores(parsed)
+
+    # (Sortierschlüssel, Gruppen-Label, Schritt) — das Label muss durch die Sortierung mitlaufen,
     # weil die Auswahl unten danach entscheidet.
-    schritte: list[tuple[float, str, ActionStep]] = []
+    schritte: list[tuple[tuple, str, ActionStep]] = []
     for eintraege in gruppen.values():
         eintraege.sort(key=lambda e: e.zeitpunkt_sek)
+        erste = eintraege[0]
+        zeitpunkt = erste.zeitpunkt_sek   # eine Gruppe zählt ab ihrem FRÜHESTEN Vorkommen
+        betrifft = (erste.betrifft or "").strip()
+        if ziel:
+            schluessel = (
+                0 if betrifft in kritisch else 1,
+                0 if betrifft in KATEGORIEN["hook"] else 1,
+                -schwere_der_dimension(betrifft, scores.get(betrifft), ziel),
+                zeitpunkt,
+            )
+        else:
+            schluessel = (zeitpunkt,)
         schritte.append((
-            eintraege[0].zeitpunkt_sek,  # eine Gruppe zählt ab ihrem FRÜHESTEN Vorkommen
-            (eintraege[0].gruppe or "").strip().lower(),
+            schluessel,
+            (erste.gruppe or "").strip().lower(),
             ActionStep(
                 zeitpunkt=_zeit_label([e.zeitpunkt_sek for e in eintraege]),
-                anweisung=eintraege[0].anweisung,
+                anweisung=erste.anweisung,
             ),
         ))
     schritte.sort(key=lambda t: t[0])
 
-    # Höchstens zwei Sammel-Tipps in den Top 3 (Vorgabe Chris). In Lauf 26a1adbf belegten
+    # Weniger als drei Schritte, wenn das Video stark ist und nichts Kritisches offen steht.
+    obergrenze = TOP_ACTION_STEPS
+    if ziel and not kritisch and parsed.performance_score >= GUTER_SCORE:
+        obergrenze = TOP_STEPS_BEI_GUTEM_SCORE
+
+    # Höchstens zwei Sammel-Tipps in den Top N (Vorgabe Chris). In Lauf 26a1adbf belegten
     # Anlauf-Schnitt plus zwei erzwungene Dimensions-Tipps alle drei Plätze; die konkreten Tipps
     # mit echter Sekundenangabe (Sek. 10, 15, 20) rutschten komplett nach unten. Ein Platz bleibt
     # deshalb für einen videospezifischen Schritt frei.
@@ -265,7 +297,7 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
             rest.append(schritt)
             continue
         ist_sammel = gruppe in SAMMEL_GRUPPEN
-        if len(oben) < TOP_ACTION_STEPS and not (ist_sammel and sammel >= MAX_SAMMEL_OBEN):
+        if len(oben) < obergrenze and not (ist_sammel and sammel >= MAX_SAMMEL_OBEN):
             oben.append(schritt)
             sammel += ist_sammel
         else:
@@ -1213,7 +1245,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     # eingefügt, diese hier angehängt — Hooks behalten Vorrang (Vorgabe Chris).
     parsed = erzwinge_empfehlungen_bei_schwachen_scores(parsed)
     parsed = berechne_performance_score(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
-    return verteile_empfehlungen(parsed)
+    return verteile_empfehlungen(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
 
 
 def pausen_txt(stats) -> str:
