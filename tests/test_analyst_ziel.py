@@ -102,3 +102,48 @@ def test_v2_braucht_kein_ziel(client, tmp_path):
     run_id = _lauf_anlegen(client, tmp_path)
     r = client.post(f"/api/analyst/{run_id}/start?engine=v2_hybrid&format=Talking Head")
     assert r.status_code == 200
+
+
+def _eval_mit_scores(sprech=3, text=3, visuell=3, spannung=3, struktur=3,
+                     sprechq=3, aesthetik=3, schnitt=3):
+    from models.analyst import (AnalystEvaluationV2, HookEval, StrukturEval,
+                                ScoreProbleme, ScoreKommentar)
+    return AnalystEvaluationV2(
+        hook=HookEval(sprech_hook_score=sprech, text_hook_score=text, visuell_hook_score=visuell),
+        struktur=StrukturEval(score=struktur),
+        sprechqualitaet=ScoreProbleme(score=sprechq),
+        visuelle_aesthetik=ScoreProbleme(score=aesthetik),
+        spannungsbogen=ScoreKommentar(score=spannung),
+        schnitt_pacing=ScoreKommentar(score=schnitt),
+    )
+
+
+def test_ohne_ziel_rechnet_die_alten_gewichte():
+    from services.analyst_eval import berechne_performance_score
+    a = berechne_performance_score(_eval_mit_scores(), ziel="").performance_score
+    b = berechne_performance_score(_eval_mit_scores(), ziel=None).performance_score
+    assert a == b
+    assert 0 < a < 100
+
+
+def test_schwacher_hook_kostet_bei_tofu_mehr_als_bei_mofu():
+    from services.analyst_eval import berechne_performance_score
+    tofu = berechne_performance_score(
+        _eval_mit_scores(sprech=1, text=1, visuell=1), ziel="TOFU").performance_score
+    mofu = berechne_performance_score(
+        _eval_mit_scores(sprech=1, text=1, visuell=1), ziel="MOFU").performance_score
+    assert tofu < mofu
+
+
+def test_schwacher_spannungsbogen_kostet_bei_mofu_mehr_als_bei_tofu():
+    from services.analyst_eval import berechne_performance_score
+    tofu = berechne_performance_score(_eval_mit_scores(spannung=1), ziel="TOFU").performance_score
+    mofu = berechne_performance_score(_eval_mit_scores(spannung=1), ziel="MOFU").performance_score
+    assert mofu < tofu
+
+
+def test_unbekanntes_ziel_faellt_auf_die_alten_gewichte_zurueck():
+    from services.analyst_eval import berechne_performance_score
+    a = berechne_performance_score(_eval_mit_scores(), ziel="QUATSCH").performance_score
+    b = berechne_performance_score(_eval_mit_scores(), ziel="").performance_score
+    assert a == b

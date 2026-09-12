@@ -18,7 +18,8 @@ from pathlib import Path
 import anthropic
 
 from config import settings
-from models.analyst import ActionStep, AnalystEvaluationV2, AnalystResult, Empfehlung
+from models.analyst import (ActionStep, AnalystEvaluationV2, AnalystResult, Empfehlung,
+                            SCORE_GEWICHTE_JE_ZIEL)
 from services import analyst_prompt_log
 
 # Version der Bewertungslogik (Skill + Schema + Nachbearbeitung). Wird an jedes gespeicherte
@@ -1054,14 +1055,19 @@ SCORE_GEWICHTE = {
 }
 
 
-def berechne_performance_score(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+def berechne_performance_score(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEvaluationV2:
     """Gesamtscore aus den Einzel-Scores statt aus dem Bauch des Modells.
 
     Jede Dimension wird auf 0..1 normalisiert (1–5 → (s-1)/4; der Text-Hook auf 0–5 → s/5, weil dort
     die 0 „fehlt komplett" bedeutet und nicht „Modell hat nichts gesagt"). Nicht bewertbare
     Dimensionen (None, z.B. Sprech-Hook in einem stummen Video) fallen raus und ihr Gewicht verteilt
     sich proportional auf den Rest — sonst würde ein bewusst stummes Format doppelt bestraft.
+
+    `ziel` (V3): Ist es gesetzt und bekannt, gelten die Gewichte dieses Ziels. Sonst gilt
+    SCORE_GEWICHTE wie vor V3 — das hält alle gespeicherten Läufe und
+    tools/replay_nachbearbeitung.py unverändert.
     """
+    gewichte = SCORE_GEWICHTE_JE_ZIEL.get((ziel or "").upper(), SCORE_GEWICHTE)
     dimensionen = {
         "sprech_hook": (parsed.hook.sprech_hook_score, 1),
         "text_hook": (parsed.hook.text_hook_score, 0),
@@ -1078,7 +1084,9 @@ def berechne_performance_score(parsed: AnalystEvaluationV2) -> AnalystEvaluation
     for name, (score, minimum) in dimensionen.items():
         if score is None or score < minimum:
             continue  # nicht bewertbar, oder 0 als Modell-Default statt echter Bewertung
-        gewicht = SCORE_GEWICHTE[name]
+        gewicht = gewichte.get(name, 0)
+        if not gewicht:
+            continue  # Dimension zählt bei diesem Ziel nicht (z.B. cta außerhalb BOFU)
         summe += gewicht * (score - minimum) / (5 - minimum)
         gewicht_gesamt += gewicht
     if gewicht_gesamt:
@@ -1125,7 +1133,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     # entscheidet damit über die Reihenfolge im Output. Hook- und Anlauf-Schritte werden vorne
     # eingefügt, diese hier angehängt — Hooks behalten Vorrang (Vorgabe Chris).
     parsed = erzwinge_empfehlungen_bei_schwachen_scores(parsed)
-    parsed = berechne_performance_score(parsed)
+    parsed = berechne_performance_score(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     return verteile_empfehlungen(parsed)
 
 
