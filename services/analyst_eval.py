@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-12a"   # V3: Zielsteuerung, Schwere-Priorisierung, Lob-Schwelle
+PROMPT_VERSION = "2026-09-12b"   # V3: Zielsteuerung, Schwere-Priorisierung, Lob-Schwelle
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -1375,7 +1375,7 @@ staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Erg
 # Duplikat, das beim naechsten Feld auseinanderlaeuft. Die Zeile muss EINZEILIG bleiben:
 # `_schema_fuer` filtert den Vertrag zeilenweise ueber die Top-Level-Schluessel.
 STAERKEN_ZEILE_V2 = '  "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],'
-STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik>"}],'
+STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik>"}]  — NUR staerken ist eine Liste von Objekten. Alle anderen Listen in diesem Vertrag (top_tipps, texthook_varianten, texthook_maengel, probleme, hinweise, maengel) bleiben einfache Texte,'
 assert STAERKEN_ZEILE_V2 in OUTPUT_SCHEMA, "staerken-Zeile passt nicht mehr zum Ausgabe-Vertrag"
 
 

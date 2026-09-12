@@ -388,3 +388,45 @@ def test_v3_staerken_vertrag_steht_auch_im_handwerk_teil():
     from services.analyst_eval import build_system_prompt
     p = build_system_prompt(teil="handwerk", ziel="MOFU")
     assert '"staerken": [{"text"' in p
+
+
+# --- Objekt-Muster-Spillover (erster echter V3-Lauf, 2026-09-12) -------------------------------
+
+def test_top_tipps_als_objekte_brechen_den_lauf_nicht():
+    """Realer Abbruch: Seit staerken Objekte sind, lieferte das Modell auch top_tipps als
+    [{"text": ...}] — Pydantic brach den fertig bezahlten Lauf ab."""
+    from models.analyst import AnalystEvaluationV2
+    ev = AnalystEvaluationV2(**{"top_tipps": [
+        {"text": "Stelle am Ende eine Frage."},
+        {"text": "Erhöhe die Geschwindigkeit."},
+        "Schon ein String",
+    ]})
+    assert ev.top_tipps == ["Stelle am Ende eine Frage.", "Erhöhe die Geschwindigkeit.",
+                            "Schon ein String"]
+
+
+def test_objekt_muster_greift_auch_bei_den_anderen_listenfeldern():
+    from models.analyst import AnalystEvaluationV2, ScoreProbleme, UntertitelEval
+    ev = AnalystEvaluationV2(**{
+        "texthook_varianten": [{"text": "Mit 46 nochmal Mutter"}],
+        "texthook_maengel": [{"mangel": "laenge"}],
+    })
+    assert ev.texthook_varianten == ["Mit 46 nochmal Mutter"]
+    assert ev.texthook_maengel == ["laenge"]
+    assert ScoreProbleme(**{"score": 3, "probleme": [{"text": "Gegenlicht"}],
+                            "hinweise": [{"text": "Kopfraum knapp"}]}).probleme == ["Gegenlicht"]
+    assert UntertitelEval(**{"vorhanden": True, "maengel": [{"text": "position"}]}).maengel == ["position"]
+
+
+def test_objekt_ohne_bekannten_schluessel_nimmt_den_ersten_string():
+    from models.analyst import AnalystEvaluationV2
+    ev = AnalystEvaluationV2(**{"top_tipps": [{"hinweis": "Irgendein Text", "score": 3}]})
+    assert ev.top_tipps == ["Irgendein Text"]
+
+
+def test_strings_bleiben_unveraendert():
+    """Der Normalfall darf sich nicht ändern — sonst wäre der Validator selbst das Risiko."""
+    from models.analyst import AnalystEvaluationV2
+    ev = AnalystEvaluationV2(**{"top_tipps": ["a", "b"], "texthook_varianten": ["c"]})
+    assert ev.top_tipps == ["a", "b"]
+    assert ev.texthook_varianten == ["c"]
