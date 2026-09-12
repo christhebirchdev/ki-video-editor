@@ -349,29 +349,29 @@ TEXTHOOK_MANGEL_ARTEN = (
 # das Format nicht mehr selbst — der Nutzer kennt sein Video, das ist die verlässlichere Quelle).
 FORMATE = ("Talking Head", "Reaction", "Sketch", "Tutorial", "Vlog", "Andere")
 
-# Vom Nutzer beim Upload gewaehltes Videoziel (genau EINES, Pflicht bei Engine v3). Wie FORMATE
+# Vom Nutzer beim Upload gewähltes Videoziel (genau EINES, Pflicht bei Engine v3). Wie FORMATE
 # Single Source of Truth: Die API validiert dagegen, der Prompt bekommt die Auswahl als FAKT.
 # Anzeige im Frontend in Nutzersprache, hier nur die Funnel-Stufe:
 #   TOFU = "Neue Menschen erreichen" | MOFU = "Vertrauen und Expertenstatus aufbauen"
 #   BOFU = "Kundenanfragen gewinnen"
-# Kein Wert "Mischung": Wer alles auswaehlen kann, bekommt kein scharfes Urteil, und das Modell
+# Kein Wert "Mischung": Wer alles auswählen kann, bekommt kein scharfes Urteil, und das Modell
 # bekommt eine Ausrede, sich nicht festzulegen (Vorgabe Chris, 2026-09-11).
 ZIELE = ("TOFU", "MOFU", "BOFU")
 
 # Score-Gewichte je Ziel. Summe je Spalte = 100, damit der Score zwischen den Zielen dieselbe
-# Skala hat — vergleichbar sind zwei Laeufe damit trotzdem nur bei GLEICHEM Ziel, deshalb nennt
+# Skala hat — vergleichbar sind zwei Läufe damit trotzdem nur bei GLEICHEM Ziel, deshalb nennt
 # das Frontend-Label das Ziel mit ("78 . gemessen an: ...").
 #
 # Herleitung (Vorgabe Chris, 2026-09-12):
-# - TOFU: Hook am wichtigsten, alle drei Ebenen; Spannungsbogen am unwichtigsten; Bildqualitaet hoch.
-# - MOFU: visuelle Hook faellt deutlich, Sprech-/Text-Hook bleiben hoch, Spannungsbogen steigt stark,
-#   Bildqualitaet sinkt.
-# - BOFU: wie MOFU, ergaenzt um den CTA.
+# - TOFU: Hook am wichtigsten, alle drei Ebenen; Spannungsbogen am unwichtigsten; Bildqualität hoch.
+# - MOFU: visuelle Hook fällt deutlich, Sprech-/Text-Hook bleiben hoch, Spannungsbogen steigt stark,
+#   Bildqualität sinkt.
+# - BOFU: wie MOFU, ergänzt um den CTA.
 #
 # `untertitel_vorhanden`, `untertitel_gestaltung`, `audioqualitaet` und `cta` sind in Stufe 1 noch
 # nicht bewertet — sie stehen hier bereits mit ihrem Zielgewicht, damit die Spaltensumme stimmt und
-# Stufe 2 nur die Dimensionen ergaenzen muss, nicht die Tabelle. `berechne_performance_score`
-# ueberspringt Dimensionen ohne Score automatisch und verteilt ihr Gewicht proportional.
+# Stufe 2 nur die Dimensionen ergänzen muss, nicht die Tabelle. `berechne_performance_score`
+# überspringt Dimensionen ohne Score automatisch und verteilt ihr Gewicht proportional.
 SCORE_GEWICHTE_JE_ZIEL = {
     "TOFU": {
         "sprech_hook": 16, "text_hook": 16, "visuell_hook": 13,
