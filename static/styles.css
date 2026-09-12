@@ -535,6 +535,14 @@
   background:var(--paper-alt);border:1px solid var(--line-strong);
   color:var(--ink-soft, var(--ink));font-size:13.5px;line-height:1.45;
 }
+/* Absicht gegen Wirkung: Geometrie wie .analyst-cache-hinweis, aber in den Warnfarben
+   (Gold = Aufmerksamkeit, wie .analyst-queue). Kein Rot — ein Video, das auf eine andere
+   Funnel-Stufe einzahlt, ist kein Fehler, sondern eine Information. */
+.analyst-funnel-warnung{
+  padding:11px 14px;border-radius:var(--radius-sm);
+  background:var(--gold-tint);border:1px solid var(--gold);
+  color:var(--gold-press);font-size:13.5px;line-height:1.5;
+}
 .analyst-rawdump{
   margin-bottom:16px;border:1px solid var(--line);border-radius:var(--radius-sm);
   padding:12px 16px;background:var(--paper-alt);

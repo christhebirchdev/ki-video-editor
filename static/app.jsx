@@ -442,6 +442,80 @@ function problemeDetail(block) {
   return p.length ? p.join(" · ") : "Keine Auffälligkeiten";
 }
 
+/* ===== Stufe 2: Ergebnis in vier Kategorien =====
+   Spiegel von KATEGORIEN in models/analyst.py — dort ist die führende Fassung. Ändert sich die
+   Zuordnung dort, muss sie hier nachgezogen werden; das Frontend kann sie nicht erfragen.
+   Reihenfolge = Reihenfolge im Video: erst der Einstieg, dann das Halten, dann das Handwerk. */
+const OUTPUT_KATEGORIEN = [
+  { key: "hook",       titel: "Hook",                  sub: "die ersten Sekunden" },
+  { key: "mittelteil", titel: "Mittelteil",            sub: "Aufmerksamkeit halten" },
+  { key: "editing",    titel: "Editing",               sub: "Schnitt und Untertitel" },
+  { key: "auftreten",  titel: "Auftreten, Bild & Ton", sub: "wie du rüberkommst" },
+];
+
+// Dimensionsname → Kategorie-Key, aufgelöst aus denselben KATEGORIEN. Gebraucht wird das nur
+// für die Stärken: `betrifft` trägt den Namen der Dimension, nicht den der Kategorie.
+const DIMENSION_ZU_KATEGORIE = {
+  sprech_hook: "hook", text_hook: "hook", visuell_hook: "hook",
+  spannungsbogen: "mittelteil", struktur: "mittelteil", untertitel_vorhanden: "mittelteil", cta: "mittelteil",
+  schnitt_pacing: "editing", untertitel_gestaltung: "editing",
+  sprechqualitaet: "auftreten", visuelle_aesthetik: "auftreten", audioqualitaet: "auftreten",
+};
+
+// Die Score-Chips einer Kategorie. `field` ist der Feedback-Name — unverändert aus dem früheren
+// Sammel-Aufklapper übernommen, damit die gesammelte Feedback-Historie zusammenpasst.
+// Fehlt ein Wert (Altlauf, oder vom Code als „nicht bewertbar" auf null gesetzt), zeigt
+// ScoreChip von selbst „–" — hier wird deshalb nichts herausgefiltert.
+function kategorieChips(ev, key, ziel) {
+  const u = ev.untertitel || {};
+  if (key === "hook") {
+    return [
+      { field: "hook.sprech",  label: "🎤 Sprech-Hook", score: ev.hook?.sprech_hook_score, detail: ev.hook?.sprech_hook_grund },
+      { field: "hook.text",    label: ev.hook?.text_hook_vorhanden ? "📝 Text-Hook" : "📝 Text-Hook (fehlt)", score: ev.hook?.text_hook_score, detail: ev.hook?.text_hook_grund },
+      { field: "hook.visuell", label: "👁 Visuelle Hook", score: ev.hook?.visuell_hook_score, detail: ev.hook?.visuell_hook_grund },
+    ];
+  }
+  if (key === "mittelteil") {
+    return [
+      { field: "spannungsbogen", label: "📈 Spannungsbogen", score: ev.spannungsbogen?.score, detail: ev.spannungsbogen?.kommentar },
+      { field: "struktur",       label: "📖 Struktur", score: ev.struktur?.score, detail: strukturDetail(ev.struktur) },
+      { field: "untertitel",     label: "💬 Untertitel vorhanden", score: u.score, detail: u.kommentar },
+      // Der CTA ist nur beim Ziel BOFU gewichtet (SCORE_GEWICHTE_JE_ZIEL in models/analyst.py).
+      // Bei TOFU/MOFU stünde hier ein Score, der auf das Ergebnis gar nicht einzahlt — das
+      // verwirrt mehr, als es hilft.
+      ...(ziel === "BOFU" ? [{ field: "cta", label: "🎯 Call to Action", score: ev.cta?.score, detail: ev.cta?.kommentar }] : []),
+    ];
+  }
+  if (key === "editing") {
+    return [
+      { field: "schnitt_pacing",        label: "✂️ Schnitt & Pacing", score: ev.schnitt_pacing?.score, detail: ev.schnitt_pacing?.kommentar },
+      { field: "untertitel_gestaltung", label: "🔠 Untertitel-Gestaltung", score: u.gestaltung_score,
+        detail: (u.maengel || []).length ? u.maengel.join(" · ") : "Keine Auffälligkeiten" },
+    ];
+  }
+  return [
+    { field: "sprechqualitaet",   label: "🎙️ Sprechqualität", score: ev.sprechqualitaet?.score, detail: problemeDetail(ev.sprechqualitaet) },
+    { field: "visuelle_aesthetik", label: "🎨 Bildqualität", score: ev.visuelle_aesthetik?.score, detail: problemeDetail(ev.visuelle_aesthetik) },
+    { field: "audioqualitaet",    label: "🔊 Audioqualität", score: ev.audioqualitaet?.score, detail: problemeDetail(ev.audioqualitaet) },
+  ];
+}
+
+// Stärken nach Kategorie sortieren. Altläufe und v2 liefern `staerken` als Liste von Strings
+// ohne `betrifft` — die landen in `ohne` und werden ohne Kategorie-Überschrift gezeigt. Ohne
+// diesen Zweig verschwände bei jedem gespeicherten Altlauf das Lob komplett.
+function staerkenNachKategorie(staerken) {
+  const gruppen = {};
+  const ohne = [];
+  for (const s of staerken || []) {
+    const text = (typeof s === "string" ? s : s?.text) || "";
+    if (!text.trim()) continue;
+    const kat = typeof s === "string" ? "" : (DIMENSION_ZU_KATEGORIE[s?.betrifft] || "");
+    if (kat) (gruppen[kat] = gruppen[kat] || []).push(text);
+    else ohne.push(text);
+  }
+  return { gruppen, ohne };
+}
+
 /* ===== V1.1: Markdown-Teilmenge für Chat-Antworten =====
    Kein react-markdown: Das Frontend läuft ohne Build-Step (Babel im Browser), npm-Pakete gibt
    es hier nicht. Unterstützt wird bewusst nur, was der Chat-Prompt erlaubt: Absätze,
@@ -1230,25 +1304,64 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
 
               {ev.zielgruppe && (
                 <>
-                  <div className="analyst-zielgruppe">🎯 {ev.zielgruppe}</div>
+                  <div className="analyst-zielgruppe">Dieses Video spricht an: {ev.zielgruppe}</div>
                   <Feedback field="zielgruppe" />
                 </>
               )}
 
-              {/* 2. Positiv zuerst */}
-              {ev.staerken?.length > 0 && (
-                <div className="analyst-eval-block" style={{ background: "var(--ok-bg)", border: "1px solid var(--ok-line)", borderRadius: 12, padding: "12px 14px" }}>
-                  <div className="analyst-eval-title" style={{ color: "var(--ok-ink)" }}>✅ Das läuft schon gut</div>
-                  <ul className="analyst-list">
-                    {ev.staerken.map((s, i) => <li key={i}>{typeof s === "string" ? s : s.text}</li>)}
-                  </ul>
-                  <Feedback field="staerken" />
+              {/* Absicht gegen Wirkung. NUR der Unterschied ist eine Information: Stimmen gewähltes
+                  Ziel und tatsächliche Wirkung überein, steht hier nichts — ein „passt" wäre
+                  Fülltext. `gewaehltes_ziel` wird mitgeprüft, weil ohne Ziel (v2, Altlauf) der
+                  Satz „Du wolltest —" keinen Sinn ergäbe; dort ist `funnel_wirkung` ohnehin leer. */}
+              {ev.funnel_wirkung && result.gewaehltes_ziel && ev.funnel_wirkung !== result.gewaehltes_ziel && (
+                <div className="analyst-funnel-warnung">
+                  ⚠ Du wolltest <b>{ZIEL_LABEL[result.gewaehltes_ziel] || result.gewaehltes_ziel}</b>. Dieses
+                  Video zahlt eher auf <b>{ZIEL_LABEL[ev.funnel_wirkung] || ev.funnel_wirkung}</b> ein
+                  {ev.funnel_wirkung_grund ? ` — ${ev.funnel_wirkung_grund}` : "."}
+                  <Feedback field="funnel_wirkung" />
                 </div>
               )}
+
+              {/* 2. Positiv zuerst — nach Kategorien statt als flache Liste. Eine Kategorie ohne
+                  Stärke fällt ganz weg: kein leerer Block, keine Platzhalterzeile. Wo die Scores
+                  kein Lob hergeben, steht nichts. Gibt es gar keine Stärke, fehlt der ganze Block. */}
+              {(() => {
+                const { gruppen, ohne } = staerkenNachKategorie(ev.staerken);
+                const kats = OUTPUT_KATEGORIEN.filter((k) => gruppen[k.key]?.length);
+                if (kats.length === 0 && ohne.length === 0) return null;
+                return (
+                  <div className="analyst-eval-block" style={{ background: "var(--ok-bg)", border: "1px solid var(--ok-line)", borderRadius: 12, padding: "12px 14px" }}>
+                    <div className="analyst-eval-title" style={{ color: "var(--ok-ink)" }}>✅ Das läuft schon gut</div>
+                    {kats.map((k) => (
+                      <div key={k.key} style={{ marginTop: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ok-ink)", marginBottom: 3 }}>{k.titel}</div>
+                        <ul className="analyst-list">
+                          {gruppen[k.key].map((t, i) => <li key={i}>{t}</li>)}
+                        </ul>
+                      </div>
+                    ))}
+                    {/* Stärken ohne (erkennbare) Kategorie — Altläufe und v2 liefern nur Text.
+                        Sammelgruppe ohne Überschrift, damit das Lob nicht verloren geht. */}
+                    {ohne.length > 0 && (
+                      <ul className="analyst-list" style={{ marginTop: 8 }}>
+                        {ohne.map((t, i) => <li key={i}>{t}</li>)}
+                      </ul>
+                    )}
+                    <Feedback field="staerken" />
+                  </div>
+                );
+              })()}
 
               {/* 3. Handlungsempfehlungen (max 3, wichtigste groß) */}
               {ev.action_steps?.length > 0 && (
                 <><Handlungsempfehlungen steps={ev.action_steps} /><Feedback field="action_steps" /></>
+              )}
+
+              {/* Nur wenn das Chat-Panel unten auch wirklich da ist — sonst zeigt der Hinweis ins Leere. */}
+              {chat && ev.action_steps?.length > 0 && (
+                <div className="muted" style={{ fontSize: 12.5, marginTop: -4 }}>
+                  Mehr Optimierungen? Frag unten im Chat — er kennt diese Analyse.
+                </div>
               )}
 
               {/* 3b. Erweiterte Handlungsempfehlungen (aufklappbar) */}
@@ -1268,39 +1381,40 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                 </details>
               )}
 
-              {/* 4. Details-Aufklapper: ausführliches Feedback + alle Score-Dimensionen */}
-              <details className="analyst-details" style={{ marginTop: 8 }}>
-                <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: 14, padding: "6px 0" }}>
-                  Detaillierte Analyse und Feedback
-                </summary>
+              {/* 4. Ein Aufklapper je Kategorie statt eines Sammel-Aufklappers: Wer wissen will,
+                  warum der Hook schwach ist, klappt „Hook" auf — und findet dort genau die
+                  Dimensionen, die in den Hook-Teil des Scores eingehen. */}
+              {OUTPUT_KATEGORIEN.map((k) => (
+                <details key={k.key} className="analyst-details" style={{ marginTop: 8 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: 14, padding: "6px 0" }}>
+                    {k.titel} <span className="muted" style={{ fontWeight: 500, fontSize: 12.5 }}>— {k.sub}</span>
+                  </summary>
+                  <div className="sc-grid" style={{ marginTop: 10 }}>
+                    {kategorieChips(ev, k.key, result.gewaehltes_ziel).map((c) => (
+                      <React.Fragment key={c.field}>
+                        <ScoreChip label={c.label} score={c.score} detail={c.detail} />
+                        <Feedback field={c.field} />
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </details>
+              ))}
 
-                {ev.top_tipps?.length > 0 && (
+              {/* `top_tipps` ist eine flache Liste ohne Kategorie-Bezug — sie lässt sich nicht auf
+                  die vier Aufklapper verteilen und bekommt deshalb einen eigenen. */}
+              {ev.top_tipps?.length > 0 && (
+                <details className="analyst-details" style={{ marginTop: 8 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: 14, padding: "6px 0" }}>
+                    💬 Ausführliches Feedback
+                  </summary>
                   <div className="analyst-eval-block analyst-tipps" style={{ marginTop: 10 }}>
-                    <div className="analyst-eval-title">💬 Feedback (ausführlich)</div>
                     <ul className="analyst-list">
                       {ev.top_tipps.map((t, i) => <li key={i}>{t}</li>)}
                     </ul>
                     <Feedback field="top_tipps" />
                   </div>
-                )}
-
-                <div className="sc-grid" style={{ marginTop: 10 }}>
-                  <ScoreChip label="🎤 Sprech-Hook" score={ev.hook?.sprech_hook_score} detail={ev.hook?.sprech_hook_grund} />
-                  <Feedback field="hook.sprech" />
-                  <ScoreChip label={ev.hook?.text_hook_vorhanden ? "📝 Text-Hook" : "📝 Text-Hook (fehlt)"} score={ev.hook?.text_hook_score} detail={ev.hook?.text_hook_grund} />
-                  <Feedback field="hook.text" />
-                  <ScoreChip label="📖 Struktur" score={ev.struktur?.score} detail={strukturDetail(ev.struktur)} />
-                  <Feedback field="struktur" />
-                  <ScoreChip label="🎙️ Sprechqualität" score={ev.sprechqualitaet?.score} detail={problemeDetail(ev.sprechqualitaet)} />
-                  <Feedback field="sprechqualitaet" />
-                  <ScoreChip label="✂️ Schnitt & Pacing" score={ev.schnitt_pacing?.score} detail={ev.schnitt_pacing?.kommentar} />
-                  <Feedback field="schnitt_pacing" />
-                  <ScoreChip label="📈 Spannungsbogen" score={ev.spannungsbogen?.score} detail={ev.spannungsbogen?.kommentar} />
-                  <Feedback field="spannungsbogen" />
-                  <ScoreChip label="🎨 Visuelle Ästhetik" score={ev.visuelle_aesthetik?.score} detail={problemeDetail(ev.visuelle_aesthetik)} />
-                  <Feedback field="visuelle_aesthetik" />
-                </div>
-              </details>
+                </details>
+              )}
             </div>
             );
           })()}
