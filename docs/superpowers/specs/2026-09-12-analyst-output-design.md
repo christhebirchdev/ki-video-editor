@@ -430,3 +430,93 @@ Die Engine-Auswahl war am 2026-08-10 bewusst aus dem Frontend entfernt worden ("
 Variante"). Sie kommt **nur in der Admin-Ansicht** zurueck, wie die Checkbox "Cache umgehen":
 Endnutzer sehen weiterhin genau eine Variante. Solange V3 nicht freigegeben ist, bleibt `v2_hybrid`
 der Default; die Umstellung des Defaults ist eine eigene, spaetere Entscheidung.
+
+---
+
+## 12. Funnel-Wirkung: was der Nutzer WOLLTE gegen das, was das Video TUT
+
+Vorgabe Chris (2026-09-12, nach dem ersten echten V3-Lauf). Die wertvollste Aussage des Analysten
+ist nicht der Score, sondern die Luecke zwischen Absicht und Wirkung.
+
+**Befund aus Lauf dc5c0a3d:** `funnel` steht dort auf `MOFU` — exakt dem gewaehlten Ziel. Kein
+Zufall: Der V3-Skill sagt woertlich „Trag das Ziel unveraendert in das Feld funnel ein." Das Modell
+schaetzt also nichts ein, es schreibt ab. Damit ist ein Abgleich unmoeglich.
+
+**Aenderung:** `funnel` traegt weiterhin das gewaehlte Ziel (Fakt, vom Code gesetzt). Die
+Einschaetzung des Modells kommt in ein eigenes Feld:
+
+| Feld | Quelle | Inhalt |
+|---|---|---|
+| `funnel` | Code (Nutzerziel) | TOFU / MOFU / BOFU — die Absicht |
+| `funnel_wirkung` | Modell | TOFU / MOFU / BOFU — auf welche Stufe das Video tatsaechlich einzahlt |
+| `funnel_wirkung_grund` | Modell | EIN Satz, woran das Modell das festmacht |
+
+Der Prompt-Abschnitt „Videoziel" im V3-Skill wird entsprechend umgeschrieben: Das Ziel ist der
+Massstab fuer die BEWERTUNG, aber die Einschaetzung der tatsaechlichen Wirkung erfolgt **unabhaengig
+davon** — ausdruecklich mit der Erlaubnis zu widersprechen.
+
+**Darstellung** (nur wenn `funnel_wirkung != funnel`), direkt unter dem Score:
+
+> ⚠ Du wolltest **Vertrauen und Expertenstatus aufbauen**. Dieses Video wirkt eher wie ein Video,
+> das **Kundenanfragen gewinnen** soll — <Grund in einem Satz>.
+
+Stimmen beide ueberein, erscheint nichts. Kein Lob fuer Uebereinstimmung: Das waere Fuelltext, und
+der Nutzer soll den Hinweis als Signal lesen, nicht als Routine.
+
+**Verhaeltnis zum Zielgruppen-Abgleich (Abschnitt 3.2):** Dieselbe Mechanik auf einer anderen Achse
+— dort „wen sprichst du an", hier „was bewirkt das Video". Der Zielgruppen-Abgleich braucht die
+Brand-Datei, dieser hier nicht: Das Ziel ist Pflichteingabe, der Abgleich also immer moeglich.
+
+---
+
+## 13. Fixes aus dem ersten echten V3-Lauf (dc5c0a3d, Ziel MOFU)
+
+Alle drei folgen demselben Muster wie der Rest des Projekts: Wo ein Messwert vorliegt, urteilt der
+Code, nicht der Prompt.
+
+### 13.1 Videoende — Nachlauf messen statt raten
+
+**Befund:** Handlungsschritt 3 lautete „Kuerze den letzten Satz leicht ab und beende das Video direkt
+nach dem Wort 'weiter', um einen unnoetigen Leerlauf am Ende zu vermeiden." Tatsaechlich:
+`duration_sec` 24,92 s, Sprechende bei 24,68 s → **0,24 s Nachlauf**. Es gab keinen Leerlauf. Chris:
+*„das video endet schon direkt nach dem wort weiter. vielleicht muss da ein puffer rein. 1-2 sekunden
+leerlauf waeren in ordnung, alles darueber waere zu lang."*
+
+**Regel (Code):** `nachlauf = duration_sec - (sprechbeginn_sec + sprech_dauer_sec)`
+
+| Nachlauf | Urteil |
+|---|---|
+| < 1,0 s | Mangel: 1–2 s Puffer anhaengen, damit der Schluss nicht abgehackt wirkt |
+| 1,0 – 2,0 s | in Ordnung, kein Schritt |
+| > 2,0 s | Mangel: auf 1–2 s kuerzen |
+
+Modell-Empfehlungen zum Videoende werden wie bei den Pausen verworfen; den Satz baut der Code
+(`baue_videoende_schritt`). Bei Videos ohne gesprochenes Wort entfaellt die Pruefung.
+
+### 13.2 Lautstaerke — Zielkorridor statt Schaetzung
+
+**Befund:** Gemessen `-35,8 LUFS` / True Peak `-18,0 dBFS`. Die Empfehlung lautete „Hebe die
+Lautstaerke der gesamten Tonspur um ca. 3 Dezibel an" — es fehlen rund 22 LU. Der Messwert stand im
+Prompt; das Modell hat ihn nicht in eine Zahl uebersetzt.
+
+**Zielwerte (Vorgabe Chris):** `-14 LUFS (±3 LU)`, True Peak `<= -1 dBTP`.
+
+**Regel (Code):** Liegt `lufs_integrated` ausserhalb `-17 … -11`, baut der Code die Empfehlung mit
+Ist- und Sollwert und der konkreten Differenz („dein Ton liegt bei -35,8 LUFS, Ziel sind -14 LUFS —
+hebe die Tonspur um etwa 22 LU an"). Liegt `true_peak_db` ueber `-1`, kommt ein Hinweis auf
+Uebersteuerung dazu. Innerhalb des Korridors: kein Schritt, keine Erwaehnung.
+Modell-Empfehlungen zur Lautstaerke werden verworfen.
+
+### 13.3 Hoechstens eine Empfehlung je Dimension in den Top 3
+
+**Befund:** Zwei der drei Schritte betrafen `sprech_hook` — „Formuliere deinen ersten gesprochenen
+Satz um" und „Starte direkt mit der steilen These des Experten". Dieselbe Handlung, zweimal Platz
+belegt. Die Buendelung griff nicht, weil `gruppe` einmal `"sprechhook"` und einmal leer war.
+
+**Regel (Code):** In `verteile_empfehlungen` darf je Wert von `betrifft` hoechstens EIN Schritt in
+die Top N. Der schwerere gewinnt, der andere rutscht nach „Erweitert". Empfehlungen ohne `betrifft`
+sind davon nicht betroffen — sie sind videospezifisch und meinen verschiedene Stellen.
+
+Das ist strenger als die bestehende `gruppe`-Buendelung und ersetzt sie nicht: `gruppe` fasst
+dieselbe Handlung an mehreren Zeitpunkten zu EINEM Schritt zusammen, diese Regel verhindert, dass
+zwei verschiedene Formulierungen desselben Mangels beide oben stehen.
