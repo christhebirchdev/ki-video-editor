@@ -289,9 +289,9 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "") -> Analys
     kritisch = kritische_dimensionen(parsed, ziel) if ziel else set()
     scores = dimensions_scores(parsed)
 
-    # (Sortierschlüssel, Gruppen-Label, Schritt) — das Label muss durch die Sortierung mitlaufen,
-    # weil die Auswahl unten danach entscheidet.
-    schritte: list[tuple[tuple, str, ActionStep]] = []
+    # (Sortierschlüssel, Gruppen-Label, Dimension, Schritt) — Label UND Dimension müssen durch die
+    # Sortierung mitlaufen, weil die Auswahl unten nach beidem entscheidet.
+    schritte: list[tuple[tuple, str, str, ActionStep]] = []
     for eintraege in gruppen.values():
         eintraege.sort(key=lambda e: e.zeitpunkt_sek)
         erste = eintraege[0]
@@ -309,6 +309,7 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "") -> Analys
         schritte.append((
             schluessel,
             (erste.gruppe or "").strip().lower(),
+            betrifft,
             ActionStep(
                 zeitpunkt=_zeit_label([e.zeitpunkt_sek for e in eintraege]),
                 anweisung=erste.anweisung,
@@ -327,17 +328,35 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "") -> Analys
     # deshalb für einen videospezifischen Schritt frei.
     # Hook- und Anlauf-Schritte zählen NICHT zum Deckel — sie betreffen die ersten Sekunden und
     # behalten Vorrang (frühere Vorgabe).
+    # Höchstens EIN Schritt je Bewertungsdimension in den Top N (Lauf dc5c0a3d): Dort betrafen
+    # zwei der drei Schritte `sprech_hook` — „Formuliere deinen ersten gesprochenen Satz um" und
+    # „Starte direkt mit der steilen These des Experten". Dieselbe Handlung, zwei Plätze. Die
+    # Bündelung über `gruppe` griff nicht, weil `gruppe` einmal „sprechhook" und einmal leer war.
+    #
+    # Abgrenzung zur `gruppe`-Bündelung oben: `gruppe` fasst DIESELBE Handlung an mehreren
+    # Zeitpunkten zu EINEM Schritt zusammen. Diese Regel hier verhindert, dass zwei VERSCHIEDENE
+    # Formulierungen desselben Mangels beide oben stehen — der zweite rutscht nach unten.
+    #
+    # Leeres `betrifft` ist ausgenommen: Das sind videospezifische Schritte mit echter
+    # Sekundenangabe, die verschiedene Stellen meinen — keine Dubletten.
+    #
+    # Nur V3: ohne `ziel` bleibt die Auswahl unverändert, V2 ist die eingefrorene Vergleichsbasis.
     oben: list[ActionStep] = []
     rest: list[ActionStep] = []
     sammel = 0
-    for _, gruppe, schritt in schritte:
+    dimensionen_oben: set[str] = set()
+    for _, gruppe, betrifft, schritt in schritte:
         if gruppe in NUR_UNTEN:
             rest.append(schritt)
             continue
+        ist_dublette = bool(ziel and betrifft and betrifft in dimensionen_oben)
         ist_sammel = gruppe in SAMMEL_GRUPPEN
-        if len(oben) < obergrenze and not (ist_sammel and sammel >= MAX_SAMMEL_OBEN):
+        if (len(oben) < obergrenze and not ist_dublette
+                and not (ist_sammel and sammel >= MAX_SAMMEL_OBEN)):
             oben.append(schritt)
             sammel += ist_sammel
+            if betrifft:
+                dimensionen_oben.add(betrifft)
         else:
             rest.append(schritt)
 

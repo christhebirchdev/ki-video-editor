@@ -512,3 +512,33 @@ def test_ohne_messwert_kein_lautstaerke_schritt():
     from services.analyst_eval import baue_lautstaerke_schritt
     out = baue_lautstaerke_schritt(_eval_mit_scores(), _result_mit(lufs=None))
     assert [e for e in out.empfehlungen if e.gruppe == "lautstaerke"] == []
+
+
+# --- Hoechstens eine Empfehlung je Dimension in den Top 3 (Lauf dc5c0a3d) ---
+
+def test_nur_eine_empfehlung_je_dimension_in_den_top_drei():
+    """Lauf dc5c0a3d: zwei von drei Schritten betrafen sprech_hook."""
+    from services.analyst_eval import verteile_empfehlungen
+    ev = _mit_empfehlungen(
+        (0.0, "Formuliere den ersten Satz um", "sprech_hook", "sprechhook"),
+        (0.0, "Starte mit der steilen These", "sprech_hook", ""),
+        (10.0, "Spannungsbogen halten", "spannungsbogen", ""),
+        (15.0, "Schnitt straffen", "schnitt_pacing", ""),
+        sprech=2, spannung=2, schnitt=2,
+    )
+    out = verteile_empfehlungen(ev, ziel="MOFU")
+    betroffen = [s.anweisung for s in out.action_steps]
+    assert len([a for a in betroffen if "Satz um" in a or "steilen These" in a]) == 1
+    assert len(out.action_steps) == 3
+
+
+def test_empfehlungen_ohne_dimension_duerfen_mehrfach_oben_stehen():
+    """Videospezifische Schritte ohne `betrifft` meinen verschiedene Stellen — sie sind keine Dubletten."""
+    from services.analyst_eval import verteile_empfehlungen
+    ev = _mit_empfehlungen(
+        (3.0, "Bei Sekunde 3 eine Grafik einblenden", "", ""),
+        (9.0, "Bei Sekunde 9 einen Schnitt setzen", "", ""),
+        (14.0, "Bei Sekunde 14 den Ton absenken", "", ""),
+    )
+    out = verteile_empfehlungen(ev, ziel="MOFU")
+    assert len(out.action_steps) == 3
