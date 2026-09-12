@@ -405,9 +405,16 @@ Betroffen sind drei Funktionen: `berechne_performance_score()`, `verteile_empfeh
 Lob-Filter. Die Verzweigung steht am **Anfang** der Funktion; der V2-Pfad bleibt Zeile fuer Zeile
 unveraendert.
 
-**Abnahmekriterium:** `tools/replay_nachbearbeitung.py` ueber alle gespeicherten Laeufe zeigt
-**Score-Diff 0**. Jede Abweichung an einem Altlauf ist ein Fehler in der Verzweigung, kein
-gewolltes Ergebnis. Das ist der Test, der den additiven Ansatz gegenueber einem vollen Fork absichert.
+**Abnahmekriterium:** Die Ausgabe von `tools/replay_nachbearbeitung.py` ist VOR und NACH der
+Aenderung byte-gleich.
+
+ACHTUNG, gemessen am 2026-09-12: Das Werkzeug meldet als Ausgangslage bereits
+„66 von 93 Laeufen aendern sich durch die aktuelle Nachbearbeitung" — die gespeicherten Altlaeufe
+sind gegenueber der heutigen Nachbearbeitung ohnehin gedriftet (frueher ergaenzte Untertitel- und
+Texthook-Schritte, Score-Deckelungen). Eine absolute 0 ist deshalb KEIN sinnvolles Kriterium.
+Der Nachweis ist der A/B-Vergleich: Werkzeug einmal mit der Datei aus HEAD laufen lassen, einmal mit
+der geaenderten Fassung, beide Ausgaben diffen. Ein Unterschied heisst, die Verzweigung greift auch
+ohne Ziel — genau der Fehler, den dieser Test faengt.
 
 ### 11.4 Vergleichbarkeit
 

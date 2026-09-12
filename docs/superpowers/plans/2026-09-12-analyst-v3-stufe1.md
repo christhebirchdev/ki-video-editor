@@ -979,15 +979,23 @@ git commit -m "feat(analyst): Top-3 nach Schwere statt nach Zeitpunkt (nur v3)"
 Dieser Task schreibt keinen Code. Er ist das Abnahmekriterium aus Spec 11.3 und muss bestehen,
 bevor Task 10 beginnt.
 
-- [ ] **Step 1: Replay ueber alle gespeicherten Laeufe**
+- [ ] **Step 1: Replay als A/B-Vergleich**
 
-Run: `python3 tools/replay_nachbearbeitung.py`
-Expected: Score-Diff 0 fuer JEDEN gespeicherten Lauf.
+Das Werkzeug meldet als Ausgangslage schon „66 von 93 Laeufen aendern sich" (vorbestehende Drift der
+Altlaeufe gegenueber der heutigen Nachbearbeitung). Eine absolute 0 ist deshalb kein Kriterium.
+Gemessen wird der Unterschied, den DIESE Aenderung macht:
+
+```bash
+python3 tools/replay_nachbearbeitung.py > /tmp/replay_neu.txt
+git stash push -- services/analyst_eval.py && python3 tools/replay_nachbearbeitung.py > /tmp/replay_alt.txt && git stash pop
+diff /tmp/replay_alt.txt /tmp/replay_neu.txt && echo "KEIN UNTERSCHIED"
+```
+
+Expected: `KEIN UNTERSCHIED`.
 
 - [ ] **Step 2: Bei Abweichung**
 
-Jede Abweichung an einem Altlauf ist ein Fehler in der Verzweigung, kein gewolltes Ergebnis.
-Pruefe in dieser Reihenfolge:
+Ein Unterschied heisst, die Verzweigung greift auch ohne Ziel. Pruefe in dieser Reihenfolge:
 1. Steht in `berechne_performance_score` wirklich `SCORE_GEWICHTE` als Fallback (nicht ein Ziel)?
 2. Ist der Sortierschluessel bei leerem `ziel` exakt `(zeitpunkt,)`?
 3. Ist `obergrenze` bei leerem `ziel` immer `TOP_ACTION_STEPS`?
@@ -1454,10 +1462,17 @@ git commit -m "feat(analyst): Ziel-Dropdown, Versionsumschalter in der Admin-Ans
 Run: `python3 -m pytest tests/test_analyst_cache.py tests/test_server_deploy.py tests/test_analyst_ziel.py -q`
 Expected: alle passed
 
-- [ ] **Step 2: Replay erneut**
+- [ ] **Step 2: Replay erneut als A/B gegen den Stand vor diesem Branch**
 
-Run: `python3 tools/replay_nachbearbeitung.py`
-Expected: Score-Diff 0 fuer alle gespeicherten Laeufe
+```bash
+python3 tools/replay_nachbearbeitung.py > /tmp/replay_v3.txt
+git checkout main -- services/ models/
+python3 tools/replay_nachbearbeitung.py > /tmp/replay_main.txt
+git checkout feature/analyst-v3-stufe1 -- services/ models/
+diff /tmp/replay_main.txt /tmp/replay_v3.txt && echo "KEIN UNTERSCHIED"
+```
+
+Expected: `KEIN UNTERSCHIED` — kein gespeicherter Altlauf aendert sich durch den ganzen Branch.
 
 - [ ] **Step 3: Zwei echte Laeufe vergleichen**
 
