@@ -366,3 +366,25 @@ def test_split_prompt_kennt_das_ziel():
         p = build_system_prompt(teil=teil, ziel="BOFU")
         assert "BOFU" in p, teil
         assert "Videoziel" in p, teil
+
+
+def test_v3_schema_verlangt_staerken_als_objekt():
+    """Sonst widerspricht der Ausgabe-Vertrag dem Skill-Text — und das Modell folgt dem Vertrag."""
+    from services.analyst_eval import build_system_prompt
+    v3 = build_system_prompt(ziel="MOFU")
+    assert '"staerken": [{"text"' in v3
+    assert '"staerken": ["<1-3' not in v3
+
+
+def test_v2_schema_bleibt_bei_strings():
+    from services.analyst_eval import build_system_prompt
+    v2 = build_system_prompt()
+    assert '"staerken": ["<1-3' in v2
+    assert '"staerken": [{"text"' not in v2
+
+
+def test_v3_staerken_vertrag_steht_auch_im_handwerk_teil():
+    """staerken gehoert laut TEIL_FELDER zum Handwerk-Call — dort muss der Vertrag stehen."""
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(teil="handwerk", ziel="MOFU")
+    assert '"staerken": [{"text"' in p

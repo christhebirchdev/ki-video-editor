@@ -1371,6 +1371,14 @@ Inhaltliche Regeln zu `empfehlungen` stehen im Abschnitt „Empfehlungen — die
 und gelten unverändert; hier steht nur das Datenformat.
 staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Ergebnis zuerst."""
 
+# V3 ersetzt genau EINE Zeile des Ausgabe-Vertrags. Ein zweites vollstaendiges Schema waere ein
+# Duplikat, das beim naechsten Feld auseinanderlaeuft. Die Zeile muss EINZEILIG bleiben:
+# `_schema_fuer` filtert den Vertrag zeilenweise ueber die Top-Level-Schluessel.
+STAERKEN_ZEILE_V2 = '  "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],'
+STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik>"}],'
+assert STAERKEN_ZEILE_V2 in OUTPUT_SCHEMA, "staerken-Zeile passt nicht mehr zum Ausgabe-Vertrag"
+
+
 
 def load_skill_body(pfad: Path | None = None) -> str:
     """Liest den Skill-Body und entfernt das YAML-Frontmatter.
@@ -1477,16 +1485,21 @@ def _skill_fuer(teil: str | None, pfad=None) -> str:
     return "\n\n".join(p for p in raus if p)
 
 
-def _schema_fuer(teil: str | None) -> str:
+def _schema_fuer(teil: str | None, ziel: str = "") -> str:
     """Ausgabe-Vertrag auf die Felder dieses Teils eindampfen.
 
     Gefiltert wird über die Top-Level-Schlüssel im Schema-Text. Das ist bewusst textuell und nicht
     über ein generiertes Schema: Die ausformulierten Feldbeschreibungen SIND die Anweisung — ein
     aus Pydantic erzeugtes Schema hätte sie nicht.
+
+    Die V3-Ersetzung der staerken-Zeile passiert VOR dem Filtern: Der Filter liest die Zeile, die
+    am Ende im Vertrag steht — würde erst danach ersetzt, wäre die Zeile im Teil-Call schon
+    aussortiert oder in der alten Form stehengeblieben.
     """
+    schema = OUTPUT_SCHEMA.replace(STAERKEN_ZEILE_V2, STAERKEN_ZEILE_V3) if ziel else OUTPUT_SCHEMA
     if not teil:
-        return OUTPUT_SCHEMA
-    kopf, _, rest = OUTPUT_SCHEMA.partition("{\n")
+        return schema
+    kopf, _, rest = schema.partition("{\n")
     zeilen = rest.split("\n")
     behalten, tiefe, nimm = [], 0, False
     for z in zeilen:
@@ -1499,7 +1512,7 @@ def _schema_fuer(teil: str | None) -> str:
         if nimm:
             behalten.append(z)
             tiefe += z.count("{") + z.count("[") - z.count("}") - z.count("]")
-    fuss = OUTPUT_SCHEMA.split("}\n\n", 1)[1] if "}\n\n" in OUTPUT_SCHEMA else ""
+    fuss = schema.split("}\n\n", 1)[1] if "}\n\n" in schema else ""
     koerper = "\n".join(behalten).rstrip().rstrip(",")
     return f"{kopf}{{\n{koerper}\n}}\n\n{fuss}"
 
@@ -1554,7 +1567,7 @@ def build_system_prompt(teil: str | None = None, ziel: str = "") -> str:
             "KEIN Ausgabe-Template — der Output bleibt strikt knapp + JSON wie unten definiert.\n\n"
             + ref
         )
-    parts.append(_schema_fuer(teil))
+    parts.append(_schema_fuer(teil, ziel))
     return "\n\n".join(parts)
 
 
