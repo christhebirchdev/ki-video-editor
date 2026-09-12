@@ -951,7 +951,29 @@ def test_prompt_version_wurde_hochgezaehlt():
     """Betriebsregel: bei jeder inhaltlichen Prompt-Aenderung hochzaehlen, sonst ist Feedback zu
     zwei verschiedenen Prompts nicht mehr auseinanderzuhalten."""
     from services.analyst_eval import PROMPT_VERSION
-    assert PROMPT_VERSION == "2026-09-12c"
+    assert PROMPT_VERSION == "2026-09-12d"
+
+
+def test_v3_verlangt_hoechstens_eine_empfehlung_je_dimension():
+    """Lauf dc5c0a3d: zwei der drei Top-Schritte betrafen `sprech_hook` — „Formuliere deinen ersten
+    gesprochenen Satz um" und „Starte direkt mit der steilen These des Experten". Derselbe Mangel,
+    zwei Plaetze von dreien. Die Code-Regel in verteile_empfehlungen wirft den zweiten nur weg;
+    zwei Freitexte sinnvoll verschmelzen kann nur das Modell — deshalb steht die Regel im Prompt."""
+    from services.analyst_eval import SKILL_PATH_V3, load_skill_body
+    v3 = " ".join(load_skill_body(SKILL_PATH_V3).split())
+    v2 = " ".join(load_skill_body().split())
+    assert "Höchstens EINE Empfehlung je Bewertungsdimension" in v3
+    assert "Höchstens EINE Empfehlung je Bewertungsdimension" not in v2
+
+
+def test_v3_verlangt_umgekehrt_zu_jeder_schwachen_dimension_eine_empfehlung():
+    """Untergrenze zur selben Regel: Ohne eigene Empfehlung setzt der Code einen generischen
+    Standardsatz ein, der das Video nicht kennt. Die Obergrenze allein wuerde das Modell sonst
+    dazu verleiten, lieber gar nichts zu schreiben."""
+    from services.analyst_eval import SKILL_PATH_V3, load_skill_body
+    v3 = " ".join(load_skill_body(SKILL_PATH_V3).split())
+    assert "Score 3 oder schlechter gehört eine eigene Empfehlung" in v3
+    assert "Standardsatz" in v3
 # --- Objekt-Muster-Spillover (erster echter V3-Lauf, 2026-09-12) -------------------------------
 
 def test_top_tipps_als_objekte_brechen_den_lauf_nicht():

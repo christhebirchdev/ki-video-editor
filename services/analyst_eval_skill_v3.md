@@ -590,6 +590,16 @@ Dies ist die einzige Stelle, an der die Empfehlungs-Regeln stehen. Alles andere 
 - **HANDLUNG ZUERST, Begründung knapp.** Der erste Satz ist die Handlung. Danach höchstens EIN
   kurzer Satz, warum. Keine Einleitung, kein Ausschmücken — der Nutzer soll auf einen Blick sehen,
   was er tun soll.
+- **Höchstens EINE Empfehlung je Bewertungsdimension.** Hast du zu derselben Dimension mehrere
+  Aspekte zu sagen, fass sie in EINER Anweisung zusammen — nicht zwei Empfehlungen, die dasselbe
+  Problem von zwei Seiten beschreiben. „Formuliere den ersten Satz um" und „Starte mit der These
+  statt mit der Frage" sind EINE Empfehlung zum Sprech-Hook, nicht zwei. Sonst belegt ein einziger
+  Mangel zwei der drei Plätze, die der Nutzer überhaupt zu sehen bekommt — genau so passiert
+  (Lauf dc5c0a3d). Das System sortiert die zweite dann nach unten aus; zusammenführen kann sie nur
+  du, weil nur du weißt, was beide Sätze gemeinsam meinen.
+- **Umgekehrt gilt: Zu JEDER Dimension mit Score 3 oder schlechter gehört eine eigene Empfehlung.**
+  Fehlt sie, setzt das System einen allgemeinen Standardsatz ein — der ist immer schwächer als
+  deiner, weil er dein Video nicht kennt.
 - **`betrifft` ausfüllen**, wenn die Handlung eine bewertete Dimension verbessert (sprech_hook,
   text_hook, sprechqualitaet, visuelle_aesthetik, spannungsbogen, struktur, schnitt_pacing).
   Das System erzwingt bei schwachem Score selbst eine Empfehlung — es erkennt an diesem Feld, dass

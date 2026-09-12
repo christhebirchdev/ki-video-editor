@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-12c"   # V3 Stufe 2: Untertitel-Scores, Audioqualitaet, CTA, Funnel-Wirkung
+PROMPT_VERSION = "2026-09-12d"   # V3: eine Empfehlung je Dimension (Prompt-Regel, Lauf dc5c0a3d)
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -346,6 +346,13 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "") -> Analys
     # zwei der drei Schritte `sprech_hook` — „Formuliere deinen ersten gesprochenen Satz um" und
     # „Starte direkt mit der steilen These des Experten". Dieselbe Handlung, zwei Plätze. Die
     # Bündelung über `gruppe` griff nicht, weil `gruppe` einmal „sprechhook" und einmal leer war.
+    #
+    # FANGNETZ, NICHT HAUPTMECHANISMUS (seit PROMPT_VERSION 2026-09-12d): Vorrang hat die
+    # Prompt-Regel „Höchstens EINE Empfehlung je Bewertungsdimension" im V3-Skill. Sie ist die
+    # bessere Lösung, weil das Modell beide Aspekte in EINER individuell formulierten Anweisung
+    # zusammenfassen kann — der Code kann zwei Freitexte nicht verschmelzen und wirft den zweiten
+    # deshalb nur nach „Erweitert" ab. Diese Regel hier greift nur noch, wenn sich das Modell nicht
+    # daran hält; sie bleibt aus genau diesem Grund stehen.
     #
     # Abgrenzung zur `gruppe`-Bündelung oben: `gruppe` fasst DIESELBE Handlung an mehreren
     # Zeitpunkten zu EINEM Schritt zusammen. Diese Regel hier verhindert, dass zwei VERSCHIEDENE
