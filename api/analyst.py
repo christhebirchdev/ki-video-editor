@@ -10,7 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from config import settings
-from models.analyst import FORMATE, AnalystResult
+from models.analyst import FORMATE, ZIELE, AnalystResult
 from services import analyst_cache, analyst_chat, analyst_vlm
 from services.analyst_engine import ANALYST_PATH, RUNNING_PHASES, run_analysis, write_status
 
@@ -74,7 +74,7 @@ def upload_video(file: UploadFile = File(...)):
 # v2_split = V1.2: derselbe Prompt-Inhalt, aber auf zwei Calls geteilt (Eröffnung / Handwerk).
 # Läuft bewusst NEBEN v2_hybrid (V1.1) statt es zu ersetzen — nur so lässt sich messen, ob der
 # Split etwas bringt. Beide Engines nutzen dieselben Bewertungsfelder und dieselbe Nachbearbeitung.
-ENGINES = {"v2_pure", "v2_hybrid", "v2_split"}
+ENGINES = {"v2_pure", "v2_hybrid", "v2_split", "v3"}
 
 
 class StartIn(BaseModel):
@@ -90,7 +90,7 @@ class StartIn(BaseModel):
 @router.post("/{run_id}/start")
 async def start_analysis(
     run_id: str, background: BackgroundTasks, skip_eval: bool = False, engine: str = "v2_hybrid",
-    planned_text_hook: str = "", format: str = "", body: StartIn | None = None,
+    planned_text_hook: str = "", format: str = "", ziel: str = "", body: StartIn | None = None,
 ):
     """engine: v1 (Claude bewertet aus Text) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte).
     skip_eval=true → nur lokale Rohanalyse (Whisper/Quality), KEIN Bewertungs-Call (nur v1 sinnvoll).
@@ -111,6 +111,20 @@ async def start_analysis(
             status_code=422,
             detail=f"Unbekanntes Format: {gewaehlt}. Erlaubt: {', '.join(FORMATE)}",
         )
+    # Ziel ist Pflicht bei v3 und wird bei den älteren Engines ignoriert: Sie kennen es nicht,
+    # und ein mitgeschriebenes Ziel würde ihren Cache-Key ohne Wirkung verändern.
+    gewaehltes_ziel = (ziel or "").strip().upper() if engine == "v3" else ""
+    if engine == "v3":
+        if not gewaehltes_ziel:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Bitte ein Ziel wählen. Erlaubt: {', '.join(ZIELE)}",
+            )
+        if gewaehltes_ziel not in ZIELE:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unbekanntes Ziel: {gewaehltes_ziel}. Erlaubt: {', '.join(ZIELE)}",
+            )
     run_dir = _run_dir(run_id)
     status = json.loads((run_dir / "status.json").read_text())
     if status.get("phase") in RUNNING_PHASES:
@@ -127,6 +141,7 @@ async def start_analysis(
     meta["engine"] = engine
     meta["planned_text_hook"] = (planned_text_hook or "").strip()
     meta["format"] = gewaehlt
+    meta["ziel"] = gewaehltes_ziel
     # Teil des Cache-Keys: dieselbe Datei unter geändertem Bewertungs-Prompt ist ein anderer Lauf.
     meta["prompt_version"] = PROMPT_VERSION
     meta_path.write_text(json.dumps(meta, ensure_ascii=False))
@@ -140,14 +155,15 @@ async def start_analysis(
             meta_path.write_text(json.dumps(meta, ensure_ascii=False))
             write_status(run_dir, "done", "Analyse abgeschlossen", done=True)
             return {"id": run_id, "status": "cached", **herkunft,
-                    "engine": engine, "format": gewaehlt}
+                    "engine": engine, "format": gewaehlt, "ziel": gewaehltes_ziel}
 
     ok, msg = analyst_vlm.is_available()
     if not ok:
         raise HTTPException(status_code=503, detail=msg)
     write_status(run_dir, "starting", "Analyse startet…")
     background.add_task(run_analysis, run_id)
-    return {"id": run_id, "status": "started", "skip_eval": skip_eval, "engine": engine, "format": gewaehlt}
+    return {"id": run_id, "status": "started", "skip_eval": skip_eval, "engine": engine,
+            "format": gewaehlt, "ziel": gewaehltes_ziel}
 
 
 @router.get("/{run_id}")

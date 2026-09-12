@@ -94,16 +94,19 @@ def _run(run_id: str, run_dir: Path) -> None:
     misst die reine Verarbeitungszeit und schreibt analysis.json + Abschluss-Status."""
     meta = json.loads((run_dir / "meta.json").read_text())
     engine = meta.get("engine", "v1")
-    if engine not in ("v1", "v2_pure", "v2_hybrid", "v2_split"):
+    if engine not in ("v1", "v2_pure", "v2_hybrid", "v2_split", "v3"):
         engine = "v1"
     video = _find_video(run_dir)
 
     t0 = time.perf_counter()
     if engine == "v2_pure":
         result = _run_v2(run_dir, video, meta, mode="pure")
-    elif engine in ("v2_hybrid", "v2_split"):
+    elif engine in ("v2_hybrid", "v2_split", "v3"):
         # v2_split (V1.2) teilt nur den Bewertungsschritt auf zwei Calls. Transkript, Sprachstatistik
         # und Messwerte davor sind identisch — sonst wäre der Vergleich mit V1.1 wertlos.
+        # v3 nutzt dieselbe Vorverarbeitung wie v2_hybrid — nur Bewertungs-Prompt und
+        # Nachbearbeitung unterscheiden sich. Andernfalls wäre der Vergleich wertlos
+        # (dieselbe Regel wie bei v2_split).
         result = _run_v2(run_dir, video, meta, mode="hybrid", split=(engine == "v2_split"))
     else:
         result = _run_v1(run_dir, video, meta)
@@ -151,6 +154,7 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str, split: bool = Fal
     write_status(run_dir, "evaluate", "Analyse & Bewertung laufen…")
     result.geplante_texthook = meta.get("planned_text_hook", "")
     result.gewaehltes_format = meta.get("format", "")  # leer nur bei Altläufen vor der Pflicht-Auswahl
+    result.gewaehltes_ziel = meta.get("ziel", "")
     if split:
         evaluate = analyst_gemini_eval.evaluate_split
     else:
