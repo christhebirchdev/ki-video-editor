@@ -162,10 +162,25 @@ class UntertitelEval(BaseModel):
     `maengel` trägt Werte aus UNTERTITEL_MANGEL_ARTEN. Wie bei `texthook_maengel` baut der Code die
     Empfehlung NUR aus dem, was gemeldet wurde — nicht aus der ganzen Prüfliste auf Verdacht.
 
-    `vorhanden=False` ist KEIN Mangel: Ohne Untertitel zu arbeiten ist eine Formatentscheidung."""
+    `vorhanden=False` IST ein Mangel, sobald im Video gesprochen wird (Vorgabe Chris, 2026-08-06:
+    „ein Untertitel, der mitläuft, ist im Video absolut essentiell"). Nur ein Video ohne
+    gesprochenes Wort hat nichts zu untertiteln. Bis dahin galt das Fehlen als Formatentscheidung —
+    diese Regel ist seither umgekehrt, siehe `erzwinge_untertitel_empfehlung`.
+
+    ZWEI Scores, weil es zwei verschiedene Fragen sind (Stufe 2):
+    - `score` („gibt es sie?") gehört zur Kategorie Mittelteil — es ist eine RETENTION-Frage:
+      Ein großer Teil der Zuschauer schaut ohne Ton und scrollt ohne Untertitel weiter.
+    - `gestaltung_score` („wie sind sie gemacht?") gehört zum Editing — Platzierung, Wortzahl,
+      Lesbarkeit, Timing. Das ist Handwerk.
+    Beide sind nullable, und beide setzt bei den klaren Fällen der CODE, nicht das Modell
+    (`setze_untertitel_scores`): Wird nicht gesprochen, sind beide null („nicht bewertbar");
+    wird gesprochen und fehlen sie, ist `score` 1 und `gestaltung_score` null — an etwas, das
+    es nicht gibt, ist nichts gestaltet. Nur bei vorhandenen Untertiteln urteilt das Modell."""
     vorhanden: bool = False
     maengel: list[str] = Field(default_factory=list)
     kommentar: str = ""
+    score: Optional[int] = None            # „gibt es sie?" — Dimension untertitel_vorhanden
+    gestaltung_score: Optional[int] = None  # „wie sind sie gemacht?" — Dimension untertitel_gestaltung
 
 
 class EnergieEval(BaseModel):
@@ -368,10 +383,10 @@ ZIELE = ("TOFU", "MOFU", "BOFU")
 #   Bildqualität sinkt.
 # - BOFU: wie MOFU, ergänzt um den CTA.
 #
-# `untertitel_vorhanden`, `untertitel_gestaltung`, `audioqualitaet` und `cta` sind in Stufe 1 noch
-# nicht bewertet — sie stehen hier bereits mit ihrem Zielgewicht, damit die Spaltensumme stimmt und
-# Stufe 2 nur die Dimensionen ergänzen muss, nicht die Tabelle. `berechne_performance_score`
-# überspringt Dimensionen ohne Score automatisch und verteilt ihr Gewicht proportional.
+# `untertitel_vorhanden`, `untertitel_gestaltung`, `audioqualitaet` und `cta` sind seit Stufe 2
+# real bewertet (UntertitelEval.score/.gestaltung_score, AnalystEvaluationV2.audioqualitaet/.cta).
+# `berechne_performance_score` überspringt Dimensionen ohne Score weiterhin automatisch und verteilt
+# ihr Gewicht proportional — das trägt die Altläufe, die diese Felder nicht kennen.
 SCORE_GEWICHTE_JE_ZIEL = {
     "TOFU": {
         "sprech_hook": 16, "text_hook": 16, "visuell_hook": 13,
@@ -428,13 +443,33 @@ class AnalystEvaluationV2(BaseModel):
                                        # (davor läuft fremdes Audio — das ist NICHT sein Sprech-Hook)
                                        # null vom Modell → 0.0, siehe _null_ist_sekunde_null unten
     performance_score: int = 0         # 0–100
-    funnel: str = ""                   # TOFU / MOFU / BOFU / Mischung
+    funnel: str = ""                   # TOFU / MOFU / BOFU / Mischung — die ABSICHT: bei V3 trägt
+                                       # der Code hier das gewählte Nutzerziel ein
+    # Auf welche Funnel-Stufe das Video TATSÄCHLICH einzahlt — Einschätzung des Modells, bewusst
+    # getrennt von `funnel`. Anlass (Lauf dc5c0a3d): Dort stand `funnel: MOFU`, exakt das gewählte
+    # Ziel — kein Zufall, der V3-Skill verlangte wörtlich „Trag das Ziel unverändert in das Feld
+    # funnel ein". Das Modell schätzte nichts ein, es schrieb ab, und damit war der interessanteste
+    # Vergleich (Absicht gegen Wirkung) unmöglich. Leer heißt „keine belastbare Einschätzung":
+    # `pruefe_funnel_wirkung` leert das Feld, wenn kein Wert aus ZIELE drinsteht — lieber nichts
+    # als geraten.
+    funnel_wirkung: str = ""           # TOFU / MOFU / BOFU
+    funnel_wirkung_grund: str = ""     # EIN Satz, woran das Modell die Wirkung festmacht
     hook: HookEval = Field(default_factory=HookEval)
     struktur: StrukturEval = Field(default_factory=StrukturEval)
     sprechqualitaet: ScoreProbleme = Field(default_factory=ScoreProbleme)
     schnitt_pacing: ScoreKommentar = Field(default_factory=ScoreKommentar)
     spannungsbogen: ScoreKommentar = Field(default_factory=ScoreKommentar)
     visuelle_aesthetik: ScoreProbleme = Field(default_factory=ScoreProbleme)
+    # Klang, nicht Lautheit: Störgeräusche, Hall, Verständlichkeit beurteilt das Modell selbst —
+    # Gemini bekommt das Video MIT Ton. Die Lautheit ist dagegen gemessen (quality_metrics), und
+    # genau dort hat das Modell schon einmal danebengelegen (Lauf dc5c0a3d: „um ca. 3 Dezibel
+    # anheben" bei −35,8 LUFS, es fehlten rund 22 LU). Deshalb deckelt `deckle_audioqualitaet`
+    # den Score gegen den gemessenen Korridor.
+    audioqualitaet: ScoreProbleme = Field(default_factory=ScoreProbleme)
+    # Call to Action — gewichtet NUR bei BOFU (SCORE_GEWICHTE_JE_ZIEL: dort 9, sonst 0).
+    # `StrukturElemente.cta` bleibt als reine Beobachtung bestehen („ist einer da?"); bewertet
+    # („ist er konkret, sitzt er richtig?") wird hier.
+    cta: ScoreKommentar = Field(default_factory=ScoreKommentar)
     untertitel: UntertitelEval = Field(default_factory=UntertitelEval)
     dynamik: DynamikEval = Field(default_factory=DynamikEval)     # steuert, ob Effekte empfohlen werden
     effekt_vorschlaege: list[EffektVorschlag] = Field(default_factory=list)  # Code bündelt zu EINEM Schritt

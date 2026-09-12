@@ -542,3 +542,57 @@ def test_empfehlungen_ohne_dimension_duerfen_mehrfach_oben_stehen():
     )
     out = verteile_empfehlungen(ev, ziel="MOFU")
     assert len(out.action_steps) == 3
+
+
+# =====================================================================================
+# Stufe 2, Teil 1 — Schema: die neuen Felder im Modell
+# =====================================================================================
+
+def test_neue_dimensionsfelder_haben_defaults():
+    """88+ gespeicherte Altlaeufe kennen diese Felder nicht — ohne Default laedt keiner mehr."""
+    from models.analyst import AnalystEvaluationV2
+    ev = AnalystEvaluationV2()
+    assert ev.untertitel.score is None
+    assert ev.untertitel.gestaltung_score is None
+    assert ev.audioqualitaet.score == 0
+    assert ev.audioqualitaet.probleme == []
+    assert ev.cta.score == 0
+    assert ev.funnel_wirkung == ""
+    assert ev.funnel_wirkung_grund == ""
+
+
+def test_untertitel_docstring_nennt_das_fehlen_nicht_mehr_als_formatentscheidung():
+    """Seit 2026-08-06 ist das Fehlen ein Mangel (siehe erzwinge_untertitel_empfehlung).
+    Der alte Docstring behauptete das Gegenteil und fuehrte den naechsten Leser in die Irre."""
+    from models.analyst import UntertitelEval
+    assert "KEIN Mangel" not in (UntertitelEval.__doc__ or "")
+
+
+def test_struktur_cta_bleibt_als_beobachtung_erhalten():
+    """Der Bool zieht nicht um — er beschreibt, OB das Element da ist, nicht wie gut es ist."""
+    from models.analyst import StrukturElemente
+    assert StrukturElemente().cta is False
+
+
+def test_neue_objektfelder_gefaehrden_die_nachbarlisten_nicht():
+    """Ein neues Objekt-Feld kann das Modell dazu bringen, das Objekt-Muster auf Nachbarn zu
+    uebertragen (real passiert bei staerken -> top_tipps). Die Listenfelder bleiben Strings."""
+    from models.analyst import AnalystEvaluationV2
+    ev = AnalystEvaluationV2(top_tipps=["Kuerze den Anlauf."], texthook_varianten=["Drei Fehler"])
+    assert ev.top_tipps == ["Kuerze den Anlauf."]
+    assert ev.texthook_varianten == ["Drei Fehler"]
+
+
+def test_alle_gespeicherten_altlaeufe_laden_weiter():
+    """88+ gespeicherte Laeufe: ein neues Pflichtfeld ohne Default macht sie alle unlesbar."""
+    import glob
+    import os
+    from models.analyst import AnalystResult
+    wurzel = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "analyst_runs")
+    pfade = sorted(glob.glob(os.path.join(wurzel, "*", "analysis.json")))
+    if not pfade:
+        pytest.skip("keine gespeicherten Laeufe vorhanden")
+    for p in pfade:
+        with open(p, encoding="utf-8") as fh:
+            AnalystResult(**json.load(fh))

@@ -1593,11 +1593,15 @@ ABSCHNITT_ZUORDNUNG = {
 TEIL_FELDER = {
     "eroeffnung": (
         "zielgruppe", "format", "protagonist_ab_sek", "funnel", "hook",
+        # Die Funnel-WIRKUNG liegt bei der Eröffnung, weil dort schon `funnel` und die Zielgruppe
+        # beurteilt werden — Ansprache, Breite und Tiefe entscheiden über die Stufe.
+        "funnel_wirkung", "funnel_wirkung_grund",
         "texthook_varianten", "texthook_maengel", "empfehlungen",
     ),
     "handwerk": (
         "struktur", "sprechqualitaet", "schnitt_pacing", "spannungsbogen", "visuelle_aesthetik",
-        "untertitel", "dynamik", "effekt_vorschlaege", "blickkontakt", "energie",
+        "untertitel", "audioqualitaet", "cta",
+        "dynamik", "effekt_vorschlaege", "blickkontakt", "energie",
         "staerken", "top_tipps", "pausen_urteile", "einblendungen", "empfehlungen",
     ),
 }
