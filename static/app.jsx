@@ -265,6 +265,14 @@ function fmtMs(ms) {
 // Muss mit models.analyst.FORMATE übereinstimmen — die API validiert die Auswahl dagegen (422).
 const FORMATE = ["Talking Head", "Reaction", "Sketch", "Tutorial", "Vlog", "Andere"];
 
+// Anzeige in Nutzersprache, Wert = Funnel-Stufe. Reihenfolge = Funnel-Reihenfolge.
+const ZIELE = [
+  { wert: "TOFU", label: "Neue Menschen erreichen" },
+  { wert: "MOFU", label: "Vertrauen und Expertenstatus aufbauen" },
+  { wert: "BOFU", label: "Kundenanfragen gewinnen" },
+];
+const ZIEL_LABEL = Object.fromEntries(ZIELE.map((z) => [z.wert, z.label]));
+
 const ANALYST_FEATURES = [
   { ico: "🎯", title: "Inhaltsanalyse",    desc: "Themen, Kernaussagen & Story-Struktur erkennen" },
   { ico: "🎙️", title: "Sprach-Qualität",   desc: "Füllwörter, Pausen, Sprechtempo & Verständlichkeit" },
@@ -691,11 +699,14 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   const [runId, setRunId] = useState("");   // für die Feedback-Zuordnung in der Admin-Ansicht
   const [analysisFile, setAnalysisFile] = useState(null);
   const [dragActive, setDragActive] = useState(false);   // visueller Hover-Zustand beim Draggen
-  // Bewertungs-Version fest = v2_split. Version-Auswahl im Frontend entfernt (2026-08-10):
+  // Bewertungs-Version: Default unverändert (ANALYST_ENGINE). Auswahl im Frontend entfernt (2026-08-10):
   // Nur eine sichtbare Variante, damit der Kunde nicht mit „V1.1 vs. V1.2" konfrontiert wird.
   // Alter Kommentar: V1.1 = ein Call, V1.2 = zwei Calls (Eröffnung / Handwerk). Läuft bewusst
   // nebeneinander, damit sich vergleichen lässt, ob der Split die Bewertung verbessert.
-  const engine = ANALYST_ENGINE;   // fest; kein Umschalter im Frontend
+  const [ziel, setZiel] = useState("");
+  // Solange V3 nicht freigegeben ist, bleibt ANALYST_ENGINE der Default. Umschalten nur in der
+  // Admin-Ansicht — Endnutzer sehen weiterhin genau eine Variante (Entscheidung 2026-08-10).
+  const [engine, setEngine] = useState(ANALYST_ENGINE);
   const [plannedTextHook, setPlannedTextHook] = useState("");  // Freifeld: geplante Texthook (falls noch nicht im Video)
   // Format-Auswahl (Pflicht, genau eines). Muss zu models.analyst.FORMATE passen — die API validiert dagegen.
   const [format, setFormat] = useState("");
@@ -755,7 +766,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     if (f) setAnalysisFile({ file: f, name: f.name, size: (f.size / 1024 / 1024).toFixed(1) + " MB" });
   }
 
-  const canStart = !!analysisFile && !!format;
+  const canStart = !!analysisFile && !!format && (engine !== "v3" || !!ziel);
 
   async function pollUntilDone(runId) {
     while (!cancelledRef.current) {
@@ -796,7 +807,13 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       setProgress(ANALYSE_LAEUFT);
       // Body nur im Admin-Modus: er enthält das Passwort für den Force-Rerun. Ohne Body
       // greift serverseitig der Cache — identische Datei liefert dann das alte Ergebnis.
-      await api("POST", `/api/analyst/${up.id}/start?engine=${engine}&planned_text_hook=${encodeURIComponent(plannedTextHook)}&format=${encodeURIComponent(format)}`,
+      const qs = new URLSearchParams({
+        engine,
+        planned_text_hook: plannedTextHook,
+        format,
+        ...(engine === "v3" ? { ziel } : {}),
+      });
+      await api("POST", `/api/analyst/${up.id}/start?${qs}`,
                 adminPw && cacheUmgehen ? { password: adminPw, force: true } : undefined);
       const res = await pollUntilDone(up.id);
       if (res) {
@@ -819,6 +836,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     setError("");
     setPlannedTextHook("");
     setFormat("");
+    setZiel("");   // engine bleibt bewusst stehen (Admin-Versionswahl über mehrere Läufe)
     setRunId("");
     setActivePhase("");
     activePhaseRef.current = "";
@@ -1060,7 +1078,28 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             </div>
           </div>
 
-          {/* Version-Auswahl entfernt (2026-08-10) — nur eine sichtbare Variante. */}
+          {/* Ziel-Auswahl (Pflicht bei V3): steuert die Score-Gewichte serverseitig. */}
+          {engine === "v3" && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                Ziel des Videos <span style={{ color: "var(--danger, #c0392b)" }}>*</span>
+              </label>
+              <select
+                value={ziel}
+                onChange={(e) => setZiel(e.target.value)}
+                disabled={phase === "running"}
+                style={{ width: "100%", padding: "8px 10px", fontSize: 14,
+                         border: "1px solid var(--line-strong)", borderRadius: 8 }}
+              >
+                <option value="">Bitte wählen …</option>
+                {ZIELE.map((z) => <option key={z.wert} value={z.wert}>{z.label}</option>)}
+              </select>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Wofür ist dieses Video gedacht? Die Bewertung richtet sich danach — ein Video für
+                Reichweite wird anders beurteilt als eines, das Anfragen bringen soll.
+              </div>
+            </div>
+          )}
 
           {/* Freifeld: geplante Texthook (falls sie erst nach dem Upload ins Video kommt) */}
           <div style={{ marginBottom: 12 }}>
@@ -1080,6 +1119,19 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
               Leer lassen, wenn die Texthook schon im Video zu sehen ist.
             </div>
           </div>
+
+          {/* Nur in der Admin-Ansicht: Bewertungs-Version umschalten. Endnutzer sehen
+              weiterhin genau eine Variante (Entscheidung 2026-08-10). */}
+          {!!adminPw && (
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 13 }}>
+              Version
+              <select value={engine} onChange={(e) => setEngine(e.target.value)}
+                      disabled={phase === "running"}>
+                <option value={ANALYST_ENGINE}>V2 (aktuell)</option>
+                <option value="v3">V3 (Zielsteuerung)</option>
+              </select>
+            </label>
+          )}
 
           {/* Nur in der Admin-Ansicht: denselben Clip erneut durch die Pipeline schicken.
               Für normale Nutzer bewusst unsichtbar — zwei Ergebnisse zum selben Video sind
@@ -1161,11 +1213,18 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
               {/* 1. Score + Einordnung */}
               <div className="analyst-score">
                 <div className="analyst-score-num" style={{ color: ez.color }}>{ev.performance_score}</div>
-                <div className="analyst-score-label">Performance-Score von 100</div>
+                <div className="analyst-score-label">
+                  {result.gewaehltes_ziel
+                    ? `gemessen an: ${ZIEL_LABEL[result.gewaehltes_ziel] || result.gewaehltes_ziel}`
+                    : "Performance-Score von 100"}
+                </div>
                 {ez.label && (
                   <div style={{ fontSize: 13, fontWeight: 600, color: ez.color, marginTop: 4 }}>{ez.label}</div>
                 )}
-                {ev.funnel && <span className="analyst-funnel">{ev.funnel}</span>}
+                {/* Ohne Ziel-Angabe: Funnel-Chip zeigen. Mit Ziel stünde dieselbe Info doppelt da. */}
+                {!result.gewaehltes_ziel && ev.funnel && (
+                  <span className="analyst-funnel">{ev.funnel}</span>
+                )}
                 <Feedback field="performance_score" />
               </div>
 
