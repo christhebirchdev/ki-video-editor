@@ -166,3 +166,30 @@ def test_schwere_ohne_dimension_ist_null():
 def test_schwere_ohne_score_ist_null():
     from services.analyst_eval import schwere_der_dimension
     assert schwere_der_dimension("spannungsbogen", None, "MOFU") == 0.0
+
+
+def test_schwacher_score_in_schwerer_dimension_ist_kritisch():
+    from services.analyst_eval import kritische_dimensionen
+    ev = _eval_mit_scores(spannung=2)
+    assert "spannungsbogen" in kritische_dimensionen(ev, "MOFU")      # Gewicht 15
+    assert "spannungsbogen" not in kritische_dimensionen(ev, "TOFU")  # Gewicht 7
+
+
+def test_schwacher_hook_ist_immer_kritisch():
+    from services.analyst_eval import kritische_dimensionen
+    ev = _eval_mit_scores(visuell=2)
+    assert "visuell_hook" in kritische_dimensionen(ev, "BOFU")   # Gewicht 6, trotzdem kritisch
+
+
+def test_fehlende_texthook_ist_kritisch():
+    from services.analyst_eval import kritische_dimensionen
+    ev = _eval_mit_scores(text=0)
+    ev.hook.text_hook_vorhanden = False
+    assert "text_hook" in kritische_dimensionen(ev, "TOFU")
+
+
+def test_gute_scores_haben_keinen_kritischen_mangel():
+    from services.analyst_eval import kritische_dimensionen
+    ev = _eval_mit_scores(sprech=4, text=4, visuell=4, spannung=4,
+                          struktur=4, sprechq=4, aesthetik=4, schnitt=4)
+    assert kritische_dimensionen(ev, "MOFU") == set()

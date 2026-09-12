@@ -19,7 +19,7 @@ import anthropic
 
 from config import settings
 from models.analyst import (ActionStep, AnalystEvaluationV2, AnalystResult, Empfehlung,
-                            SCORE_GEWICHTE_JE_ZIEL)
+                            KATEGORIEN, SCORE_GEWICHTE_JE_ZIEL)
 from services import analyst_prompt_log
 
 # Version der Bewertungslogik (Skill + Schema + Nachbearbeitung). Wird an jedes gespeicherte
@@ -175,6 +175,41 @@ def dimensions_scores(parsed: AnalystEvaluationV2) -> dict:
         "struktur": parsed.struktur.score,
         "schnitt_pacing": parsed.schnitt_pacing.score,
     }
+
+
+# Ein kritischer Mangel erzwingt einen Platz in den Top 3 (Vorgabe Chris, 2026-09-11).
+# Deterministisch definiert, weil eine Prompt-Regel dafür wieder nur eine Bitte wäre — dieselbe
+# Lektion wie bei P2 in docs/offene-fixes-analyst.md: eine Pflicht ohne Schwelle wird zu Boilerplate.
+KRITISCH_SCORE = 2          # „2 oder schlechter"
+KRITISCH_GEWICHT = 10       # ab diesem Zielgewicht zählt ein schwacher Score als kritisch
+# Die Hook-Ebenen stehen bereits als KATEGORIEN["hook"] in models/analyst.py. Eine zweite Liste
+# hier würde beim nächsten Zuschnitt der Hook-Ebenen auseinanderlaufen — wie bei DIMENSIONEN, das
+# `visuell_hook` bis heute nicht kennt.
+
+
+def kritische_dimensionen(parsed: AnalystEvaluationV2, ziel: str) -> set:
+    """Namen der Dimensionen mit einem kritischen Mangel.
+
+    Kritisch ist:
+    - Score <= KRITISCH_SCORE in einer Dimension mit Zielgewicht >= KRITISCH_GEWICHT,
+    - jeder Hook-Score <= KRITISCH_SCORE, unabhängig vom Gewicht — die ersten Sekunden
+      entscheiden über alles Weitere,
+    - eine vollständig fehlende Text-Hook (Score 0 heißt bei text_hook „fehlt komplett",
+      nicht „nicht bewertet").
+    """
+    gewichte = SCORE_GEWICHTE_JE_ZIEL.get((ziel or "").upper(), SCORE_GEWICHTE)
+    kritisch = set()
+    for name, score in dimensions_scores(parsed).items():
+        if score is None:
+            continue
+        if name == "text_hook" and score == 0:
+            kritisch.add(name)
+            continue
+        if score > KRITISCH_SCORE or score < 1:
+            continue
+        if name in KATEGORIEN["hook"] or gewichte.get(name, 0) >= KRITISCH_GEWICHT:
+            kritisch.add(name)
+    return kritisch
 
 
 def verteile_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
