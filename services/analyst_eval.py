@@ -219,6 +219,41 @@ def kritische_dimensionen(parsed: AnalystEvaluationV2, ziel: str) -> set:
     return kritisch
 
 
+LOB_SCHWELLE = 4          # ab diesem Score darf eine Kategorie gelobt werden
+MAX_LOB_PRO_KATEGORIE = 2
+
+
+def filtere_staerken(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEvaluationV2:
+    """Lob nur dort, wo die eigenen Scores es decken (V3).
+
+    Eine Stärke überlebt, wenn ihre Kategorie mindestens eine Dimension mit Score >= LOB_SCHWELLE
+    hat. Je Kategorie höchstens MAX_LOB_PRO_KATEGORIE Einträge, Reihenfolge wie geliefert.
+    Stärken ohne `betrifft` fallen raus: Ohne Bezug ist nicht prüfbar, worauf sie sich stützen.
+
+    Ohne `ziel` (v2, Altläufe) bleibt die Liste unverändert — sonst würde ein gespeichertes
+    Ergebnis beim erneuten Anzeigen plötzlich weniger Lob enthalten als beim ersten Mal.
+    """
+    if not ziel or not parsed.staerken:
+        return parsed
+    scores = dimensions_scores(parsed)
+    kategorie_von = {d: k for k, dims in KATEGORIEN.items() for d in dims}
+    gedeckt = {
+        k for k, dims in KATEGORIEN.items()
+        if any((scores.get(d) or 0) >= LOB_SCHWELLE for d in dims)
+    }
+    behalten, gezaehlt = [], {}
+    for s in parsed.staerken:
+        k = kategorie_von.get((s.betrifft or "").strip())
+        if k is None or k not in gedeckt:
+            continue
+        if gezaehlt.get(k, 0) >= MAX_LOB_PRO_KATEGORIE:
+            continue
+        gezaehlt[k] = gezaehlt.get(k, 0) + 1
+        behalten.append(s)
+    parsed.staerken = behalten
+    return parsed
+
+
 def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEvaluationV2:
     """Bündeln → sortieren → Top-N abtrennen. Deterministisch im Code statt per Prompt-Regel.
 
@@ -1244,6 +1279,9 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     # entscheidet damit über die Reihenfolge im Output. Hook- und Anlauf-Schritte werden vorne
     # eingefügt, diese hier angehängt — Hooks behalten Vorrang (Vorgabe Chris).
     parsed = erzwinge_empfehlungen_bei_schwachen_scores(parsed)
+    # Nach allen Score-Deckelungen: Der Lob-Filter liest die FERTIGEN Scores. Stünde er davor,
+    # würde Lob zu einer Dimension überleben, die deckle_score_auf_probleme danach absenkt.
+    parsed = filtere_staerken(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     parsed = berechne_performance_score(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     return verteile_empfehlungen(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
 

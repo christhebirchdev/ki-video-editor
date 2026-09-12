@@ -761,7 +761,7 @@ def test_merge_fuehrt_beide_teilergebnisse_zusammen():
                             empfehlungen=[{"zeitpunkt_sek": 20.0, "anweisung": "Pause kürzen"}])
     m = merge_teilergebnisse(a, b)
     assert m.zielgruppe == "Gründer." and m.hook.sprech_hook_score == 4
-    assert m.spannungsbogen.score == 3 and m.staerken == ["Klare Sprache"]
+    assert m.spannungsbogen.score == 3 and [x.text for x in m.staerken] == ["Klare Sprache"]
     assert len(m.empfehlungen) == 2
 
 

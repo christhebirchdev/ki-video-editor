@@ -405,6 +405,21 @@ KATEGORIEN = {
 }
 
 
+class Staerke(BaseModel):
+    """EIN positiver Punkt, mit dem Bezug zu der Dimension, aus der er stammt.
+
+    `betrifft` ist Pflicht, damit der Code prüfen kann, ob die Scores das Lob decken: Eine
+    Stärke wird nur angezeigt, wenn ihre Kategorie mindestens eine Dimension mit Score >= 4 hat.
+    Ohne dieses Feld war „erfinde kein Lob" eine reine Prompt-Bitte — dieselbe Falle wie bei P2
+    in docs/offene-fixes-analyst.md, wo eine Pflicht ohne Schwelle zu Boilerplate wurde.
+
+    Altläufe lieferten `staerken` als Liste von Strings. Der Validator in AnalystEvaluationV2
+    nimmt beide Formen entgegen, damit gespeicherte Ergebnisse unverändert laden.
+    """
+    text: str = ""
+    betrifft: str = ""    # Name aus SCORE_GEWICHTE_JE_ZIEL, oder leer
+
+
 class AnalystEvaluationV2(BaseModel):
     """Schlanke Bewertung durch Claude — scannbar, ~80 % kürzer als V1."""
     zielgruppe: str = ""               # genau 1 Satz
@@ -425,7 +440,7 @@ class AnalystEvaluationV2(BaseModel):
     effekt_vorschlaege: list[EffektVorschlag] = Field(default_factory=list)  # Code bündelt zu EINEM Schritt
     blickkontakt: BlickEval = Field(default_factory=BlickEval)    # score-frei, kann aber einen Schritt auslösen
     energie: EnergieEval = Field(default_factory=EnergieEval)     # score-frei, siehe EnergieEval
-    staerken: list[str] = Field(default_factory=list)             # positives Feedback: was schon gut ist
+    staerken: list[Staerke] = Field(default_factory=list)   # positives Feedback, siehe Staerke
     top_tipps: list[str] = Field(default_factory=list)            # ausführliches Verbesserungs-Feedback
     empfehlungen: list[Empfehlung] = Field(default_factory=list)  # ROH vom Modell: flach, unsortiert
     # Urteile statt Formulierungen — der Code baut daraus die fertigen Schritte:
@@ -452,6 +467,16 @@ class AnalystEvaluationV2(BaseModel):
         Ein abgebrochener Lauf ist die teuerste aller Antworten: das Video ist schon durch
         Whisper und durch Gemini gelaufen, bezahlt und verworfen."""
         return 0.0 if v is None else v
+
+    @field_validator("staerken", mode="before")
+    @classmethod
+    def _strings_bleiben_lesbar(cls, v):
+        """Altläufe (und das V2-Schema) liefern Strings statt Objekten. Ohne diese Umwandlung
+        würde jedes gespeicherte Ergebnis beim Laden mit einem Validierungsfehler brechen —
+        und ein abgebrochener Lauf ist die teuerste aller Antworten."""
+        if not isinstance(v, list):
+            return v
+        return [{"text": e, "betrifft": ""} if isinstance(e, str) else e for e in v]
 
 
 class AnalystResult(BaseModel):

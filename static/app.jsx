@@ -1181,7 +1181,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                 <div className="analyst-eval-block" style={{ background: "var(--ok-bg)", border: "1px solid var(--ok-line)", borderRadius: 12, padding: "12px 14px" }}>
                   <div className="analyst-eval-title" style={{ color: "var(--ok-ink)" }}>✅ Das läuft schon gut</div>
                   <ul className="analyst-list">
-                    {ev.staerken.map((s, i) => <li key={i}>{s}</li>)}
+                    {ev.staerken.map((s, i) => <li key={i}>{typeof s === "string" ? s : s.text}</li>)}
                   </ul>
                   <Feedback field="staerken" />
                 </div>

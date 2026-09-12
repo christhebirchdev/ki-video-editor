@@ -264,3 +264,48 @@ def test_hoher_score_ohne_kritischen_mangel_zeigt_weniger_als_drei_schritte():
     out = verteile_empfehlungen(ev, ziel="MOFU")
     assert len(out.action_steps) <= 2
     assert len(out.weitere_empfehlungen) >= 1
+
+
+def test_staerke_unter_der_schwelle_wird_gestrichen():
+    from models.analyst import Staerke
+    from services.analyst_eval import filtere_staerken
+    ev = _eval_mit_scores(sprech=2, text=2, visuell=2, schnitt=5)
+    ev.staerken = [Staerke(text="Deine Hook sitzt", betrifft="sprech_hook"),
+                   Staerke(text="Sauber geschnitten", betrifft="schnitt_pacing")]
+    out = filtere_staerken(ev, ziel="MOFU")
+    assert [s.text for s in out.staerken] == ["Sauber geschnitten"]
+
+
+def test_hoechstens_zwei_staerken_pro_kategorie():
+    from models.analyst import Staerke
+    from services.analyst_eval import filtere_staerken
+    ev = _eval_mit_scores(sprech=5, text=5, visuell=5)
+    ev.staerken = [Staerke(text=f"lob {i}", betrifft=b) for i, b in enumerate(
+        ["sprech_hook", "text_hook", "visuell_hook"])]
+    out = filtere_staerken(ev, ziel="MOFU")
+    assert len(out.staerken) == 2
+
+
+def test_staerke_ohne_bezug_wird_gestrichen():
+    from models.analyst import Staerke
+    from services.analyst_eval import filtere_staerken
+    ev = _eval_mit_scores(sprech=5)
+    ev.staerken = [Staerke(text="irgendwas Nettes", betrifft="")]
+    assert filtere_staerken(ev, ziel="MOFU").staerken == []
+
+
+def test_ohne_ziel_bleiben_staerken_unangetastet():
+    from models.analyst import Staerke
+    from services.analyst_eval import filtere_staerken
+    ev = _eval_mit_scores(sprech=1)
+    ev.staerken = [Staerke(text="Altlauf-Lob", betrifft="")]
+    assert len(filtere_staerken(ev, ziel="").staerken) == 1
+
+
+def test_altlauf_mit_staerken_als_strings_laedt_weiter():
+    """~93 gespeicherte Laeufe haben staerken als Liste von Strings. Bricht das Laden,
+    ist jedes gespeicherte Ergebnis unlesbar."""
+    from models.analyst import AnalystEvaluationV2
+    ev = AnalystEvaluationV2(**{"staerken": ["Guter Schnitt", "Klare Sprache"]})
+    assert [s.text for s in ev.staerken] == ["Guter Schnitt", "Klare Sprache"]
+    assert all(s.betrifft == "" for s in ev.staerken)
