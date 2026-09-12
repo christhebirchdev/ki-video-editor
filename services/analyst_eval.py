@@ -1657,7 +1657,7 @@ staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Erg
 # Feld wuerde dort auseinandergerissen.
 
 STAERKEN_ZEILE_V2 = '  "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],'
-STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik | untertitel_vorhanden | untertitel_gestaltung | audioqualitaet | cta>"}],'
+STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik | untertitel_vorhanden | untertitel_gestaltung | audioqualitaet | cta>"}]  — NUR staerken ist eine Liste von Objekten. Alle anderen Listen in diesem Vertrag (top_tipps, texthook_varianten, texthook_maengel, probleme, hinweise, maengel) bleiben einfache Texte,'
 
 # Funnel: die ABSICHT (`funnel`, vom Nutzer) und die WIRKUNG (`funnel_wirkung`, Einschaetzung des
 # Modells) stehen direkt untereinander — damit die Trennung schon beim Lesen des Vertrags auffaellt.

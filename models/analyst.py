@@ -4,6 +4,35 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
 
+def liste_von_strings(v):
+    """Macht `{"text": "…"}` wieder zu `"…"` — für Listenfelder, die Strings sein müssen.
+
+    Anlass (2026-09-12, erster echter V3-Lauf): Seit `staerken` im V3-Schema Objekte sind, hat das
+    Modell dieses Muster auf die BENACHBARTE Zeile übertragen und `top_tipps` als
+    `[{"text": …}, …]` geliefert. Pydantic brach den Lauf ab — nachdem Whisper und Gemini schon
+    gelaufen und bezahlt waren. Ein abgebrochener Lauf ist die teuerste aller Antworten.
+
+    Eine Prompt-Bitte („top_tipps sind Strings") kann das nicht garantieren; dieser Validator schon.
+    Er greift auf ALLE Listenfelder, die das Modell füllt — welches davon das Muster als nächstes
+    erwischt, ist nicht vorhersagbar.
+
+    Aus einem Objekt wird der erste sinnvolle Textwert genommen: die üblichen Schlüssel zuerst,
+    sonst der erste String im Objekt. Was kein String ist, bleibt unverändert und läuft in die
+    normale Validierung — ein stiller Fehlgriff wäre schlimmer als eine ehrliche Fehlermeldung.
+    """
+    if not isinstance(v, list):
+        return v
+    raus = []
+    for e in v:
+        if isinstance(e, dict):
+            treffer = e.get("text") or e.get("tipp") or e.get("anweisung") or e.get("mangel")
+            if not treffer:
+                treffer = next((x for x in e.values() if isinstance(x, str)), None)
+            e = treffer if treffer is not None else e
+        raus.append(e)
+    return raus
+
+
 class BildFakten(BaseModel):
     """Rein beobachtbare Bild-Tatsachen (Grundlage für die Ästhetik-Bewertung)."""
     komposition: str = ""   # wo ist das Hauptsubjekt (zentriert/links/...)
@@ -182,6 +211,11 @@ class UntertitelEval(BaseModel):
     score: Optional[int] = None            # „gibt es sie?" — Dimension untertitel_vorhanden
     gestaltung_score: Optional[int] = None  # „wie sind sie gemacht?" — Dimension untertitel_gestaltung
 
+    @field_validator("maengel", mode="before")
+    @classmethod
+    def _objekte_zu_strings(cls, v):
+        return liste_von_strings(v)
+
 
 class EnergieEval(BaseModel):
     """Energie im Auftreten — score-frei wie der Blick (Vorgabe Chris, 2026-08-06).
@@ -248,6 +282,11 @@ class ScoreProbleme(BaseModel):
     # Zwei Listen statt eines Schwere-Attributs pro Eintrag: `probleme` bleibt `list[str]`, damit
     # Altläufe und das Frontend unverändert weiterlesen.
     hinweise: list[str] = Field(default_factory=list)
+
+    @field_validator("probleme", "hinweise", mode="before")
+    @classmethod
+    def _objekte_zu_strings(cls, v):
+        return liste_von_strings(v)
 
 
 class ScoreKommentar(BaseModel):
@@ -502,6 +541,12 @@ class AnalystEvaluationV2(BaseModel):
         Ein abgebrochener Lauf ist die teuerste aller Antworten: das Video ist schon durch
         Whisper und durch Gemini gelaufen, bezahlt und verworfen."""
         return 0.0 if v is None else v
+
+    @field_validator("top_tipps", "texthook_varianten", "texthook_maengel", mode="before")
+    @classmethod
+    def _objekte_zu_strings(cls, v):
+        """Siehe liste_von_strings: Das Objekt-Muster von `staerken` färbt auf Nachbarfelder ab."""
+        return liste_von_strings(v)
 
     @field_validator("staerken", mode="before")
     @classmethod
