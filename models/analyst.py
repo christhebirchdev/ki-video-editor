@@ -488,11 +488,17 @@ class Staerke(BaseModel):
 class AnalystEvaluationV2(BaseModel):
     """Schlanke Bewertung durch Claude — scannbar, ~80 % kürzer als V1."""
     zielgruppe: str = ""               # genau 1 Satz
+    # Wie relevant das Video FÜR diese Zielgruppe ist. Anlass (Lauf d9988b7d, Feedback zu
+    # `zielgruppe`): „falls die zielgruppen und branddaten vorhanden sind, soll hier ergänzt
+    # werden, inwiefern das video relevant für die zielgruppe ist." Die Brand-/Zielgruppen-Datei
+    # ist noch nicht gebaut — bis dahin liefert das Modell nichts und das Feld bleibt leer. Genau
+    # das ist der gewollte Zustand: Ohne hinterlegte Daten wäre jede Relevanz-Aussage geraten.
     format: str = ""                   # vom Nutzer gewählt (FORMATE), Code überschreibt das Modell-Feld
     protagonist_ab_sek: float = 0.0    # ab wann der Protagonist selbst spricht; >0 z.B. bei Reaction
                                        # (davor läuft fremdes Audio — das ist NICHT sein Sprech-Hook)
                                        # null vom Modell → 0.0, siehe _null_ist_sekunde_null unten
     performance_score: int = 0         # 0–100
+    zielgruppen_relevanz: str = ""     # nur gefüllt, wenn Zielgruppen-/Markendaten vorliegen
     funnel: str = ""                   # TOFU / MOFU / BOFU / Mischung — die ABSICHT: bei V3 trägt
                                        # der Code hier das gewählte Nutzerziel ein
     # Auf welche Funnel-Stufe das Video TATSÄCHLICH einzahlt — Einschätzung des Modells, bewusst

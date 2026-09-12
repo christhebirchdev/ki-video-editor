@@ -780,6 +780,17 @@ Clip funktional und damit `in_der_linse`).
 ## Zielgruppe
 Genau 1 Satz: wer sich angesprochen fühlt.
 
+`zielgruppen_relevanz` — die zweite Frage: Wie relevant ist dieses Video FÜR diese Zielgruppe?
+Sie ist nur beantwortbar, wenn dir in der Aufgabe Zielgruppen- oder Markendaten vorliegen (wen der
+Kunde erreichen will, welche Probleme diese Leute haben, wofür die Marke steht). Dann: 1–2 Sätze,
+was das Video für genau diese Gruppe leistet oder woran es an ihr vorbeigeht — belegt am Inhalt des
+Videos, nicht als allgemeine Einschätzung.
+**Liegen dir keine solchen Daten vor, bleibt das Feld LEER.** Rate nichts: Was du selbst aus dem
+Video ableitest, steht schon in `zielgruppe` — eine zweite, geratene Fassung davon wäre kein
+Zugewinn, sondern eine Behauptung über Daten, die du nicht hast.
+Anlass (Lauf d9988b7d): „falls die zielgruppen und branddaten vorhanden sind, soll hier ergänzt
+werden, inwiefern das video relevant für die zielgruppe ist.".
+
 ## Funnel — genaue Definitionen (zuerst bestimmen, steuert den Score)
 Das sind die Videomerkmale in den unterschiedlichen Funnelstufen:
 - **TOFU:** breitere Personenansprache; ohne starke thematische Tiefe/Erklärungen — weniger

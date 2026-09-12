@@ -1682,6 +1682,16 @@ staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Erg
 STAERKEN_ZEILE_V2 = '  "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],'
 STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik | untertitel_vorhanden | untertitel_gestaltung | audioqualitaet | cta>"}]  — NUR staerken ist eine Liste von Objekten. Alle anderen Listen in diesem Vertrag (top_tipps, texthook_varianten, texthook_maengel, probleme, hinweise, maengel) bleiben einfache Texte,'
 
+# Zielgruppe: zum Satz „wer fuehlt sich angesprochen" kommt die Frage, wie relevant das Video FUER
+# diese Gruppe ist. Beantwortbar ist sie erst mit hinterlegten Zielgruppen-/Markendaten — die Datei
+# dafuer gibt es noch nicht. Das Feld steht trotzdem schon im Vertrag, weil das Modell sonst beim
+# Nachruesten der Daten nichts haette, wohin es schreiben koennte; bis dahin bleibt es leer.
+ZIELGRUPPE_ZEILE_V2 = '  "zielgruppe": "<genau 1 Satz: wer angesprochen wird>",'
+ZIELGRUPPE_BLOCK_V3 = (
+    '  "zielgruppe": "<genau 1 Satz: wer angesprochen wird>",\n'
+    '  "zielgruppen_relevanz": "<NUR ausfüllen, wenn dir in der Aufgabe Zielgruppen- oder Markendaten vorliegen: 1-2 Sätze, wie relevant dieses Video für genau diese Zielgruppe ist, belegt am Inhalt des Videos. Liegen dir keine solchen Daten vor: leer — rate nichts>",'
+)
+
 # Funnel: die ABSICHT (`funnel`, vom Nutzer) und die WIRKUNG (`funnel_wirkung`, Einschaetzung des
 # Modells) stehen direkt untereinander — damit die Trennung schon beim Lesen des Vertrags auffaellt.
 FUNNEL_ZEILE_V2 = '  "funnel": "<TOFU | MOFU | BOFU | Mischung>",'
@@ -1707,6 +1717,7 @@ HANDWERK_BLOCK_V3 = (
 # Anker -> Ersatz. Reihenfolge egal, die Anker ueberschneiden sich nicht.
 V3_VERTRAG_ERSETZUNGEN = (
     (STAERKEN_ZEILE_V2, STAERKEN_ZEILE_V3),
+    (ZIELGRUPPE_ZEILE_V2, ZIELGRUPPE_BLOCK_V3),
     (FUNNEL_ZEILE_V2, FUNNEL_BLOCK_V3),
     (UNTERTITEL_ZEILE_V2, HANDWERK_BLOCK_V3),
 )
@@ -1807,7 +1818,7 @@ ABSCHNITT_ZUORDNUNG = {
 # Format-Instruktion und der Sprechbeginn gebraucht werden.
 TEIL_FELDER = {
     "eroeffnung": (
-        "zielgruppe", "format", "protagonist_ab_sek", "funnel", "hook",
+        "zielgruppe", "zielgruppen_relevanz", "format", "protagonist_ab_sek", "funnel", "hook",
         # Die Funnel-WIRKUNG liegt bei der Eröffnung, weil dort schon `funnel` und die Zielgruppe
         # beurteilt werden — Ansprache, Breite und Tiefe entscheiden über die Stufe.
         "funnel_wirkung", "funnel_wirkung_grund", "funnel_wirkung_empfehlung",

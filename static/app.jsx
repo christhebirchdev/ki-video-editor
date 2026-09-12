@@ -1304,7 +1304,16 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
 
               {ev.zielgruppe && (
                 <>
-                  <div className="analyst-zielgruppe">Dieses Video spricht an: {ev.zielgruppe}</div>
+                  <div className="analyst-zielgruppe">
+                    Dieses Video spricht an: {ev.zielgruppe}
+                    {/* Relevanz für die Zielgruppe — nur gefüllt, wenn dem Modell Zielgruppen-
+                        oder Markendaten vorlagen. Die Datei dafür gibt es noch nicht; bis dahin
+                        bleibt die Zeile unsichtbar, und das ist der gewollte Zustand. Sie steht
+                        IM selben Kasten: es ist dieselbe Aussage, nur eine Ebene tiefer. */}
+                    {ev.zielgruppen_relevanz && (
+                      <div className="analyst-zielgruppe-relevanz">{ev.zielgruppen_relevanz}</div>
+                    )}
+                  </div>
                   <Feedback field="zielgruppe" />
                 </>
               )}

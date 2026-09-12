@@ -1317,3 +1317,43 @@ def test_der_skill_verlangt_die_empfehlung_am_inhalt_des_videos():
     assert "funnel_wirkung_empfehlung" in text
     assert "am INHALT dieses Videos" in text
     assert "Stimmen Ziel und Wirkung überein, bleibt das Feld leer" in text
+
+
+# =====================================================================================
+# Lauf d9988b7d, Feedback zu `zielgruppe`: „falls die zielgruppen und branddaten vorhanden sind,
+# soll hier ergaenzt werden, inwiefern das video relevant fuer die zielgruppe ist."
+#
+# Die Brand-/Zielgruppen-Datei gibt es noch NICHT. Vorbereitet wird nur das Feld: Solange dem
+# Modell keine solchen Daten vorliegen, bleibt es leer und unsichtbar — das ist der gewollte
+# Zustand, kein Fehler.
+# =====================================================================================
+
+def test_zielgruppen_relevanz_ist_ein_eigenes_feld_mit_leerem_default():
+    from models.analyst import AnalystEvaluationV2
+    assert AnalystEvaluationV2().zielgruppen_relevanz == ""
+
+
+def test_zielgruppen_relevanz_steht_im_v3_vertrag_und_nicht_im_v2():
+    from services.analyst_eval import build_system_prompt
+    assert '\n  "zielgruppen_relevanz":' in build_system_prompt(ziel="MOFU")
+    assert "zielgruppen_relevanz" not in build_system_prompt()
+
+
+def test_zielgruppen_relevanz_kommt_aus_dem_eroeffnungs_call():
+    """Vier-Stellen-Falle — das Feld gehoert zu `zielgruppe` und damit in denselben Call."""
+    from services.analyst_eval import TEIL_FELDER, build_system_prompt, merge_teilergebnisse
+    assert "zielgruppen_relevanz" in TEIL_FELDER["eroeffnung"]
+    assert '\n  "zielgruppen_relevanz":' in build_system_prompt(teil="eroeffnung", ziel="MOFU")
+    assert '\n  "zielgruppen_relevanz":' not in build_system_prompt(teil="handwerk", ziel="MOFU")
+    eroeffnung = _eval_mit_scores()
+    eroeffnung.zielgruppen_relevanz = "Trifft die Zielgruppe, weil …"
+    out = merge_teilergebnisse(eroeffnung, _eval_mit_scores())
+    assert out.zielgruppen_relevanz == "Trifft die Zielgruppe, weil …"
+
+
+def test_der_skill_bindet_die_relevanz_an_vorliegende_daten():
+    """Ohne die Bedingung raet das Modell die Zielgruppen-Passung aus dem Video zusammen — das
+    waere eine zweite, schwaechere Fassung von `zielgruppe`."""
+    text = " ".join(_v3_text().split())
+    assert "zielgruppen_relevanz" in text
+    assert "Liegen dir keine solchen Daten vor, bleibt das Feld LEER" in text
