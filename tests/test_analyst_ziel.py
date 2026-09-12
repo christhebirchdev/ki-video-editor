@@ -1014,3 +1014,104 @@ def test_strings_bleiben_unveraendert():
     ev = AnalystEvaluationV2(**{"top_tipps": ["a", "b"], "texthook_varianten": ["c"]})
     assert ev.top_tipps == ["a", "b"]
     assert ev.texthook_varianten == ["c"]
+
+
+# --- Notnagel-Messung: erzwungene Schritte sind als solche erkennbar ---------------------------
+# Hintergrund: Die Standardsaetze bleiben, sollen aber langfristig fast nie mehr greifen. Dafuer
+# muss man sie zaehlen koennen — im fertigen Ergebnis sieht man ihnen heute nichts mehr an.
+
+
+def _result(**kw):
+    from models.analyst import AnalystResult
+    return AnalystResult(id="x", filename="v.mp4", duration_sec=43.1, scene_count=0, scenes=[], **kw)
+
+
+def _stats(sprechbeginn=1.6, dauer=20.0):
+    from models.analyst import SpeechStats
+    return SpeechStats(wort_anzahl=10, sprech_dauer_sec=dauer, wpm=120.0, filler_count=0,
+                       filler_words=[], pausen_count=0, laengste_pause_sec=0.0,
+                       sprechbeginn_sec=sprechbeginn)
+
+
+def test_erzwungene_empfehlung_ist_markiert_modell_empfehlung_nicht():
+    """`erzwungen` trennt den generischen Rueckfalltext vom individuellen Modell-Text."""
+    from models.analyst import AnalystEvaluationV2, Empfehlung
+    from services.analyst_eval import erzwinge_blick_empfehlung
+    ev = AnalystEvaluationV2(
+        blickkontakt={"urteil": "abgelesen"},
+        empfehlungen=[Empfehlung(zeitpunkt_sek=12.0, anweisung="Schneide den Versprecher raus.")],
+    )
+    ev = erzwinge_blick_empfehlung(ev)
+    modell, notnagel = ev.empfehlungen[0], ev.empfehlungen[-1]
+    assert modell.erzwungen is False
+    assert notnagel.gruppe == "blick" and notnagel.erzwungen is True
+
+
+def test_alle_fuenf_erzwinge_funktionen_markieren_ihre_schritte():
+    """Genau die fuenf `erzwinge_*`-Funktionen sind Notnaegel. Faellt eine aus der Markierung,
+    zaehlt das Werkzeug sie als Modell-Leistung und die Quote wird zu gut."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import (erzwinge_anlauf_schnitt, erzwinge_blick_empfehlung,
+                                       erzwinge_empfehlungen_bei_schwachen_scores,
+                                       erzwinge_hook_empfehlungen, erzwinge_untertitel_empfehlung)
+
+    # 1) Hook-Empfehlungen (Sprech- und Texthook)
+    ev = erzwinge_hook_empfehlungen(AnalystEvaluationV2(
+        hook={"sprech_hook_score": 2, "text_hook_vorhanden": True, "text_hook_score": 2}))
+    assert ev.empfehlungen and all(e.erzwungen for e in ev.empfehlungen)
+    assert {e.gruppe for e in ev.empfehlungen} == {"sprechhook", "texthook"}
+
+    # 2) Schwache Dimensions-Scores
+    ev = erzwinge_empfehlungen_bei_schwachen_scores(
+        AnalystEvaluationV2(spannungsbogen={"score": 2}))
+    assert ev.empfehlungen and all(e.erzwungen for e in ev.empfehlungen)
+
+    # 3) Anlauf-Schnitt
+    ev = erzwinge_anlauf_schnitt(
+        AnalystEvaluationV2(),
+        _result(gewaehltes_format="Talking Head", speech_stats=_stats(1.6)))
+    assert ev.empfehlungen[0].gruppe == "anlauf" and ev.empfehlungen[0].erzwungen is True
+
+    # 4) Blickrichtung
+    ev = erzwinge_blick_empfehlung(AnalystEvaluationV2(blickkontakt={"urteil": "abgelesen"}))
+    assert ev.empfehlungen[0].erzwungen is True
+
+    # 5) Untertitel
+    ev = erzwinge_untertitel_empfehlung(
+        AnalystEvaluationV2(untertitel={"vorhanden": False}),
+        _result(transcript="Hallo, hier spricht jemand."))
+    assert ev.empfehlungen[0].gruppe == "untertitel" and ev.empfehlungen[0].erzwungen is True
+
+
+def test_baue_schritte_sind_kein_notnagel():
+    """`baue_*_schritt` baut aus Modell-Urteil plus Messwert — das ist die gewollte Arbeitsteilung,
+    kein Rueckfall. Wuerde es mitzaehlen, waere die Quote dauerhaft unbrauchbar hoch."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import baue_lautstaerke_schritt, baue_pausen_schritt
+    ev = baue_pausen_schritt(AnalystEvaluationV2(
+        pausen_urteile=[{"start_sec": 12.0, "urteil": "raus"}]))
+    assert ev.empfehlungen and all(e.erzwungen is False for e in ev.empfehlungen)
+
+    ev = baue_lautstaerke_schritt(
+        AnalystEvaluationV2(),
+        _result(gewaehltes_ziel="TOFU", quality_metrics={"lufs_integrated": -35.8}))
+    assert ev.empfehlungen and all(e.erzwungen is False for e in ev.empfehlungen)
+
+
+def test_erzwungen_ueberlebt_bis_in_die_action_steps():
+    """Ohne die Uebergabe in verteile_empfehlungen waere im gespeicherten Lauf nichts messbar."""
+    from models.analyst import AnalystEvaluationV2, Empfehlung
+    from services.analyst_eval import verteile_empfehlungen
+    ev = verteile_empfehlungen(AnalystEvaluationV2(empfehlungen=[
+        Empfehlung(zeitpunkt_sek=0.0, gruppe="blick", anweisung="Blick in die Linse.",
+                   erzwungen=True),
+        Empfehlung(zeitpunkt_sek=5.0, anweisung="Schneide den Versprecher raus."),
+    ]))
+    assert [s.erzwungen for s in ev.action_steps] == [True, False]
+
+
+def test_altlauf_ohne_das_feld_laedt_unveraendert():
+    """88 gespeicherte Laeufe kennen `erzwungen` nicht — Default False, kein Schema-Bruch."""
+    from models.analyst import AnalystEvaluationV2
+    ev = AnalystEvaluationV2(**{"action_steps": [{"zeitpunkt": "x", "anweisung": "y"}]})
+    assert ev.action_steps[0].erzwungen is False

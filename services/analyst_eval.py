@@ -327,6 +327,10 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "") -> Analys
             ActionStep(
                 zeitpunkt=_zeit_label([e.zeitpunkt_sek for e in eintraege]),
                 anweisung=erste.anweisung,
+                # Der Text des Schritts stammt von `erste` — also gilt auch deren Notnagel-Flag.
+                # Ohne diese Übergabe waere im gespeicherten Lauf nicht mehr messbar, wie oft ein
+                # Standardsatz einen der drei Top-Plaetze belegt hat.
+                erzwungen=erste.erzwungen,
             ),
         ))
     schritte.sort(key=lambda t: t[0])
@@ -612,7 +616,7 @@ def erzwinge_anlauf_schnitt(parsed: AnalystEvaluationV2, result: AnalystResult) 
         if not (e.zeitpunkt_sek <= beginn + 0.5 and _SCHNITT_VERB.search(e.anweisung or ""))
     ]
     parsed.empfehlungen.insert(0, Empfehlung(
-        zeitpunkt_sek=0.0, gruppe="anlauf",
+        zeitpunkt_sek=0.0, gruppe="anlauf", erzwungen=True,
         # :g statt round(): „Sekunde 1" statt „Sekunde 1.0", aber „Sekunde 1,4" bleibt genau.
         anweisung=ANLAUF_HINWEIS.format(sek=f"{round(beginn, 1):g}"),
     ))
@@ -930,7 +934,7 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
             and 1 <= parsed.hook.sprech_hook_score <= HOOK_SCHWACH_SCORE \
             and fehlt("sprechhook", "sprech-hook", "erster satz", "ersten satz"):
         parsed.empfehlungen.insert(0, Empfehlung(
-            zeitpunkt_sek=0.0, gruppe="sprechhook", betrifft="sprech_hook",
+            zeitpunkt_sek=0.0, gruppe="sprechhook", betrifft="sprech_hook", erzwungen=True,
             anweisung=SPRECHHOOK_EMPFEHLUNG))
 
     # Texthook-Empfehlung NUR bei schwacher Text-Hook. Der Prompt bittet darum, `texthook_varianten`
@@ -968,7 +972,7 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
                            if not _TEXTHOOK_THEMA.search(e.anweisung or "")]
     if varianten or th == 0 or geklemmt or vorhanden:
         parsed.empfehlungen.insert(0, Empfehlung(
-            zeitpunkt_sek=0.0, gruppe="texthook", betrifft="text_hook",
+            zeitpunkt_sek=0.0, gruppe="texthook", betrifft="text_hook", erzwungen=True,
             anweisung=_texthook_anweisung(varianten, vorhanden, parsed.texthook_maengel)))
     return parsed
 
@@ -1181,7 +1185,8 @@ def erzwinge_empfehlungen_bei_schwachen_scores(parsed: AnalystEvaluationV2) -> A
         else:
             anweisung = rueckfall
         parsed.empfehlungen.append(
-            Empfehlung(zeitpunkt_sek=0.0, gruppe=gruppe, betrifft=attribut, anweisung=anweisung))
+            Empfehlung(zeitpunkt_sek=0.0, gruppe=gruppe, betrifft=attribut, anweisung=anweisung,
+                       erzwungen=True))
     return parsed
 
 
@@ -1280,13 +1285,13 @@ def erzwinge_untertitel_empfehlung(parsed: AnalystEvaluationV2,
         if not gesprochen:
             return parsed
         parsed.empfehlungen.append(Empfehlung(
-            zeitpunkt_sek=0.0, gruppe="untertitel", anweisung=UNTERTITEL_FEHLEN))
+            zeitpunkt_sek=0.0, gruppe="untertitel", anweisung=UNTERTITEL_FEHLEN, erzwungen=True))
         return parsed
     punkte = [UNTERTITEL_BAUSTEINE[m] for m in ut.maengel if m in UNTERTITEL_BAUSTEINE]
     if not punkte:
         return parsed
     parsed.empfehlungen.append(Empfehlung(
-        zeitpunkt_sek=0.0, gruppe="untertitel",
+        zeitpunkt_sek=0.0, gruppe="untertitel", erzwungen=True,
         anweisung="Überarbeite deine Untertitel: " + "; ".join(punkte) + "."))
     return parsed
 
@@ -1316,7 +1321,7 @@ def erzwinge_blick_empfehlung(parsed: AnalystEvaluationV2) -> AnalystEvaluationV
     if any(e.gruppe == "blick" for e in parsed.empfehlungen):
         return parsed          # das Modell hat den Schritt schon selbst geschrieben
     parsed.empfehlungen.append(
-        Empfehlung(zeitpunkt_sek=0.0, gruppe="blick", anweisung=BLICK_EMPFEHLUNG))
+        Empfehlung(zeitpunkt_sek=0.0, gruppe="blick", anweisung=BLICK_EMPFEHLUNG, erzwungen=True))
     return parsed
 
 

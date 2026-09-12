@@ -301,6 +301,11 @@ class ActionStep(BaseModel):
     aus `empfehlungen` berechnet (sortieren/bündeln/splitten ist Arithmetik, kein Urteil)."""
     zeitpunkt: str = ""      # z.B. "ca. Sek. 3" oder "ca. Sek. 3, 15 und 24" (Richtwert, ±1–2 s)
     anweisung: str = ""      # EINE konkrete Handlung in super einfacher Sprache
+    erzwungen: bool = False   # True = vom Code eingesetzter Standardsatz, weil das Modell zu
+                              # dieser Dimension nichts geschrieben hat. Nur zur Messung: Wie oft
+                              # greift der Notnagel noch? Ziel ist, dass er selten greift
+                              # (Vorgabe Chris, 2026-09-12). Kein Einfluss auf Reihenfolge,
+                              # Auswahl oder Anzeige.
 
 
 class PausenUrteil(BaseModel):
@@ -359,6 +364,12 @@ class Empfehlung(BaseModel):
     # `sprech` traf „Sprechhook", `hintergrund` traf eine Farb-Empfehlung, Wortmengen-Überlappung
     # scheiterte an Paraphrasen). Eine Zuordnung durch das Modell ist exakt statt geraten.
     betrifft: str = ""
+
+    erzwungen: bool = False   # True = vom Code eingesetzter Standardsatz, weil das Modell zu
+                              # dieser Dimension nichts geschrieben hat. Nur zur Messung: Wie oft
+                              # greift der Notnagel noch? Ziel ist, dass er selten greift
+                              # (Vorgabe Chris, 2026-09-12). Kein Einfluss auf Reihenfolge,
+                              # Auswahl oder Anzeige.
 
 
 # Die sieben Bewertungsdimensionen als Single Source of Truth: Schema-Vertrag, Score-Gewichte und
