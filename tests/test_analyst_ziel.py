@@ -324,6 +324,11 @@ def test_ohne_ziel_entsteht_exakt_der_v2_prompt():
 
 
 def test_v3_prompt_verlangt_betrifft_bei_staerken():
+    """Prueft die staerken-Zeile, nicht nur das Wort „betrifft": Das kommt schon im V2-Prompt vor,
+    dort aber fuer die `empfehlungen`. Ein reiner Wort-Test waere auch ohne V3 gruen."""
     from services.analyst_eval import build_system_prompt
-    p = build_system_prompt(ziel="TOFU")
-    assert "betrifft" in p
+    v3 = build_system_prompt(ziel="TOFU")
+    v2 = build_system_prompt()
+    assert '{"text": "…", "betrifft": "<Dimensionsname>"}' in v3
+    assert '{"text": "…", "betrifft": "<Dimensionsname>"}' not in v2
+    assert "erfinde kein Lob" in v3
