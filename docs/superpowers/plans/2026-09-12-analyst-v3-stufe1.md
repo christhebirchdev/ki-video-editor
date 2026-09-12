@@ -1525,7 +1525,7 @@ verschiebt sich durch den Branch.
 4. **Prompt-Test verschaerft** (Commit a386a28). Der geplante Test prueft nur das Wort „betrifft" —
    das steht laengst im V2-Prompt (dort fuer `empfehlungen`) und waere auch ohne V3 gruen gewesen.
 
-### Offener Punkt: V3 vergleicht sich gegen die falsche V2
+### ERLEDIGT (2026-09-12): V3 vergleicht sich gegen die falsche V2
 
 Der Dispatcher fuehrt `v3` ueber `_run_v2(..., mode="hybrid", split=False)` — also die **Ein-Call**-
 Bewertung. Produktiv laeuft aber `v2_split`, die **Zwei-Call**-Bewertung (Eroeffnung, dann Handwerk).
@@ -1547,3 +1547,35 @@ Drei Wege, Entscheidung offen:
 
 Empfehlung: (a), sobald die ersten Echtlaeufe zeigen, dass die Zielsteuerung ueberhaupt wirkt.
 Vorher ist es verfruehte Arbeit an einer Variante, die noch nicht bestaetigt ist.
+
+### Nachtrag: Option (a) umgesetzt
+
+Der offene Punkt oben ist geschlossen. Umgesetzt wurde (a) — v3 nutzt dieselbe Zwei-Call-Bewertung
+wie v2_split. Commits `00e488b` und `1b568f6`, 324 Tests gruen, A/B-Replay weiterhin ohne Unterschied.
+
+1. `analyst_engine._run`: `split=(engine in ("v2_split", "v3"))`.
+2. `_evaluate_teil` reicht `ziel` an `build_system_prompt(teil=..., ziel=...)` durch.
+3. `ABSCHNITT_ZUORDNUNG` kennt `"Videoziel": BEIDE` jetzt explizit statt ueber den Fallback.
+4. Das Protokoll-Label in `_evaluate_teil` war auf `"v2_split"` hartkodiert — sonst waeren die
+   beiden Laeufe in `tools/vergleiche_laeufe.py` nicht auseinanderzuhalten. Jetzt am Ziel
+   unterschieden, wie ueberall sonst in V3.
+5. Der Guard-Test `test_jeder_abschnitt_ist_einem_call_zugeordnet` prueft jetzt beide Skill-Dateien
+   statt nur die V2 — sonst haette er den neuen Abschnitt als verwaist gemeldet.
+
+### Dabei gefundener Bug: der V3-Prompt widersprach sich selbst
+
+`analyst_eval_skill_v3.md` verlangte `staerken` als Objekt mit `betrifft`, der maszgebliche
+Ausgabe-Vertrag `OUTPUT_SCHEMA` am Ende des Prompts sagte weiter „Liste von Strings". Das Modell
+folgt dem Vertrag (konkret, steht zuletzt, Call laeuft mit `response_mime_type="application/json"`).
+Folge waere gewesen: `betrifft` immer leer → `filtere_staerken` streicht jede Staerke → der Block
+„Das laeuft schon gut" bei V3 dauerhaft leer. Kein Test haette das gefangen, weil keiner den echten
+Modell-Output prueft.
+
+Fix: `_schema_fuer(teil, ziel)` ersetzt bei gesetztem Ziel genau EINE Zeile des Vertrags
+(`STAERKEN_ZEILE_V2` → `STAERKEN_ZEILE_V3`). Kein zweites Schema — das waere ein Duplikat, das beim
+naechsten Feld auseinanderlaeuft. Ein `assert STAERKEN_ZEILE_V2 in OUTPUT_SCHEMA` auf Modulebene
+faengt ab, dass die Ersetzung nach einer Schema-Aenderung still ins Leere greift.
+
+**Lehre fuer Stufe 2 und 3:** Jede Schema-Aenderung am Modell-Output hat ZWEI Orte — den Skill-Text
+und `OUTPUT_SCHEMA` in `services/analyst_eval.py`. Wer nur den Skill aendert, baut einen
+widerspruechlichen Prompt, und das Schema gewinnt.
