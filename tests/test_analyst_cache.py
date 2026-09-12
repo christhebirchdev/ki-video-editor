@@ -222,3 +222,21 @@ def test_ohne_force_bleibt_body_folgenlos(client, tmp_path):
     _quelllauf(tmp_path, "quelle01")
     run_id = _upload(client)
     assert _start(client, run_id, json_body={"password": "", "force": False}).json()["status"] == "cached"
+
+
+def test_unterschiedliches_ziel_ist_ein_anderer_key():
+    from services import analyst_cache
+    basis = {"sha256": "abc", "prompt_version": "v1", "format": "Talking Head",
+             "engine": "v3", "planned_text_hook": ""}
+    a = analyst_cache.cache_key({**basis, "ziel": "TOFU"})
+    b = analyst_cache.cache_key({**basis, "ziel": "BOFU"})
+    assert a != b
+
+
+def test_altlauf_ohne_ziel_behaelt_seinen_key_stabil():
+    """Ein Lauf ohne Ziel-Feld muss denselben Key liefern wie einer mit leerem Ziel —
+    sonst verlieren alle gespeicherten v2-Läufe ihre Cache-Treffer."""
+    from services import analyst_cache
+    basis = {"sha256": "abc", "prompt_version": "v1", "format": "Talking Head",
+             "engine": "v2_hybrid", "planned_text_hook": ""}
+    assert analyst_cache.cache_key(basis) == analyst_cache.cache_key({**basis, "ziel": ""})

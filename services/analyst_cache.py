@@ -43,6 +43,11 @@ def cache_key(meta: dict):
     `PROMPT_VERSION` in services/analyst_eval.py hochzählen**, sonst liefert der Cache alte
     Ergebnisse zu neuer Logik.
 
+    `ziel` gehört dazu, weil die Score-Gewichte bei v3 vom Ziel abhängen: Dieselbe Datei mit
+    einem anderen Ziel ist ein legitim anderes Ergebnis. Ohne das Feld liefert der Cache das
+    Ergebnis des zuerst gewählten Ziels — ein sichtbarer Fehler, kein stiller.
+    Altläufe und v2 haben `ziel` nicht bzw. leer; `.get(..., "")` hält ihren Key stabil.
+
     Altläufe von vor diesem Feature haben weder Hash noch Version — sie liefern `None` und
     matchen damit nie.
     """
@@ -51,6 +56,7 @@ def cache_key(meta: dict):
     return (
         meta["sha256"],
         meta.get("format", ""),
+        meta.get("ziel", ""),
         meta.get("planned_text_hook", ""),
         meta.get("engine", ""),
         meta["prompt_version"],
