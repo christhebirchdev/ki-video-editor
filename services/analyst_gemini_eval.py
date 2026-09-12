@@ -232,7 +232,7 @@ def _user_message(result: AnalystResult, mode: str) -> str:
 
 def _evaluate(video_path: Path, result: AnalystResult, mode: str, run_dir=None) -> AnalystEvaluationV2:
     video_file = gemini_service._upload_video_to_gemini(video_path)
-    system = analyst_eval.build_system_prompt()  # exakt der Claude-Bewertungsprompt
+    system = analyst_eval.build_system_prompt(ziel=getattr(result, "gewaehltes_ziel", ""))
     user = _user_message(result, mode)
     cfg = types.GenerateContentConfig(
         system_instruction=system,

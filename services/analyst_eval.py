@@ -27,9 +27,12 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-08-10c"
+PROMPT_VERSION = "2026-09-12a"   # V3: Zielsteuerung, Schwere-Priorisierung, Lob-Schwelle
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
+# V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
+# staerken. Zwei Dateien statt Verzweigungen im selben Text.
+SKILL_PATH_V3 = Path(__file__).with_name("analyst_eval_skill_v3.md")
 # Separat gepflegte Referenz (kompakte Pipeline-Fassung: Prinzipien + Beispiel-Anker). Wird vom
 # Skill referenziert und hier zur Laufzeit an den System-Prompt angehängt (das Pipeline-Claude hat
 # keinen Dateizugriff). Optional: fehlt die Datei, läuft die Bewertung unverändert weiter.
@@ -1369,9 +1372,14 @@ und gelten unverändert; hier steht nur das Datenformat.
 staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Ergebnis zuerst."""
 
 
-def load_skill_body() -> str:
-    """Liest den Skill-Body und entfernt das YAML-Frontmatter."""
-    text = SKILL_PATH.read_text(encoding="utf-8")
+def load_skill_body(pfad: Path | None = None) -> str:
+    """Liest den Skill-Body und entfernt das YAML-Frontmatter.
+
+    `pfad` wählt die Skill-Datei: ohne Angabe der V2-Skill, mit SKILL_PATH_V3 der V3-Skill.
+    Zwei Dateien statt Verzweigungen im selben Text — der Prompt ist inhaltlich anders, nicht
+    parametrisiert.
+    """
+    text = (pfad or SKILL_PATH).read_text(encoding="utf-8")
     if text.startswith("---"):
         parts = text.split("---", 2)
         if len(parts) == 3:
@@ -1450,9 +1458,9 @@ TEIL_FELDER = {
 }
 
 
-def _skill_fuer(teil: str | None) -> str:
+def _skill_fuer(teil: str | None, pfad=None) -> str:
     """Skill-Abschnitte für einen Teil-Call. `teil=None` → alles (V1.1-Verhalten, unverändert)."""
-    body = load_skill_body()
+    body = load_skill_body(pfad)
     if not teil:
         return body
     # Vorspann vor der ersten „## "-Überschrift gehört immer dazu (Rollenbeschreibung).
@@ -1522,13 +1530,21 @@ def merge_teilergebnisse(eroeffnung: AnalystEvaluationV2,
     return ergebnis
 
 
-def build_system_prompt(teil: str | None = None) -> str:
+def build_system_prompt(teil: str | None = None, ziel: str = "") -> str:
     """Skill-Body (Logik) + optionale Editing-Referenz + strikter JSON-Vertrag (Pipeline-Modus).
 
-    `teil` steuert den V1.2-Split: „eroeffnung" oder „handwerk". Ohne Angabe entsteht exakt der
-    Prompt von V1.1 — die beiden Versionen laufen so nebeneinander und bleiben vergleichbar.
+    `teil` steuert den V1.2-Split: „eroeffnung" oder „handwerk". `ziel` schaltet auf den V3-Skill
+    um; ohne Ziel entsteht exakt der bisherige Prompt — die Versionen laufen so nebeneinander und
+    bleiben vergleichbar.
     """
-    parts = [_skill_fuer(teil)]
+    pfad = SKILL_PATH_V3 if ziel else None
+    parts = [_skill_fuer(teil, pfad)]
+    if ziel:
+        parts.append(
+            f"ZIEL DIESES VIDEOS (vom Nutzer vor der Analyse angegeben — das ist ein FAKT, nicht "
+            f"deine Einschätzung): „{ziel}“. Bewerte gegen genau dieses Ziel und trag es "
+            f"unverändert in das Feld funnel ein."
+        )
     ref = load_reference()
     if ref:
         parts.append(

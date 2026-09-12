@@ -309,3 +309,21 @@ def test_altlauf_mit_staerken_als_strings_laedt_weiter():
     ev = AnalystEvaluationV2(**{"staerken": ["Guter Schnitt", "Klare Sprache"]})
     assert [s.text for s in ev.staerken] == ["Guter Schnitt", "Klare Sprache"]
     assert all(s.betrifft == "" for s in ev.staerken)
+
+
+def test_v3_prompt_nennt_das_ziel_als_fakt():
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(ziel="MOFU")
+    assert "MOFU" in p
+    assert "FAKT" in p
+
+
+def test_ohne_ziel_entsteht_exakt_der_v2_prompt():
+    from services.analyst_eval import build_system_prompt
+    assert build_system_prompt() == build_system_prompt(ziel="")
+
+
+def test_v3_prompt_verlangt_betrifft_bei_staerken():
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(ziel="TOFU")
+    assert "betrifft" in p
