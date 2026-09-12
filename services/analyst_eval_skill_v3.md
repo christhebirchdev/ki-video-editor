@@ -777,6 +777,63 @@ der Linse, darf das als Stärke auftauchen.
 Format-Ausnahmen stehen in der Aufgabe (bei einer Reaction ist der Blick auf den eingeblendeten
 Clip funktional und damit `in_der_linse`).
 
+## Auftreten des Protagonisten (1–5) — nur mit Angaben zur Person oder Marke
+Diese Dimension fasst zusammen, wie die Person VOR der Kamera wirkt: Ausdruckskraft, Betonung,
+Präsenz und Blickführung. `energie` und `blickkontakt` füllst du weiterhin als Einzelurteile — hier
+kommt beides zusammen, und hier (und nur hier) entsteht daraus ein Score.
+
+**Was „Energie" meint.** Vorgabe Chris: „eine starke Ausdruckskraft …, eine starke gute Betonung,
+ein emotionales Statement auch wirklich gut emotional rüberbringen kann, energetisch."
+Gemeint ist also Ausdruckskraft — **nicht Lautstärke und nicht Tempo.** Leise und langsam kann
+hochenergetisch sein, laut und schnell kann leer sein. Die Prüffragen:
+- Trägt die Betonung? Hebt die Stimme das hervor, worauf es im Satz ankommt?
+- Kommt ein emotionales Statement auch emotional an — oder wird Emotion nur behauptet?
+- Ist Präsenz da: Hält die Person den Raum, oder redet sie an der Kamera vorbei?
+Tempo, Deutlichkeit und Füllwörter gehören NICHT hierher, die stehen in `sprechqualitaet`. Klang
+und Störgeräusche gehören in `audioqualitaet` — das ist die Aufnahme, nicht die Person.
+
+**Die Blickführung ist Teil dieser Dimension.** Die Regeln bleiben die aus dem Abschnitt
+„Blickkontakt": `abgelesen` nur bei wiederholtem oder dauerhaftem Blick nach unten oder zur Seite
+mit erkennbar zeilenweise wandernden Augen; ein einzelner kurzer Blick zur Seite ist
+`in_der_linse`; unsicher heißt `unklar`, nicht geraten. Die Format-Ausnahme gilt weiter: Bei einer
+Reaction ist der Blick auf den eingeblendeten Clip funktional und zählt als `in_der_linse`.
+Trag das Urteil weiterhin in `blickkontakt` ein — hier fließt es nur zusätzlich in den Score.
+
+**DIE BEDINGUNG — lies sie zweimal.** Bewertbar ist das alles nur, wenn dir in der Aufgabe Angaben
+zur Person oder zur Marke vorliegen: wer der Protagonist ist, wofür er steht, wie die Marke
+auftreten will, wen sie erreichen will. Ohne diesen Maßstab lässt sich nicht entscheiden, ob ruhige
+Sachlichkeit genau richtig oder zu flach ist — dieselbe Darbietung ist beim einen Protagonisten
+Marke und beim anderen ein Mangel.
+**Liegen dir keine Angaben zur Person oder zur Marke vor, setzt du `score` auf null und beschreibst
+nur, was du siehst und hörst. Rate nicht.** `probleme` und `hinweise` bleiben dann ebenfalls leer:
+Ein Mangel setzt einen Maßstab voraus, den du nicht hast.
+
+`beschreibung` füllst du IMMER — auch, und gerade, wenn der Score null ist. 1–2 Sätze, wertfrei:
+was an Ausdruckskraft, Betonung, Präsenz und Blickführung zu sehen und zu hören ist, ohne Urteil.
+Beispiel ohne Angaben zur Person: „Spricht durchgehend ruhig und mit gleichbleibender Betonung, der
+Blick bleibt in der Linse, die Hände sind nicht im Bild." — keine Wertung, nur Beobachtung.
+
+ANKER für `protagonist_auftreten.score` — gelten nur, wenn dir Angaben zur Person oder zur Marke
+vorliegen; sonst null:
+- **5** — die Person trägt das Video: Die Betonung hebt die Kernaussagen, ein emotionales
+  Statement kommt emotional an, der Blick ist in der Linse, das Auftreten passt zu dem, wofür die
+  Person und die Marke stehen.
+- **4** — wirkt stimmig, eine Kleinigkeit schwächt es (ein kurzer Blick zur Seite, eine Stelle, an
+  der die Betonung die Aussage nicht mitträgt).
+- **3** — sachlich in Ordnung, aber austauschbar: nichts stört, es entsteht aber auch keine
+  Präsenz, oder das Auftreten passt nur teilweise zu dem, wofür die Person steht.
+- **2** — mehrere deutliche Schwächen: sichtbar abgelesen, monotone Betonung, die Emotion des
+  Inhalts kommt nicht an.
+- **1** — das Auftreten schadet dem Video: durchgehend abgelesen, keine erkennbare Beteiligung an
+  dem, was gesagt wird.
+Passt das Auftreten zur Person und fällt dir nichts auf, ist das eine 5 — die Abwesenheit von
+Mängeln genügt, eine Bühnenperformance ist nicht verlangt.
+
+Schreib keine zweite Empfehlung zum Blick, wenn du sie schon aus `blickkontakt` ableiten würdest:
+Den Schritt baut das System. Gilt die Regel „JEDE BEOBACHTUNG NUR EINMAL", gehört eine Beobachtung
+zum Auftreten der Person hierher und nicht zusätzlich in `sprechqualitaet` oder
+`visuelle_aesthetik`.
+
 ## Zielgruppe
 Genau 1 Satz: wer sich angesprochen fühlt.
 
