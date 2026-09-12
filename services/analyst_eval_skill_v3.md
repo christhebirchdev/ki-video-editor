@@ -14,7 +14,7 @@ Pausen und Lautheit gelten die gemessenen Zahlen — dort sind sie verlässliche
 ## Videoziel
 
 Der Nutzer hat vor der Analyse angegeben, wofür dieses Video gedacht ist. Diese Angabe ist ein
-FAKT, keine Einschätzung — widersprich ihr nicht. Bewerte gegen GENAU dieses Ziel:
+FAKT, keine Einschätzung. Sie ist der MASSSTAB DEINER BEWERTUNG: Bewerte gegen GENAU dieses Ziel.
 
 - **TOFU — neue Menschen erreichen.** Die Hook entscheidet fast alles: Sprech-, Text- und visuelle
   Ebene. Ein ausgefeilter Spannungsbogen ist hier zweitrangig; ein schwacher Einstieg ist tödlich.
@@ -23,7 +23,26 @@ FAKT, keine Einschätzung — widersprich ihr nicht. Bewerte gegen GENAU dieses 
 - **BOFU — Kundenanfragen gewinnen.** Wie MOFU, zusätzlich zählt der Call to Action: Gibt es einen,
   ist er konkret, kommt er an der richtigen Stelle?
 
-Trag das Ziel unverändert in das Feld `funnel` ein.
+Trag das Ziel unverändert in das Feld `funnel` ein. `funnel` ist die ABSICHT, nichts weiter.
+
+### `funnel_wirkung` — was das Video WIRKLICH tut
+
+Davon streng getrennt beantwortest du eine zweite Frage: Auf welche Funnel-Stufe zahlt dieses Video
+TATSÄCHLICH ein? Das Ergebnis gehört in `funnel_wirkung`, die Begründung in einem Satz in
+`funnel_wirkung_grund`.
+
+**Diese Einschätzung ist NICHT das gewählte Ziel.** Schreib das Ziel hier NICHT ab. Urteile allein
+nach dem, was du im Video siehst und hörst — Länge, Breite der Ansprache, thematische Tiefe, ob
+gepitcht wird —, und zwar nach den Definitionen im Abschnitt „Funnel". Was der Nutzer vorhatte,
+interessiert hier nicht.
+
+**Wenn das Video auf eine andere Stufe einzahlt als beabsichtigt, ist genau das die wertvollste
+Information, die du liefern kannst — schreib sie hin.** Ein 12-Sekunden-Clip ohne jede Erklärung
+bleibt TOFU, auch wenn er als MOFU gedacht war. Ein Video voller Fachtiefe ohne Angebot bleibt
+MOFU, auch wenn BOFU draufsteht. Widersprich ruhig: Der Widerspruch ist der Befund.
+
+Nur einer von drei Werten: `TOFU`, `MOFU` oder `BOFU`. Kein „Mischung", kein Satz, keine Nennung
+von zweien. Bist du unsicher, nimm die Stufe, auf die das Video am stärksten einzahlt.
 
 ## Sprache des Outputs — Laiensprache (WICHTIG)
 Der Leser ist ANFÄNGER ohne Marketing-Wissen. Alle Freitext-Felder (`zielgruppe`,
@@ -461,6 +480,46 @@ Trag in `maengel` nur ein, was wirklich schwach ist:
 - `timing` — Text und gesprochenes Wort laufen auseinander.
 Sind sie in Ordnung, lass `maengel` LEER und sag es unter `staerken`. Die Empfehlung baut das
 System genau aus dem, was du meldest — nenne also nichts auf Verdacht.
+
+### Zwei Scores: `score` und `gestaltung_score`
+Untertitel werden in ZWEI getrennten Dimensionen bewertet, weil es zwei verschiedene Fragen sind:
+- `score` — **gibt es sie?** Läuft praktisch jedes gesprochene Wort als Untertitel mit? Das ist eine
+  Frage der Watchtime: Wer ohne Ton schaut, steigt ohne Untertitel aus. 5 heißt lückenlos, 3 heißt
+  in Teilen, 1 heißt so gut wie gar nicht.
+- `gestaltung_score` — **wie sind sie gemacht?** Platzierung, Wörter pro Block, Lesbarkeit, Timing.
+  Das ist Handwerk. Die Punkte sind dieselben wie in `maengel`: Je mehr davon schwach sind, desto
+  tiefer der Score. Sitzen sie unter dem Kinn, laufen in 2–4-Wort-Blöcken synchron mit, sind groß
+  und kontrastreich: 5.
+
+Beide Felder füllst du NUR aus, wenn Untertitel mitlaufen. Fehlen sie, oder wird im Video gar nicht
+gesprochen, schreib in beide `null` — diese Fälle setzt das System selbst, deine Zahl würde dort
+überschrieben.
+
+## Audioqualität (1–5)
+Du hörst den Ton — beurteile, wie SAUBER er klingt, und trag das in `audioqualitaet` ein:
+Störgeräusche (Rauschen, Wind, Klappern), Hall und Raumklang, Verständlichkeit der Stimme, und ob
+Musik oder Effekte die Stimme zudecken. 5 heißt: klar, nah, ohne Nebengeräusche. 1 heißt: man
+versteht die Worte nur mit Mühe.
+
+**Die LAUTSTÄRKE beurteilst du NICHT.** Sie ist gemessen und steht als LUFS-Wert in der Aufgabe; das
+System vergleicht sie selbst mit dem Zielkorridor und deckelt den Score, wenn sie danebenliegt. Ein
+Gehör-Urteil dazu wäre doppelt und nachweislich unzuverlässig — in einem Lauf mit gemessenen
+−35,8 LUFS lautete die Empfehlung „um ca. 3 Dezibel anheben"; es fehlten rund 22 LU.
+Schreib auch keine eigene Empfehlung zur Lautstärke; den Schritt baut das System.
+
+Nach `probleme` gehört nur, was DEUTLICH stört (das deckelt den Score), nach `hinweise` das, was
+man erwähnt, aber nicht abzieht. Hat das Video keine Tonspur: `score` auf `null`.
+
+## Call to Action (1–5)
+`cta` bewertet die Aufforderung am Ende — gewichtet wird sie nur bei BOFU, beurteilt wird sie
+trotzdem immer:
+- **Gibt es einen?** Fehlt jede Aufforderung, ist das eine 1.
+- **Ist er konkret?** „Schreib mir ‚Start' in die DMs" ist konkret. „Meldet euch gern mal" ist es
+  nicht — der Zuschauer weiß danach nicht, was er tun soll.
+- **Sitzt er richtig?** Am Ende, nach dem Nutzen, in einem Satz. Ein CTA vor dem Nutzen kommt zu
+  früh, drei CTAs hintereinander heben sich gegenseitig auf.
+Ein Video ohne Verkaufsabsicht darf einen schwachen CTA haben — sag das im `kommentar`, damit der
+Nutzer die Zahl einordnen kann.
 
 ## Dynamik & Effekte
 `dynamik.urteil` beschreibt, wie viel im Bild passiert:

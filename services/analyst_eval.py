@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-12a"   # V3: Zielsteuerung, Schwere-Priorisierung, Lob-Schwelle
+PROMPT_VERSION = "2026-09-12c"   # V3 Stufe 2: Untertitel-Scores, Audioqualitaet, CTA, Funnel-Wirkung
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -1638,12 +1638,65 @@ Inhaltliche Regeln zu `empfehlungen` stehen im Abschnitt „Empfehlungen — die
 und gelten unverändert; hier steht nur das Datenformat.
 staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Ergebnis zuerst."""
 
-# V3 ersetzt genau EINE Zeile des Ausgabe-Vertrags. Ein zweites vollstaendiges Schema waere ein
-# Duplikat, das beim naechsten Feld auseinanderlaeuft. Die Zeile muss EINZEILIG bleiben:
-# `_schema_fuer` filtert den Vertrag zeilenweise ueber die Top-Level-Schluessel.
+# --- V3-Erweiterungen des Ausgabe-Vertrags --------------------------------------------------
+#
+# V3 erweitert den Vertrag an mehreren Stellen; V2 bleibt UNVERAENDERT, weil es die eingefrorene
+# Vergleichsbasis ist (88 gespeicherte Laeufe, Regressionstest). Ein zweites vollstaendiges Schema
+# waere ein Duplikat, das beim naechsten Feld auseinanderlaeuft — also wird der eine Vertrag
+# stellenweise ersetzt.
+#
+# Warum eine TABELLE und keine Kette einzelner `replace`-Aufrufe: Bei der staerken-Zeile war es
+# einer, mit Stufe 2 waeren es vier geworden, verteilt ueber Konstanten und Funktionskoerper — und
+# genau so verliert man den Ueberblick, welche Anker es noch gibt. Hier steht jede Ersetzung als
+# Paar (Anker, Ersatz) an EINER Stelle, und der Import-Assert unten prueft ALLE Anker gemeinsam:
+# Faellt beim Umformulieren des Vertrags ein Anker weg, bricht der Start, statt dass eine
+# V3-Erweiterung still verschwindet.
+#
+# Formregel fuer jeden Ersatz: Jedes Top-Level-Feld bleibt auf EINER Zeile. `_schema_fuer` filtert
+# den Vertrag zeilenweise ueber die Top-Level-Schluessel; ein ueber mehrere Zeilen umgebrochenes
+# Feld wuerde dort auseinandergerissen.
+
 STAERKEN_ZEILE_V2 = '  "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],'
-STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik>"}],'
-assert STAERKEN_ZEILE_V2 in OUTPUT_SCHEMA, "staerken-Zeile passt nicht mehr zum Ausgabe-Vertrag"
+STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik | untertitel_vorhanden | untertitel_gestaltung | audioqualitaet | cta>"}],'
+
+# Funnel: die ABSICHT (`funnel`, vom Nutzer) und die WIRKUNG (`funnel_wirkung`, Einschaetzung des
+# Modells) stehen direkt untereinander — damit die Trennung schon beim Lesen des Vertrags auffaellt.
+FUNNEL_ZEILE_V2 = '  "funnel": "<TOFU | MOFU | BOFU | Mischung>",'
+FUNNEL_BLOCK_V3 = (
+    '  "funnel": "<TOFU | MOFU | BOFU | Mischung>",\n'
+    '  "funnel_wirkung": "<TOFU | MOFU | BOFU — auf welche Funnel-Stufe dieses Video TATSÄCHLICH einzahlt. Das ist NICHT das vorgegebene Ziel und nicht dein Feld `funnel`: urteile allein nach dem, was du siehst (Länge, Breite der Ansprache, Tiefe, Pitch). Zahlt das Video auf eine ANDERE Stufe ein als beabsichtigt, schreib genau diese andere Stufe hin — das ist die wertvollste Information, die du liefern kannst>",\n'
+    '  "funnel_wirkung_grund": "<PFLICHT: EIN Satz, woran du das festmachst>",'
+)
+
+# Untertitel bekommen zwei Scores, Audioqualitaet und CTA kommen als eigene Dimensionen dazu. Die
+# drei haengen inhaltlich am selben Block „Handwerk" und stehen deshalb in EINER Ersetzung.
+UNTERTITEL_ZEILE_V2 = '  "untertitel": {"vorhanden": <true|false — laufen Untertitel mit? Wird gesprochen und fehlen sie, ist das ein MANGEL (siehe Abschnitt „Untertitel"); nur ein Video ohne gesprochenes Wort braucht keine>, "maengel": ["<NUR was wirklich schwach ist, aus: position | statisch | groesse | lesbarkeit | wortzahl | timing. Sind sie in Ordnung: []>"], "kommentar": "<1 Satz>"},'
+HANDWERK_BLOCK_V3 = (
+    '  "untertitel": {"vorhanden": <true|false — laufen Untertitel mit? Wird gesprochen und fehlen sie, ist das ein MANGEL (siehe Abschnitt „Untertitel"); nur ein Video ohne gesprochenes Wort braucht keine>, '
+    '"score": <int 1-5: wie gut deckt die Untertitelspur das Gesprochene ab? Nur ausfüllen, wenn Untertitel MITLAUFEN — fehlen sie oder wird nicht gesprochen, setzt das System den Wert selbst, schreib dann null>, '
+    '"gestaltung_score": <int 1-5: wie sind sie GEMACHT — Platzierung, Wörter pro Block, Lesbarkeit, Timing? Nur ausfüllen, wenn Untertitel mitlaufen, sonst null>, '
+    '"maengel": ["<NUR was wirklich schwach ist, aus: position | statisch | groesse | lesbarkeit | wortzahl | timing. Sind sie in Ordnung: []>"], "kommentar": "<1 Satz>"},\n'
+    '  "audioqualitaet": {"score": <int 1-5: wie SAUBER klingt der Ton — Störgeräusche, Hall, Verständlichkeit, Balance zwischen Musik und Stimme. Die LAUTHEIT beurteilst du NICHT nach Gehör: sie ist gemessen und steht in der Aufgabe, das System deckelt den Score selbst. Hat das Video keine Tonspur: null>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},\n'
+    '  "cta": {"score": <int 1-5: der Call to Action — gibt es einen, ist er konkret, kommt er an der richtigen Stelle? Fehlt er ganz: 1>, "kommentar": "<1 Satz>"},'
+)
+
+# Anker -> Ersatz. Reihenfolge egal, die Anker ueberschneiden sich nicht.
+V3_VERTRAG_ERSETZUNGEN = (
+    (STAERKEN_ZEILE_V2, STAERKEN_ZEILE_V3),
+    (FUNNEL_ZEILE_V2, FUNNEL_BLOCK_V3),
+    (UNTERTITEL_ZEILE_V2, HANDWERK_BLOCK_V3),
+)
+
+for _anker, _ in V3_VERTRAG_ERSETZUNGEN:
+    assert OUTPUT_SCHEMA.count(_anker) == 1, f"V3-Anker passt nicht mehr zum Vertrag: {_anker[:60]}"
+
+
+def v3_schema() -> str:
+    """Der Ausgabe-Vertrag mit allen V3-Erweiterungen."""
+    schema = OUTPUT_SCHEMA
+    for anker, ersatz in V3_VERTRAG_ERSETZUNGEN:
+        schema = schema.replace(anker, ersatz)
+    return schema
 
 
 
@@ -1713,6 +1766,8 @@ ABSCHNITT_ZUORDNUNG = {
     "Spannungsbogen (1–5) — Watchtime": "handwerk",
     "Visuelle Ästhetik (1–5) — gegen einen konkreten Referenz-Standard prüfen": "handwerk",
     "Untertitel — eigenes Feld, und PFLICHT sobald gesprochen wird": "handwerk",
+    "Audioqualität (1–5)": "handwerk",      # nur im V3-Skill
+    "Call to Action (1–5)": "handwerk",     # nur im V3-Skill
     "Dynamik & Effekte": "handwerk",
     "Energie im Auftreten — eigenes Urteil, KEIN Score": "handwerk",
     "Blickkontakt — eigenes Urteil, KEIN Score": "handwerk",
@@ -1763,11 +1818,11 @@ def _schema_fuer(teil: str | None, ziel: str = "") -> str:
     über ein generiertes Schema: Die ausformulierten Feldbeschreibungen SIND die Anweisung — ein
     aus Pydantic erzeugtes Schema hätte sie nicht.
 
-    Die V3-Ersetzung der staerken-Zeile passiert VOR dem Filtern: Der Filter liest die Zeile, die
-    am Ende im Vertrag steht — würde erst danach ersetzt, wäre die Zeile im Teil-Call schon
-    aussortiert oder in der alten Form stehengeblieben.
+    Die V3-Ersetzungen passieren VOR dem Filtern: Der Filter liest die Zeilen, die am Ende im
+    Vertrag stehen — würde erst danach ersetzt, wären sie im Teil-Call schon aussortiert oder in
+    der alten Form stehengeblieben.
     """
-    schema = OUTPUT_SCHEMA.replace(STAERKEN_ZEILE_V2, STAERKEN_ZEILE_V3) if ziel else OUTPUT_SCHEMA
+    schema = v3_schema() if ziel else OUTPUT_SCHEMA
     if not teil:
         return schema
     kopf, _, rest = schema.partition("{\n")
@@ -1825,10 +1880,18 @@ def build_system_prompt(teil: str | None = None, ziel: str = "") -> str:
     pfad = SKILL_PATH_V3 if ziel else None
     parts = [_skill_fuer(teil, pfad)]
     if ziel:
+        # Dieser Nachsatz steht GANZ HINTEN im Prompt und wird deshalb besonders zuverlässig
+        # befolgt (Primacy/Recency, siehe die Notiz zum Prompt-Split oben). Genau deshalb muss er
+        # die Trennung funnel/funnel_wirkung selbst noch einmal machen: Stünde hier nur „trag das
+        # Ziel ein", schriebe das Modell es auch in funnel_wirkung ab — exakt der Befund aus Lauf
+        # dc5c0a3d.
         parts.append(
             f"ZIEL DIESES VIDEOS (vom Nutzer vor der Analyse angegeben — das ist ein FAKT, nicht "
             f"deine Einschätzung): „{ziel}“. Bewerte gegen genau dieses Ziel und trag es "
-            f"unverändert in das Feld funnel ein."
+            f"unverändert in das Feld funnel ein. ACHTUNG, davon streng getrennt: In "
+            f"funnel_wirkung gehört NICHT dieses Ziel, sondern deine eigene Einschätzung, auf "
+            f"welche Funnel-Stufe das Video tatsächlich einzahlt — schreib dort ruhig eine andere "
+            f"Stufe hin, wenn das Video das hergibt."
         )
     ref = load_reference()
     if ref:

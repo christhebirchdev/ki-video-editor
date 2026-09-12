@@ -851,3 +851,104 @@ def test_score_rechnung_nutzt_dieselbe_zuordnung_wie_die_sortierung():
     from services.analyst_eval import DIMENSION_MINIMUM, dimensions_scores
     assert set(DIMENSION_MINIMUM) <= set(dimensions_scores(AnalystEvaluationV2()))
     assert DIMENSION_MINIMUM["text_hook"] == 0
+
+
+# =====================================================================================
+# Stufe 2, Teil 3 — Prompt: Ausgabe-Vertrag und Skill-Text
+# =====================================================================================
+
+def test_v3_vertrag_kennt_alle_neuen_felder():
+    """Ein Feld nur im Skill-Text zu beschreiben reicht NICHT — das Modell folgt dem Vertrag."""
+    from services.analyst_eval import build_system_prompt
+    v3 = build_system_prompt(ziel="MOFU")
+    # `"cta"` steht als Bool schon in struktur.elemente — geprueft wird deshalb die
+    # Top-Level-Zeile, nicht der blosse Feldname.
+    for feld in ("gestaltung_score", '\n  "audioqualitaet":', '\n  "cta":',
+                 '\n  "funnel_wirkung":', '\n  "funnel_wirkung_grund":'):
+        assert feld in v3, feld
+
+
+def test_v2_vertrag_kennt_keines_der_neuen_felder():
+    """V2 ist die eingefrorene Vergleichsbasis — aendert sich der Prompt, ist der Vergleich futsch."""
+    from services.analyst_eval import build_system_prompt
+    v2 = build_system_prompt()
+    for feld in ("gestaltung_score", '\n  "audioqualitaet":', '\n  "cta":',
+                 '\n  "funnel_wirkung":'):
+        assert feld not in v2, feld
+
+
+def test_handwerk_call_liefert_die_handwerks_felder():
+    """_schema_fuer filtert den Vertrag ueber TEIL_FELDER — ein Feld ohne Eintrag erscheint in
+    KEINEM der beiden Calls."""
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(teil="handwerk", ziel="MOFU")
+    for feld in ('\n  "audioqualitaet":', '\n  "cta":', '\n  "untertitel":', "gestaltung_score"):
+        assert feld in p, feld
+    assert '"funnel_wirkung"' not in p
+
+
+def test_eroeffnungs_call_liefert_die_funnel_wirkung():
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(teil="eroeffnung", ziel="MOFU")
+    assert '\n  "funnel_wirkung":' in p
+    assert '\n  "funnel_wirkung_grund":' in p
+    assert '\n  "audioqualitaet":' not in p
+
+
+def test_merge_traegt_die_neuen_handwerks_felder_hinueber():
+    """merge_teilergebnisse kopiert entlang TEIL_FELDER['handwerk'] — fehlt dort ein Eintrag,
+    faellt das Feld beim Zusammenfuehren still weg."""
+    from services.analyst_eval import merge_teilergebnisse
+    eroeffnung = _eval_mit_scores()
+    eroeffnung.funnel_wirkung = "TOFU"
+    handwerk = _eval_mit_scores()
+    handwerk.audioqualitaet.score = 4
+    handwerk.cta.score = 2
+    handwerk.untertitel.gestaltung_score = 5
+    out = merge_teilergebnisse(eroeffnung, handwerk)
+    assert out.audioqualitaet.score == 4
+    assert out.cta.score == 2
+    assert out.untertitel.gestaltung_score == 5
+    assert out.funnel_wirkung == "TOFU"
+
+
+def test_v3_skill_verlangt_keine_abschrift_des_ziels_mehr():
+    """Lauf dc5c0a3d: `funnel` war exakt das gewaehlte Ziel, weil der Skill woertlich das Abschreiben
+    verlangte. Fuer `funnel_wirkung` muss dort das Gegenteil stehen — scharf genug, dass das Modell
+    nicht weiter abschreibt."""
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(ziel="MOFU")
+    assert "funnel_wirkung" in p
+    assert "NICHT das gewählte Ziel" in p
+
+
+def test_v3_skill_erklaert_die_neuen_dimensionen():
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(teil="handwerk", ziel="MOFU")
+    for wort in ("Audioqualität", "Call to Action", "gestaltung_score"):
+        assert wort in p, wort
+
+
+def test_v2_skill_bleibt_unangetastet():
+    """Die V2-Skilldatei ist Teil der eingefrorenen Vergleichsbasis."""
+    from services.analyst_eval import load_skill_body
+    body = load_skill_body()
+    for wort in ("funnel_wirkung", "gestaltung_score", "audioqualitaet"):
+        assert wort not in body, wort
+
+
+def test_v3_staerken_duerfen_sich_auf_die_neuen_dimensionen_beziehen():
+    """filtere_staerken ordnet ueber `betrifft` einer Kategorie zu — steht der Name nicht im
+    Vertrag, kann das Modell eine gute Audiospur nie loben."""
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(teil="handwerk", ziel="MOFU")
+    zeile = [z for z in p.splitlines() if z.startswith('  "staerken":')][0]
+    for name in ("untertitel_vorhanden", "untertitel_gestaltung", "audioqualitaet", "cta"):
+        assert name in zeile, name
+
+
+def test_prompt_version_wurde_hochgezaehlt():
+    """Betriebsregel: bei jeder inhaltlichen Prompt-Aenderung hochzaehlen, sonst ist Feedback zu
+    zwei verschiedenen Prompts nicht mehr auseinanderzuhalten."""
+    from services.analyst_eval import PROMPT_VERSION
+    assert PROMPT_VERSION == "2026-09-12c"
