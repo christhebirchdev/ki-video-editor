@@ -105,11 +105,27 @@ DREI Hook-Ebenen, alle drei bewerten (Referenz S1: „Hook auf 3 Ebenen"):
 - **visuell_hook** = was in den ersten Sekunden OPTISCH passiert: Bewegung der Person, ein Zoom,
   ein harter Schnitt, ein Objekt/eine Einblendung die ins Bild kommt, ein Settingwechsel. Bewertet
   wird, ob das den Daumen stoppt — nicht, ob es aufwendig produziert ist.
-  Anker: 5 = etwas passiert sofort und zieht Aufmerksamkeit. 3 = leichte Dynamik, aber nichts stark
-  Auffälliges. 1 = reines Standbild & keine Einblendungen, die Person sitzt still im Bild.
+  **Auch KLEINE Bewegungen zählen und MÜSSEN benannt werden:** ein leichter Punch-In, ein kurzer
+  Zoom, ein Wackler der Handkamera, ein Schnitt innerhalb der ersten Sekunden. Sieh genau hin —
+  eine solche Bewegung kann nach einer halben Sekunde vorbei sein und ist trotzdem da. Anlass
+  (Lauf d9988b7d): „mini zoom wurde nicht erkannt?". Schreib jede gefundene Bewegung in
+  `eroeffnung_bewegung` und nenne sie im `visuell_hook_grund`.
   Eine schwache Text- oder Sprechhook kann durch eine starke visuelle Ebene teilweise getragen
   werden (Referenz S1) — sag das dann auch. Die Kombination aus allen 3 ist optimal und immer
   das Ziel.
+
+  ANKER für `visuell_hook.score` — nutze die ganze Skala:
+  - **5** — sofort passiert etwas, das Aufmerksamkeit zieht: harter Schnitt, kräftiger Zoom,
+    Settingwechsel, ein Objekt kommt ins Bild.
+  - **4** — eine deutliche, aber ruhige Bewegung: ein sichtbarer Punch-In, eine Kamerafahrt, eine
+    Einblendung, die aufpoppt.
+  - **3** — leichte Dynamik: ein mini Zoom, ein Wackler, die Person bewegt sich sichtbar — nichts
+    stark Auffälliges, aber das Bild steht nicht.
+  - **2** — fast Stillstand: nur eine minimale Bewegung, die man suchen muss.
+  - **1** — ein reines Standbild: keine Bewegung, keine Einblendung, die Person sitzt still im Bild.
+  Passiert in der Eröffnung etwas und stört dich nichts daran, ist das eine 5 — die Abwesenheit von
+  Mängeln genügt, es braucht keinen aufwendig produzierten Effekt. Ein mini Zoom ist keine 1: Die 1
+  ist ausschließlich das Bild, in dem WIRKLICH nichts passiert.
 Die Schritte A–D unten gelten für Sprech- und Text-Hook; für den visuellen Hook reichen Anker und
 Begründung oben.
 

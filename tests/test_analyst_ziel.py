@@ -1130,7 +1130,7 @@ def test_altlauf_ohne_das_feld_laedt_unveraendert():
 # Die Dimensionen, die einen ANKER-Block im V3-Skill haben muessen. `visuelle_aesthetik` ist das
 # Vorbild und stand schon vorher da — sie ist hier mit drin, damit ein Umbau des Vorbilds auffaellt.
 ANKER_DIMENSIONEN = [
-    "struktur", "spannungsbogen", "schnitt_pacing", "sprechqualitaet",
+    "visuell_hook", "struktur", "spannungsbogen", "schnitt_pacing", "sprechqualitaet",
     "visuelle_aesthetik", "untertitel_vorhanden", "untertitel_gestaltung", "audioqualitaet", "cta",
 ]
 
@@ -1201,9 +1201,33 @@ def test_die_anker_gelten_nur_fuer_v3():
 
 
 def test_die_anker_erreichen_beide_teil_calls():
-    """Die Anker nuetzen nichts, wenn `_skill_fuer` sie aus dem Call herausfiltert — die neun
-    Dimensionen dieses Schritts liegen alle im Handwerks-Call."""
+    """Die Anker nuetzen nichts, wenn `_skill_fuer` sie aus dem Call herausfiltert — bis auf die
+    visuelle Hook liegen alle Dimensionen im Handwerks-Call."""
     from services.analyst_eval import build_system_prompt
     handwerk = build_system_prompt(teil="handwerk", ziel="MOFU")
     for name in ("sprechqualitaet", "audioqualitaet", "cta", "struktur"):
         assert f"ANKER für `{name}" in handwerk, name
+
+
+# --- Lauf d9988b7d, Feedback zu `hook.visuell`: „mini zoom wurde nicht erkannt?" ---------------
+
+def test_kleine_bewegungen_zaehlen_ausdruecklich():
+    """Der Nutzer hatte einen kleinen Zoom in der Eröffnung; das Modell meldete ihn nicht. Die
+    Vorgeschichte ist dieselbe wie bei `eroeffnung_hat_bewegung` (Läufe 225cf73b, b08f73bd,
+    7230d0f8): Das Modell empfahl einen Zoom, den es längst gab."""
+    text = " ".join(_v3_text().split())
+    assert "Auch KLEINE Bewegungen zählen" in text
+    assert "leichter Punch-In" in text
+    assert "Ein mini Zoom ist keine 1" in text
+
+
+def test_das_standbild_bleibt_die_eins():
+    """Die Untergrenze darf durch die Aufwertung kleiner Bewegungen nicht verschwimmen: 1 ist
+    ausschliesslich das Bild, in dem WIRKLICH nichts passiert."""
+    block = _ankerblock("visuell_hook")
+    assert "1** — ein reines Standbild" in block
+
+
+def test_der_visuell_hook_anker_erreicht_den_eroeffnungs_call():
+    from services.analyst_eval import build_system_prompt
+    assert "ANKER für `visuell_hook" in build_system_prompt(teil="eroeffnung", ziel="MOFU")
