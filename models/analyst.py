@@ -289,6 +289,43 @@ class ScoreProbleme(BaseModel):
         return liste_von_strings(v)
 
 
+class ProtagonistEval(ScoreProbleme):
+    """Auftreten der Person vor der Kamera — Ausdruckskraft, Präsenz, Blickführung.
+
+    Vorgabe Chris (2026-09-13): „Bei der Kategorie Auftreten Bild und Ton ergänze bitte einen Score
+    für das Auftreten der Person vor der Kamera, also des Protagonisten. Darin kannst du auch die
+    Blickrichtung zum Beispiel mit integrieren. Du solltest das energetische Auftreten der Person
+    auch bewerten. Das soll aber nur bewertbar sein, wenn der Analyst Daten zur Personal Brand hat
+    und zur Person … Falls keine Info, bitte nur die Energie beschreiben, aber nicht bewerten."
+
+    Energie meint dabei AUSDRUCKSKRAFT, nicht Lautstärke und nicht Tempo — Chris: „eine starke
+    Ausdruckskraft …, eine starke gute Betonung, ein emotionales Statement auch wirklich gut
+    emotional rüberbringen kann".
+
+    `score` ist nullable und bleibt None, solange dem Analysten keine Daten zur Person oder zur
+    Personal Brand vorliegen: Ob ruhige Sachlichkeit passend oder zu flach ist, lässt sich ohne
+    Kenntnis der Person nicht entscheiden. Ohne Daten wird das Auftreten nur BESCHRIEBEN
+    (`beschreibung`), nicht bewertet — eine Zahl ohne Maßstab wäre geraten. Das ist dieselbe Logik
+    wie bei `zielgruppen_relevanz`, und wie dort ist es der GEWOLLTE Normalzustand, solange die
+    Brand-/Zielgruppen-Datei noch nicht gebaut ist.
+
+    ERBT von ScoreProbleme statt es zu kopieren: `score`, `probleme`, `hinweise` und der
+    Objekt-zu-String-Validator (siehe liste_von_strings) stehen dort schon und verhalten sich
+    identisch. Neu sind nur `beschreibung` und der None-Default für `score` — zwei Zeilen statt
+    eines zweiten, mitzupflegenden Blocks.
+
+    `EnergieEval` und `BlickEval` bleiben daneben bestehen: Sie liefern die Einzelurteile, die hier
+    einfließen, und an ihnen hängen `erzwinge_blick_empfehlung` und `baue_effekt_schritt`.
+    """
+    # Ohne Daten zur Person: None. Der Default von ScoreProbleme ist 0 und muss überschrieben
+    # werden — 0 hieße „Modell hat nichts gesagt", None heißt „nicht bewertbar" (siehe HookEval).
+    score: Optional[int] = None
+    # IMMER gefüllt, auch ohne Score: was man sieht und hört, wertfrei. Ohne dieses Feld wäre der
+    # Fall „nur beschreiben" im Ergebnis gar nicht sichtbar und die Vorgabe liefe leer.
+    beschreibung: str = ""
+    # `probleme` und `hinweise` nur mit Daten zur Person — ein Mangel setzt einen Maßstab voraus.
+
+
 class ScoreKommentar(BaseModel):
     """Score 1–5 + 1-Satz-Kommentar (Frontend: Hover-Detail)."""
     score: int = 0
@@ -437,27 +474,44 @@ ZIELE = ("TOFU", "MOFU", "BOFU")
 # real bewertet (UntertitelEval.score/.gestaltung_score, AnalystEvaluationV2.audioqualitaet/.cta).
 # `berechne_performance_score` überspringt Dimensionen ohne Score weiterhin automatisch und verteilt
 # ihr Gewicht proportional — das trägt die Altläufe, die diese Felder nicht kennen.
+#
+# 2026-09-13: `protagonist_auftreten` ist dazugekommen (Vorgabe Chris, siehe ProtagonistEval).
+# WOHER die Punkte kommen: aus genau den beiden Dimensionen, in denen seine Urteile bisher
+# mitliefen — `sprechqualitaet` trug die Ausdruckskraft (der V2-Skill schmolz „Tempo, Energie,
+# Deutlichkeit zu EINEM Score", siehe EnergieEval) und `visuelle_aesthetik` trug die Blickrichtung
+# (über `probleme`; über 41 Läufe der mit Abstand häufigste Ästhetik-Befund mit 54 %, siehe
+# BlickEval). `audioqualitaet` bleibt unangetastet: Sie beurteilt die AUFNAHME, nie die Person.
+# Die Kategorie „Auftreten" behält damit ihr Gesamtgewicht (TOFU 23 / MOFU 19 / BOFU 18) und die
+# drei anderen Kategorien bleiben unberührt — der A/B-Vergleich verschiebt sich nur innerhalb
+# dieser einen Kategorie.
+# WIE VIEL je Stufe (KB 11): TOFU 4 — dort trägt der Einstieg, das Video muss den Scroll stoppen
+# und ist „oft POV- oder B-Roll-Format", die Person ist nicht zwingend der Punkt. MOFU 6 — dort
+# entsteht Vertrauen über die Person („Protagonisten-Story = Beziehungsvertrauen/Nahbarkeit").
+# BOFU 6 — „der Creator verkauft sich selbst"; mehr als 6 braucht es dort nicht, weil `cta` (9)
+# den Abschluss-Teil schon eigenständig misst.
+# HEUTE ohne Wirkung auf den Gesamtscore: Solange keine Branddaten vorliegen, ist der Score None,
+# die Dimension fällt aus der Rechnung und ihr Gewicht verteilt sich proportional auf den Rest.
 SCORE_GEWICHTE_JE_ZIEL = {
     "TOFU": {
         "sprech_hook": 16, "text_hook": 16, "visuell_hook": 13,
         "spannungsbogen": 7, "struktur": 7, "untertitel_vorhanden": 8,
         "schnitt_pacing": 7, "untertitel_gestaltung": 3,
-        "sprechqualitaet": 8, "visuelle_aesthetik": 10, "audioqualitaet": 5,
-        "cta": 0,
+        "sprechqualitaet": 6, "visuelle_aesthetik": 8, "audioqualitaet": 5,
+        "protagonist_auftreten": 4, "cta": 0,
     },
     "MOFU": {
         "sprech_hook": 15, "text_hook": 15, "visuell_hook": 7,
         "spannungsbogen": 15, "struktur": 10, "untertitel_vorhanden": 10,
         "schnitt_pacing": 6, "untertitel_gestaltung": 3,
-        "sprechqualitaet": 10, "visuelle_aesthetik": 6, "audioqualitaet": 3,
-        "cta": 0,
+        "sprechqualitaet": 7, "visuelle_aesthetik": 3, "audioqualitaet": 3,
+        "protagonist_auftreten": 6, "cta": 0,
     },
     "BOFU": {
         "sprech_hook": 14, "text_hook": 14, "visuell_hook": 6,
         "spannungsbogen": 13, "struktur": 9, "untertitel_vorhanden": 9,
         "schnitt_pacing": 5, "untertitel_gestaltung": 3,
-        "sprechqualitaet": 9, "visuelle_aesthetik": 6, "audioqualitaet": 3,
-        "cta": 9,
+        "sprechqualitaet": 6, "visuelle_aesthetik": 3, "audioqualitaet": 3,
+        "protagonist_auftreten": 6, "cta": 9,
     },
 }
 
@@ -466,7 +520,8 @@ KATEGORIEN = {
     "hook": ("sprech_hook", "text_hook", "visuell_hook"),
     "mittelteil": ("spannungsbogen", "struktur", "untertitel_vorhanden", "cta"),
     "editing": ("schnitt_pacing", "untertitel_gestaltung"),
-    "auftreten": ("sprechqualitaet", "visuelle_aesthetik", "audioqualitaet"),
+    "auftreten": ("sprechqualitaet", "visuelle_aesthetik", "audioqualitaet",
+                  "protagonist_auftreten"),
 }
 
 
@@ -537,6 +592,9 @@ class AnalystEvaluationV2(BaseModel):
     effekt_vorschlaege: list[EffektVorschlag] = Field(default_factory=list)  # Code bündelt zu EINEM Schritt
     blickkontakt: BlickEval = Field(default_factory=BlickEval)    # score-frei, kann aber einen Schritt auslösen
     energie: EnergieEval = Field(default_factory=EnergieEval)     # score-frei, siehe EnergieEval
+    # Fasst zusammen, was blickkontakt und energie einzeln melden, und BEWERTET es — aber nur,
+    # wenn Daten zur Person/Marke vorliegen. Siehe ProtagonistEval.
+    protagonist_auftreten: ProtagonistEval = Field(default_factory=ProtagonistEval)
     staerken: list[Staerke] = Field(default_factory=list)   # positives Feedback, siehe Staerke
     top_tipps: list[str] = Field(default_factory=list)            # ausführliches Verbesserungs-Feedback
     empfehlungen: list[Empfehlung] = Field(default_factory=list)  # ROH vom Modell: flach, unsortiert

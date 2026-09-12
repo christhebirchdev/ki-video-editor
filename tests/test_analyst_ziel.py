@@ -951,7 +951,7 @@ def test_prompt_version_wurde_hochgezaehlt():
     """Betriebsregel: bei jeder inhaltlichen Prompt-Aenderung hochzaehlen, sonst ist Feedback zu
     zwei verschiedenen Prompts nicht mehr auseinanderzuhalten."""
     from services.analyst_eval import PROMPT_VERSION
-    assert PROMPT_VERSION == "2026-09-13b"
+    assert PROMPT_VERSION == "2026-09-13c"
 
 
 def test_v3_verlangt_hoechstens_eine_empfehlung_je_dimension():
@@ -1357,3 +1357,222 @@ def test_der_skill_bindet_die_relevanz_an_vorliegende_daten():
     text = " ".join(_v3_text().split())
     assert "zielgruppen_relevanz" in text
     assert "Liegen dir keine solchen Daten vor, bleibt das Feld LEER" in text
+
+
+# =====================================================================================
+# Auftreten des Protagonisten vor der Kamera (Vorgabe Chris, 2026-09-13)
+#
+# „Bei der Kategorie Auftreten Bild und Ton ergaenze bitte einen Score fuer das Auftreten der
+# Person vor der Kamera, also des Protagonisten. Darin kannst du auch die Blickrichtung zum
+# Beispiel mit integrieren. Du solltest das energetische Auftreten der Person auch bewerten. Das
+# soll aber nur bewertbar sein, wenn der Analyst Daten zur Personal Brand hat und zur Person, also
+# zum Protagonisten. Denn nur dann kann auch bewertet werden, ob die Energie gut oder schlecht ist.
+# Falls keine Info, bitte nur die Energie beschreiben, aber nicht bewerten."
+#
+# Die Brand-/Zielgruppen-Datei gibt es noch NICHT — dieselbe Lage wie bei `zielgruppen_relevanz`.
+# Der Zustand „beschreiben, nicht bewerten" ist deshalb der GEWOLLTE Normalzustand, kein Fehler.
+# =====================================================================================
+
+def test_protagonist_auftreten_bleibt_ohne_daten_unbewertet():
+    """Der Kern der Vorgabe: ohne Daten zur Person kein Score. Eine Zahl ohne Massstab waere
+    geraten — ob ruhige Sachlichkeit passend oder zu flach ist, haengt an der Person."""
+    from models.analyst import ProtagonistEval
+    p = ProtagonistEval()
+    assert p.score is None
+    assert p.beschreibung == ""
+    assert p.probleme == [] and p.hinweise == []
+
+
+def test_protagonist_eval_erbt_von_score_probleme():
+    """Weniger Code: `score`, `probleme`, `hinweise` und der Objekt-zu-String-Validator stehen
+    schon in ScoreProbleme. Neu ist nur `beschreibung` und der None-Default fuer `score`."""
+    from models.analyst import ProtagonistEval, ScoreProbleme
+    assert issubclass(ProtagonistEval, ScoreProbleme)
+    # Der geerbte Validator muss weiter greifen (Objekt-Muster faerbt auf Nachbarfelder ab).
+    assert ProtagonistEval(probleme=[{"text": "wirkt abgelesen"}]).probleme == ["wirkt abgelesen"]
+
+
+def test_protagonist_auftreten_ist_ein_feld_der_bewertung():
+    from models.analyst import AnalystEvaluationV2, ProtagonistEval
+    assert isinstance(AnalystEvaluationV2().protagonist_auftreten, ProtagonistEval)
+
+
+def test_protagonist_auftreten_ist_in_allen_drei_zielen_gewichtet():
+    from models.analyst import SCORE_GEWICHTE_JE_ZIEL, ZIELE
+    for ziel in ZIELE:
+        assert SCORE_GEWICHTE_JE_ZIEL[ziel]["protagonist_auftreten"] > 0, ziel
+
+
+def test_das_auftreten_wiegt_bei_mofu_und_bofu_mehr_als_bei_tofu():
+    """KB 11: Bei TOFU traegt der Einstieg (massentauglicher Hook, Scroll-Stopp), die Person ist
+    oft gar nicht der Punkt. Bei MOFU entsteht Vertrauen ueber die Person („Protagonisten-Story =
+    Beziehungsvertrauen/Nahbarkeit"), bei BOFU verkauft der Creator sich selbst."""
+    from models.analyst import SCORE_GEWICHTE_JE_ZIEL
+    tofu = SCORE_GEWICHTE_JE_ZIEL["TOFU"]["protagonist_auftreten"]
+    assert SCORE_GEWICHTE_JE_ZIEL["MOFU"]["protagonist_auftreten"] > tofu
+    assert SCORE_GEWICHTE_JE_ZIEL["BOFU"]["protagonist_auftreten"] > tofu
+
+
+def test_das_gewicht_kommt_aus_der_kategorie_auftreten_selbst():
+    """Die neue Dimension nimmt sich ihre Punkte dort, wo ihre Urteile bisher mitliefen —
+    `sprechqualitaet` (Ausdruckskraft) und `visuelle_aesthetik` (Blickrichtung). Die Kategorie
+    behaelt damit ihr Gesamtgewicht, die anderen drei Kategorien bleiben unberuehrt."""
+    from models.analyst import KATEGORIEN, SCORE_GEWICHTE_JE_ZIEL
+    vorher = {"TOFU": 23, "MOFU": 19, "BOFU": 18}
+    for ziel, summe in vorher.items():
+        ist = sum(SCORE_GEWICHTE_JE_ZIEL[ziel][d] for d in KATEGORIEN["auftreten"])
+        assert ist == summe, ziel
+    # Audioqualitaet hat nie ein Urteil zur Person getragen — sie beurteilt die Aufnahme.
+    assert SCORE_GEWICHTE_JE_ZIEL["TOFU"]["audioqualitaet"] == 5
+    assert SCORE_GEWICHTE_JE_ZIEL["MOFU"]["audioqualitaet"] == 3
+    assert SCORE_GEWICHTE_JE_ZIEL["BOFU"]["audioqualitaet"] == 3
+
+
+def test_protagonist_auftreten_gehoert_zur_kategorie_auftreten():
+    from models.analyst import KATEGORIEN
+    assert "protagonist_auftreten" in KATEGORIEN["auftreten"]
+
+
+def test_dimensions_scores_kennt_den_protagonisten():
+    """Vier-Stellen-Falle: Ohne Eintrag hier zaehlt die Dimension weder fuer den Score noch fuer
+    die Priorisierung der Handlungsempfehlungen."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import dimensions_scores
+    ev = AnalystEvaluationV2()
+    assert "protagonist_auftreten" in dimensions_scores(ev)
+    ev.protagonist_auftreten.score = 4
+    assert dimensions_scores(ev)["protagonist_auftreten"] == 4
+
+
+def test_ohne_branddaten_verschiebt_die_neue_dimension_den_gesamtscore_nicht():
+    """Solange `score` None ist, ueberspringt berechne_performance_score die Dimension und
+    verteilt ihr Gewicht proportional auf den Rest. Der Gesamtscore ist deshalb HEUTE exakt
+    derselbe wie ohne die neue Dimension — sie schaltet sich erst mit den Branddaten ein."""
+    from models.analyst import SCORE_GEWICHTE_JE_ZIEL
+    from services.analyst_eval import (DIMENSION_MINIMUM, berechne_performance_score,
+                                       dimensions_scores)
+    ev = _eval_mit_scores(sprech=4, text=3, visuell=2, spannung=5, struktur=3,
+                          sprechq=4, aesthetik=2, schnitt=3)
+    assert ev.protagonist_auftreten.score is None
+    for ziel in ("TOFU", "MOFU", "BOFU"):
+        ohne = {k: v for k, v in SCORE_GEWICHTE_JE_ZIEL[ziel].items()
+                if k != "protagonist_auftreten"}
+        summe = gesamt = 0.0
+        for name, score in dimensions_scores(ev).items():
+            minimum = DIMENSION_MINIMUM.get(name, 1)
+            if score is None or score < minimum or not ohne.get(name, 0):
+                continue
+            summe += ohne[name] * (score - minimum) / (5 - minimum)
+            gesamt += ohne[name]
+        erwartet = round(summe / gesamt * 100)
+        assert berechne_performance_score(ev, ziel=ziel).performance_score == erwartet, ziel
+
+
+def test_mit_branddaten_zaehlt_der_protagonist_fuer_den_score():
+    """Die Gegenprobe: Sobald ein Score da ist, muss er den Gesamtscore auch bewegen."""
+    from services.analyst_eval import berechne_performance_score
+    ohne = berechne_performance_score(_eval_mit_scores(), ziel="MOFU").performance_score
+    ev = _eval_mit_scores()
+    ev.protagonist_auftreten.score = 1
+    assert berechne_performance_score(ev, ziel="MOFU").performance_score < ohne
+
+
+def test_benannte_probleme_deckeln_auch_den_protagonisten_score():
+    """Dieselbe Regel wie bei sprechqualitaet/visuelle_aesthetik/audioqualitaet: Wer Maengel
+    benennt, darf keine 5 vergeben (Lauf 041770c1)."""
+    from services.analyst_eval import deckle_score_auf_probleme
+    ev = _eval_mit_scores()
+    ev.protagonist_auftreten.score = 5
+    ev.protagonist_auftreten.probleme = ["liest sichtbar ab", "Betonung traegt den Kern nicht"]
+    assert deckle_score_auf_probleme(ev).protagonist_auftreten.score == 3
+
+
+def test_energie_und_blick_bleiben_eigene_felder():
+    """Die beiden Einzelurteile FLIESSEN in die neue Dimension ein, sie werden nicht ersetzt:
+    erzwinge_blick_empfehlung und baue_effekt_schritt haengen an ihnen."""
+    from models.analyst import AnalystEvaluationV2, BlickEval, EnergieEval
+    ev = AnalystEvaluationV2()
+    assert isinstance(ev.energie, EnergieEval)
+    assert isinstance(ev.blickkontakt, BlickEval)
+    from services.analyst_eval import erzwinge_blick_empfehlung
+    ev.blickkontakt.urteil = "abgelesen"
+    assert erzwinge_blick_empfehlung(ev).empfehlungen
+
+
+def test_v3_vertrag_kennt_protagonist_auftreten_und_v2_nicht():
+    """V2 ist die eingefrorene Vergleichsbasis (89 Laeufe, A/B-Regressionstest)."""
+    from services.analyst_eval import build_system_prompt
+    assert '\n  "protagonist_auftreten":' in build_system_prompt(ziel="MOFU")
+    assert "protagonist_auftreten" not in build_system_prompt()
+
+
+def test_protagonist_auftreten_kommt_aus_dem_handwerk_call():
+    """Auftreten gehoert zum Handwerks-Call — dort liegen auch energie und blickkontakt."""
+    from services.analyst_eval import TEIL_FELDER, build_system_prompt, merge_teilergebnisse
+    assert "protagonist_auftreten" in TEIL_FELDER["handwerk"]
+    assert '\n  "protagonist_auftreten":' in build_system_prompt(teil="handwerk", ziel="MOFU")
+    assert '\n  "protagonist_auftreten":' not in build_system_prompt(teil="eroeffnung", ziel="MOFU")
+    handwerk = _eval_mit_scores()
+    handwerk.protagonist_auftreten.beschreibung = "Spricht ruhig, Blick in der Linse."
+    out = merge_teilergebnisse(_eval_mit_scores(), handwerk)
+    assert out.protagonist_auftreten.beschreibung == "Spricht ruhig, Blick in der Linse."
+
+
+def test_der_vertrag_verlangt_die_beschreibung_auch_ohne_score():
+    """Ohne diesen Halbsatz liefert das Modell bei fehlenden Daten gar nichts — und der Fall
+    „nur beschreiben" waere fuer den Nutzer unsichtbar."""
+    from services.analyst_eval import build_system_prompt
+    zeile = [z for z in build_system_prompt(ziel="MOFU").splitlines()
+             if z.startswith('  "protagonist_auftreten":')][0]
+    assert "null" in zeile
+    assert "beschreibung" in zeile
+
+
+def test_der_skill_bindet_den_score_an_daten_zur_person():
+    """Scharf formuliert, sonst vergibt das Modell trotzdem einen Score — dieselbe Lektion wie
+    bei `zielgruppen_relevanz`."""
+    text = " ".join(_v3_text().split())
+    assert "protagonist_auftreten" in text
+    assert ("Liegen dir keine Angaben zur Person oder zur Marke vor, setzt du `score` auf null "
+            "und beschreibst nur, was du siehst und hörst. Rate nicht.") in text
+
+
+def test_der_skill_definiert_energie_als_ausdruckskraft_nicht_als_lautstaerke():
+    """Vorgabe Chris: „Bei Energie meine ich, dass eine Person zum Beispiel eine starke
+    Ausdruckskraft hat, eine starke gute Betonung, ein emotionales Statement auch wirklich gut
+    emotional rueberbringen kann, energetisch." Ohne die Negativabgrenzung misst das Modell
+    Lautstaerke und Tempo — beides ist nicht gemeint."""
+    text = " ".join(_v3_text().split())
+    assert "Ausdruckskraft" in text
+    assert "nicht Lautstärke und nicht Tempo" in text
+
+
+def test_der_skill_zieht_die_blickfuehrung_in_die_dimension():
+    """Vorgabe Chris: „Darin kannst du auch die Blickrichtung zum Beispiel mit integrieren."
+    Die Regeln aus KB 10.2 gelten unveraendert weiter, inklusive der Reaction-Ausnahme (KB 12)."""
+    text = " ".join(_v3_text().split())
+    start = text.index("## Auftreten des Protagonisten")
+    abschnitt = text[start:text.index("## ", start + 5)]
+    assert "Blick" in abschnitt
+    assert "blickkontakt" in abschnitt
+
+
+def test_protagonist_auftreten_hat_score_anker_ueber_fuenf_stufen():
+    """Ohne Anker urteilt das Modell nachweislich zur Mitte (der 3er-Befund aus KB 8.5)."""
+    block = _ankerblock("protagonist_auftreten.score")
+    for stufe in ("**5**", "**4**", "**3**", "**2**", "**1**"):
+        assert stufe in block, stufe
+
+
+def test_die_anker_gelten_nur_bei_vorliegenden_daten():
+    block = _ankerblock("protagonist_auftreten.score")
+    assert "nur, wenn dir Angaben zur Person oder zur Marke vorliegen" in block
+
+
+def test_staerken_duerfen_sich_auf_den_protagonisten_beziehen():
+    """filtere_staerken ordnet ueber `betrifft` zu — fehlt der Name im Vertrag, kann ein starkes
+    Auftreten nie gelobt werden."""
+    from services.analyst_eval import build_system_prompt
+    zeile = [z for z in build_system_prompt(teil="handwerk", ziel="MOFU").splitlines()
+             if z.startswith('  "staerken":')][0]
+    assert "protagonist_auftreten" in zeile

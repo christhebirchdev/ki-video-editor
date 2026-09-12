@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-13b"   # V3: Score-Anker fuer die ankerlosen Dimensionen (Lauf d9988b7d)
+PROMPT_VERSION = "2026-09-13c"   # V3: Auftreten des Protagonisten als eigene Dimension
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -198,6 +198,10 @@ def dimensions_scores(parsed: AnalystEvaluationV2) -> dict:
         "untertitel_gestaltung": parsed.untertitel.gestaltung_score,
         "audioqualitaet": parsed.audioqualitaet.score,
         "cta": parsed.cta.score,
+        # Auftreten der Person: bleibt None, solange keine Daten zur Person/Marke vorliegen
+        # (siehe ProtagonistEval). berechne_performance_score ueberspringt die Dimension dann
+        # und verteilt ihr Gewicht proportional — der Gesamtscore verschiebt sich dadurch nicht.
+        "protagonist_auftreten": parsed.protagonist_auftreten.score,
     }
 
 
@@ -1104,7 +1108,11 @@ def deckle_score_auf_probleme(parsed: AnalystEvaluationV2) -> AnalystEvaluationV
     """
     # `audioqualitaet` ist seit Stufe 2 dabei: Sie führt ebenfalls eine echte `probleme`-Liste,
     # und dieselbe Begründung gilt — wer Hall und Rauschen benennt, darf keine 5 vergeben.
-    for attribut in ("sprechqualitaet", "visuelle_aesthetik", "audioqualitaet"):
+    # `protagonist_auftreten` seit 2026-09-13 ebenfalls: Es fuehrt dieselbe `probleme`-Liste
+    # (geerbt von ScoreProbleme), und die Begruendung ist dieselbe. Ohne Daten zur Person ist der
+    # Score None und die Schleife ueberspringt ihn — die Regel greift erst mit Branddaten.
+    for attribut in ("sprechqualitaet", "visuelle_aesthetik", "audioqualitaet",
+                     "protagonist_auftreten"):
         block = getattr(parsed, attribut, None)
         if block is None or getattr(block, "score", None) is None:
             continue
@@ -1680,7 +1688,7 @@ staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Erg
 # Feld wuerde dort auseinandergerissen.
 
 STAERKEN_ZEILE_V2 = '  "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],'
-STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik | untertitel_vorhanden | untertitel_gestaltung | audioqualitaet | cta>"}]  — NUR staerken ist eine Liste von Objekten. Alle anderen Listen in diesem Vertrag (top_tipps, texthook_varianten, texthook_maengel, probleme, hinweise, maengel) bleiben einfache Texte,'
+STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik | untertitel_vorhanden | untertitel_gestaltung | audioqualitaet | protagonist_auftreten | cta>"}]  — NUR staerken ist eine Liste von Objekten. Alle anderen Listen in diesem Vertrag (top_tipps, texthook_varianten, texthook_maengel, probleme, hinweise, maengel) bleiben einfache Texte,'
 
 # Zielgruppe: zum Satz „wer fuehlt sich angesprochen" kommt die Frage, wie relevant das Video FUER
 # diese Gruppe ist. Beantwortbar ist sie erst mit hinterlegten Zielgruppen-/Markendaten — die Datei
@@ -1714,12 +1722,28 @@ HANDWERK_BLOCK_V3 = (
     '  "cta": {"score": <int 1-5: der Call to Action — gibt es einen, ist er konkret, kommt er an der richtigen Stelle? Fehlt er ganz: 1>, "kommentar": "<1 Satz>"},'
 )
 
+# Auftreten der Person vor der Kamera (Vorgabe Chris, 2026-09-13). Die neue Zeile steht direkt
+# hinter `energie`, weil energie und blickkontakt genau die Einzelurteile liefern, die hier
+# zusammenlaufen — wer den Vertrag liest, sieht den Zusammenhang an der Reihenfolge.
+# Die BEDINGUNG steht im Vertrag selbst und nicht nur im Skill: Der Vertrag ist die Anweisung,
+# der das Modell am zuverlaessigsten folgt (dieselbe Lektion wie bei `zielgruppen_relevanz`).
+ENERGIE_ZEILE_V2 = '  "energie": {"urteil": "<traegt | flach | uebertrieben — passt die Energie im Auftreten zum Inhalt? Fließt in KEINEN Score>", "kommentar": "<1 Satz>"},'
+AUFTRETEN_BLOCK_V3 = (
+    ENERGIE_ZEILE_V2 + '\n'
+    '  "protagonist_auftreten": {'
+    '"score": <int 1-5 — NUR ausfüllen, wenn dir in der Aufgabe Angaben zur Person oder zur Marke vorliegen (wer der Protagonist ist, wofür er steht, wie die Marke auftreten will). Liegen dir keine vor: null. Ohne diesen Maßstab ist nicht entscheidbar, ob ruhige Sachlichkeit passend oder zu flach ist — rate nicht>, '
+    '"beschreibung": "<PFLICHT, IMMER ausfüllen, auch bei score null: 1-2 Sätze, was du an Ausdruckskraft, Betonung, Präsenz und Blickführung SIEHST und HÖRST. Wertfrei beschreiben, nicht beurteilen>", '
+    '"probleme": ["<NUR wenn dir Angaben zur Person oder Marke vorliegen, und nur DEUTLICHE Mängel, je 1-2 Sätze. Sonst []>"], '
+    '"hinweise": ["<NUR mit solchen Angaben: leichte Auffälligkeiten ohne Score-Wirkung. Sonst []>"]},'
+)
+
 # Anker -> Ersatz. Reihenfolge egal, die Anker ueberschneiden sich nicht.
 V3_VERTRAG_ERSETZUNGEN = (
     (STAERKEN_ZEILE_V2, STAERKEN_ZEILE_V3),
     (ZIELGRUPPE_ZEILE_V2, ZIELGRUPPE_BLOCK_V3),
     (FUNNEL_ZEILE_V2, FUNNEL_BLOCK_V3),
     (UNTERTITEL_ZEILE_V2, HANDWERK_BLOCK_V3),
+    (ENERGIE_ZEILE_V2, AUFTRETEN_BLOCK_V3),
 )
 
 for _anker, _ in V3_VERTRAG_ERSETZUNGEN:
@@ -1811,6 +1835,9 @@ ABSCHNITT_ZUORDNUNG = {
     "Dynamik & Effekte": "handwerk",
     "Energie im Auftreten — eigenes Urteil, KEIN Score": "handwerk",
     "Blickkontakt — eigenes Urteil, KEIN Score": "handwerk",
+    # nur im V3-Skill; unbekannte Titel landen sonst in BEIDEN Calls und wuerden die Bedingung
+    # auch dem Eroeffnungs-Call aufdruecken, der das Feld gar nicht liefert.
+    "Auftreten des Protagonisten (1–5) — nur mit Angaben zur Person oder Marke": "handwerk",
 }
 
 # Welche Top-Level-Felder welcher Call liefert. `performance_score` fehlt bewusst in beiden — den
@@ -1827,7 +1854,7 @@ TEIL_FELDER = {
     "handwerk": (
         "struktur", "sprechqualitaet", "schnitt_pacing", "spannungsbogen", "visuelle_aesthetik",
         "untertitel", "audioqualitaet", "cta",
-        "dynamik", "effekt_vorschlaege", "blickkontakt", "energie",
+        "dynamik", "effekt_vorschlaege", "blickkontakt", "energie", "protagonist_auftreten",
         "staerken", "top_tipps", "pausen_urteile", "einblendungen", "empfehlungen",
     ),
 }
