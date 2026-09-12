@@ -332,3 +332,37 @@ def test_v3_prompt_verlangt_betrifft_bei_staerken():
     assert '{"text": "…", "betrifft": "<Dimensionsname>"}' in v3
     assert '{"text": "…", "betrifft": "<Dimensionsname>"}' not in v2
     assert "erfinde kein Lob" in v3
+
+
+def test_v3_laeuft_ueber_die_zwei_call_bewertung(monkeypatch, tmp_path):
+    """v3 muss dieselbe Bauart nutzen wie die produktive v2_split — sonst misst ein
+    Vergleich V2/V3 zwei Aenderungen gleichzeitig (Zielsteuerung UND Call-Struktur)."""
+    import json
+    from services import analyst_engine
+
+    gesehen = {}
+
+    def falsches_run_v2(run_dir, video, meta, mode, split=False):
+        gesehen["mode"] = mode
+        gesehen["split"] = split
+        raise RuntimeError("Abbruch nach der Weichenstellung")
+
+    monkeypatch.setattr(analyst_engine, "_run_v2", falsches_run_v2)
+    monkeypatch.setattr(analyst_engine, "_find_video", lambda d: tmp_path / "clip.mp4")
+    d = tmp_path / "lauf"
+    d.mkdir()
+    (d / "meta.json").write_text(json.dumps({"engine": "v3", "ziel": "MOFU"}))
+    (d / "status.json").write_text(json.dumps({"phase": "uploaded"}))
+    try:
+        analyst_engine._run("lauf", d)
+    except RuntimeError:
+        pass
+    assert gesehen == {"mode": "hybrid", "split": True}
+
+
+def test_split_prompt_kennt_das_ziel():
+    from services.analyst_eval import build_system_prompt
+    for teil in ("eroeffnung", "handwerk"):
+        p = build_system_prompt(teil=teil, ziel="BOFU")
+        assert "BOFU" in p, teil
+        assert "Videoziel" in p, teil

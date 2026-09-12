@@ -697,11 +697,16 @@ def test_jeder_abschnitt_ist_einem_call_zugeordnet():
     """Ohne vollständige Zuordnung fällt ein Abschnitt beim Split still weg — der teuerste Fehler
     dieser Architektur, weil er im Output nur als schlechtere Bewertung sichtbar wird."""
     import re
-    from services.analyst_eval import ABSCHNITT_ZUORDNUNG, load_skill_body
-    ueberschriften = {m.group(1) for m in re.finditer(r'^## (.+)$', load_skill_body(), re.M)}
-    fehlend = ueberschriften - set(ABSCHNITT_ZUORDNUNG)
-    assert not fehlend, f"nicht zugeordnet: {fehlend}"
-    verwaist = set(ABSCHNITT_ZUORDNUNG) - ueberschriften
+    from services.analyst_eval import ABSCHNITT_ZUORDNUNG, SKILL_PATH_V3, load_skill_body
+    # Beide Skill-Dateien pruefen: Seit v3 ebenfalls splittet, laufen die V3-Abschnitte durch
+    # dieselbe Filterung — ein nicht zugeordneter Abschnitt faellt dort genauso still weg.
+    alle = set()
+    for pfad in (None, SKILL_PATH_V3):
+        ueberschriften = {m.group(1) for m in re.finditer(r'^## (.+)$', load_skill_body(pfad), re.M)}
+        fehlend = ueberschriften - set(ABSCHNITT_ZUORDNUNG)
+        assert not fehlend, f"nicht zugeordnet ({pfad or 'V2-Skill'}): {fehlend}"
+        alle |= ueberschriften
+    verwaist = set(ABSCHNITT_ZUORDNUNG) - alle
     assert not verwaist, f"Zuordnung zeigt auf gelöschte Abschnitte: {verwaist}"
 
 

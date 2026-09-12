@@ -1423,6 +1423,7 @@ ABSCHNITT_ZUORDNUNG = {
     "Performance-Score — berechnet das SYSTEM, nicht du": BEIDE,
     "Empfehlungen — die kanonische Regel (gilt in JEDEM Modus)": BEIDE,
     "Harte Regeln": BEIDE,
+    "Videoziel": BEIDE,   # nur im V3-Skill; steuert beide Teil-Calls
     # Call 1 — die ersten Sekunden
     "Hook (immer anwenden)": "eroeffnung",
     "Legitimation & Hook-Start (Referenz S2/P3)": "eroeffnung",

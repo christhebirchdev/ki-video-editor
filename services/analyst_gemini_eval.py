@@ -317,7 +317,7 @@ def _evaluate_teil(video_file, result: AnalystResult, teil: str, run_dir,
                    kontext: str = "") -> AnalystEvaluationV2:
     """Ein Teil-Call. Das Video wird als bereits hochgeladene Datei-Referenz übergeben — die Files
     API erlaubt die Wiederverwendung über mehrere Requests, es wird also nicht zweimal geladen."""
-    system = analyst_eval.build_system_prompt(teil=teil)
+    system = analyst_eval.build_system_prompt(teil=teil, ziel=getattr(result, "gewaehltes_ziel", ""))
     user = _TEIL_AUFGABE[teil] + _user_message(result, "hybrid")
     if kontext:
         user += "\n\n" + kontext
@@ -332,7 +332,12 @@ def _evaluate_teil(video_file, result: AnalystResult, teil: str, run_dir,
         system_prompt=system, user_message=user, output_raw=raw, output_parsed=parsed,
         attachments=[f"Video: {result.filename}"],
         inputs={
-            "engine": "v2_split", "teil": teil, "filename": result.filename,
+            # `result.engine` ist hier noch nicht gesetzt (analyst_engine._run setzt es erst nach
+            # dem Bewertungsschritt), deshalb wird am Ziel unterschieden — dieselbe Regel wie
+            # überall sonst in V3. Ohne eigenes Label wäre ein Vergleich V2/V3 im Protokoll
+            # (tools/vergleiche_laeufe.py) den Läufen nicht zuzuordnen.
+            "engine": "v3" if getattr(result, "gewaehltes_ziel", "") else "v2_split",
+            "teil": teil, "filename": result.filename,
             "duration_sec": result.duration_sec,
             "geplante_texthook": getattr(result, "geplante_texthook", ""),
             "gewaehltes_format": getattr(result, "gewaehltes_format", ""),

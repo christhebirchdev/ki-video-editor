@@ -104,10 +104,10 @@ def _run(run_id: str, run_dir: Path) -> None:
     elif engine in ("v2_hybrid", "v2_split", "v3"):
         # v2_split (V1.2) teilt nur den Bewertungsschritt auf zwei Calls. Transkript, Sprachstatistik
         # und Messwerte davor sind identisch — sonst wäre der Vergleich mit V1.1 wertlos.
-        # v3 nutzt dieselbe Vorverarbeitung wie v2_hybrid — nur Bewertungs-Prompt und
-        # Nachbearbeitung unterscheiden sich. Andernfalls wäre der Vergleich wertlos
-        # (dieselbe Regel wie bei v2_split).
-        result = _run_v2(run_dir, video, meta, mode="hybrid", split=(engine == "v2_split"))
+        # v3 splittet aus demselben Grund: Produktiv läuft v2_split, und ein Vergleich V2/V3 soll
+        # nur die Zielsteuerung messen, nicht zusätzlich den Wechsel von zwei Calls auf einen.
+        result = _run_v2(run_dir, video, meta, mode="hybrid",
+                         split=(engine in ("v2_split", "v3")))
     else:
         result = _run_v1(run_dir, video, meta)
     result.id = run_id
