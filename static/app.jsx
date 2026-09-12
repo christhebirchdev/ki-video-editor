@@ -442,6 +442,15 @@ function problemeDetail(block) {
   return p.length ? p.join(" · ") : "Keine Auffälligkeiten";
 }
 
+// Auftreten des Protagonisten: Solange keine Daten zur Person/Marke vorliegen, gibt es KEINEN
+// Score — dann trägt allein `beschreibung` die Information. Sie steht deshalb zuerst und immer im
+// Detail; würde hier nur `probleme` ausgewertet (wie bei den anderen Chips), bliebe der Chip in
+// genau dem Normalfall leer, für den die Dimension gebaut wurde: beschreiben statt bewerten.
+function protagonistDetail(block) {
+  const teile = [(block?.beschreibung || "").trim(), ...(block?.probleme || [])].filter(Boolean);
+  return teile.length ? teile.join(" · ") : "Keine Auffälligkeiten";
+}
+
 /* ===== Stufe 2: Ergebnis in vier Kategorien =====
    Spiegel von KATEGORIEN in models/analyst.py — dort ist die führende Fassung. Ändert sich die
    Zuordnung dort, muss sie hier nachgezogen werden; das Frontend kann sie nicht erfragen.
@@ -460,6 +469,7 @@ const DIMENSION_ZU_KATEGORIE = {
   spannungsbogen: "mittelteil", struktur: "mittelteil", untertitel_vorhanden: "mittelteil", cta: "mittelteil",
   schnitt_pacing: "editing", untertitel_gestaltung: "editing",
   sprechqualitaet: "auftreten", visuelle_aesthetik: "auftreten", audioqualitaet: "auftreten",
+  protagonist_auftreten: "auftreten",
 };
 
 // Die Score-Chips einer Kategorie. `field` ist der Feedback-Name — unverändert aus dem früheren
@@ -497,6 +507,10 @@ function kategorieChips(ev, key, ziel) {
     { field: "sprechqualitaet",   label: "🎙️ Sprechqualität", score: ev.sprechqualitaet?.score, detail: problemeDetail(ev.sprechqualitaet) },
     { field: "visuelle_aesthetik", label: "🎨 Bildqualität", score: ev.visuelle_aesthetik?.score, detail: problemeDetail(ev.visuelle_aesthetik) },
     { field: "audioqualitaet",    label: "🔊 Audioqualität", score: ev.audioqualitaet?.score, detail: problemeDetail(ev.audioqualitaet) },
+    // score ist null, solange dem Analysten keine Daten zur Person/Marke vorliegen — ScoreChip
+    // zeigt dann „–" statt 0 von 5 Punkten, und das Detail trägt die reine Beschreibung.
+    { field: "protagonist_auftreten", label: "🧍 Auftreten", score: ev.protagonist_auftreten?.score,
+      detail: protagonistDetail(ev.protagonist_auftreten) },
   ];
 }
 
