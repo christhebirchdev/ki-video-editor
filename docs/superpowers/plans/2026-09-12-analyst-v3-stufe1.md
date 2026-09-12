@@ -1503,3 +1503,47 @@ Diese Punkte aus der Spec stehen in Stufe 2 und 3 und sind hier bewusst offen:
 - Die vier Kategorie-Aufklapper im Frontend; der bestehende Sammel-Aufklapper bleibt in Stufe 1.
 - Brand-/Zielgruppen-Datei und `zielgruppen_abgleich`.
 - Die Umstellung des Default-Engine auf `v3`.
+
+---
+
+## Ergebnis Stufe 1 (2026-09-12)
+
+Alle Tasks umgesetzt, 14 Commits auf `feature/analyst-v3-stufe1`. **319 Tests gruen.**
+A/B-Replay ueber alle 87 gespeicherten Laeufe gegen `main`: **KEIN UNTERSCHIED** — kein Altlauf
+verschiebt sich durch den Branch.
+
+### Abweichungen vom Plan, die sich beim Umsetzen ergeben haben
+
+1. **Regressionskriterium korrigiert** (Commit caed2b1). `replay_nachbearbeitung.py` meldet als
+   Ausgangslage bereits „66 von 93 Laeufen aendern sich" — vorbestehende Drift. Eine absolute
+   Score-Diff-0 war damit unerfuellbar. Gemessen wird jetzt der A/B-Vergleich.
+2. **Keine Konstante `HOOK_DIMENSIONEN`.** `KATEGORIEN["hook"]` aus `models/analyst.py` ist bereits
+   genau diese Liste; eine zweite waere sofort auseinandergelaufen.
+3. **Frontend-Default ist `v2_split`, nicht `v2_hybrid`.** Der Plan nannte den falschen Wert.
+   `static/app.jsx` haelt den produktiven Default in `ANALYST_ENGINE = "v2_split"`; der
+   Versionsumschalter nutzt diese Konstante, statt sie zu ueberschreiben. Siehe offener Punkt unten.
+4. **Prompt-Test verschaerft** (Commit a386a28). Der geplante Test prueft nur das Wort „betrifft" —
+   das steht laengst im V2-Prompt (dort fuer `empfehlungen`) und waere auch ohne V3 gruen gewesen.
+
+### Offener Punkt: V3 vergleicht sich gegen die falsche V2
+
+Der Dispatcher fuehrt `v3` ueber `_run_v2(..., mode="hybrid", split=False)` — also die **Ein-Call**-
+Bewertung. Produktiv laeuft aber `v2_split`, die **Zwei-Call**-Bewertung (Eroeffnung, dann Handwerk).
+
+Ein Vergleich „V2 gegen V3" im Frontend misst damit ZWEI Aenderungen gleichzeitig: die Zielsteuerung
+UND den Wechsel von zwei Calls auf einen. Genau das, was der Kommentar an `v2_split` eigentlich
+verhindern soll („sonst waere der Vergleich mit V1.1 wertlos").
+
+Drei Wege, Entscheidung offen:
+
+- **(a) V3 ebenfalls splitten.** `_skill_fuer` filtert die Skill-Abschnitte ueber
+  `ABSCHNITT_ZUORDNUNG`; der neue Abschnitt „## Videoziel" steht dort nicht und faellt damit auf
+  `BEIDE` — er landet also in beiden Teil-Calls, was inhaltlich richtig ist. Technisch waere der
+  Schritt klein: `split=(engine in ("v2_split", "v3"))` plus `ziel` auch an die Split-Aufrufstelle
+  von `build_system_prompt` durchreichen. Danach unterscheiden sich V2 und V3 nur noch im Ziel.
+- **(b) Fuer den Vergleich bewusst `v2_hybrid` als Gegenprobe waehlen** statt `v2_split`. Der
+  Umschalter muesste dann drei Optionen anbieten.
+- **(c) So lassen** und den Unterschied beim Bewerten der Ergebnisse mitdenken.
+
+Empfehlung: (a), sobald die ersten Echtlaeufe zeigen, dass die Zielsteuerung ueberhaupt wirkt.
+Vorher ist es verfruehte Arbeit an einer Variante, die noch nicht bestaetigt ist.
