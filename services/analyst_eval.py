@@ -133,6 +133,50 @@ def _zeit_label(sekunden: list[float]) -> str:
     return f"ca. Sek. {s[0]}" if len(s) == 1 else f"ca. Sek. {', '.join(s[:-1])} und {s[-1]}"
 
 
+def schwere_der_dimension(name: str, score, ziel: str) -> float:
+    """Wie viele Punkte diese Dimension am Gesamtscore kostet: Gewicht × (1 − normalisierter Score).
+
+    Damit hängt die Reihenfolge der Handlungsempfehlungen an derselben Zahl wie der Score — was den
+    Score am stärksten drückt, steht oben. Vorher sortierte verteile_empfehlungen() nach
+    `zeitpunkt_sek`, wodurch ein kosmetischer Tipp bei Sekunde 2 einen gravierenden Mangel bei
+    Sekunde 20 verdrängen konnte (Vorgabe Chris, 2026-09-11).
+
+    Rückgabe 0.0, wenn die Dimension unbekannt ist, kein Score vorliegt oder das Ziel sie nicht
+    gewichtet. Empfehlungen ohne `betrifft` (videospezifische Schritte mit echter Sekundenangabe)
+    landen damit rechnerisch unten — ihren Platz sichert weiterhin MAX_SAMMEL_OBEN.
+    """
+    if score is None:
+        return 0.0
+    gewichte = SCORE_GEWICHTE_JE_ZIEL.get((ziel or "").upper(), SCORE_GEWICHTE)
+    gewicht = gewichte.get(name, 0)
+    if not gewicht:
+        return 0.0
+    minimum = 0 if name == "text_hook" else 1
+    if score < minimum:
+        return 0.0
+    norm = (score - minimum) / (5 - minimum)
+    return round(gewicht * (1 - norm), 3)
+
+
+def dimensions_scores(parsed: AnalystEvaluationV2) -> dict:
+    """Score je Dimensionsname — die eine Stelle für die Zuordnung Feld → Name.
+
+    Wird von der Schwere-Sortierung, der Definition kritischer Mängel und dem Lob-Filter genutzt.
+    Ohne diese Funktion stünde dieselbe Zuordnung dreimal im Modul und würde auseinanderlaufen,
+    sobald eine Dimension dazukommt.
+    """
+    return {
+        "sprech_hook": parsed.hook.sprech_hook_score,
+        "text_hook": parsed.hook.text_hook_score,
+        "visuell_hook": parsed.hook.visuell_hook_score,
+        "sprechqualitaet": parsed.sprechqualitaet.score,
+        "visuelle_aesthetik": parsed.visuelle_aesthetik.score,
+        "spannungsbogen": parsed.spannungsbogen.score,
+        "struktur": parsed.struktur.score,
+        "schnitt_pacing": parsed.schnitt_pacing.score,
+    }
+
+
 def verteile_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
     """Bündeln → sortieren → Top-3 abtrennen. Deterministisch im Code statt per Prompt-Regel.
 

@@ -147,3 +147,22 @@ def test_unbekanntes_ziel_faellt_auf_die_alten_gewichte_zurueck():
     a = berechne_performance_score(_eval_mit_scores(), ziel="QUATSCH").performance_score
     b = berechne_performance_score(_eval_mit_scores(), ziel="").performance_score
     assert a == b
+
+
+def test_schwere_waechst_mit_gewicht_und_faellt_mit_score():
+    from services.analyst_eval import schwere_der_dimension
+    # MOFU: spannungsbogen 15, schnitt_pacing 6
+    assert schwere_der_dimension("spannungsbogen", 1, "MOFU") > schwere_der_dimension("schnitt_pacing", 1, "MOFU")
+    assert schwere_der_dimension("spannungsbogen", 5, "MOFU") == 0.0
+    assert schwere_der_dimension("spannungsbogen", 1, "MOFU") == 15.0
+
+
+def test_schwere_ohne_dimension_ist_null():
+    from services.analyst_eval import schwere_der_dimension
+    assert schwere_der_dimension("", 3, "MOFU") == 0.0
+    assert schwere_der_dimension("gibtsnicht", 3, "MOFU") == 0.0
+
+
+def test_schwere_ohne_score_ist_null():
+    from services.analyst_eval import schwere_der_dimension
+    assert schwere_der_dimension("spannungsbogen", None, "MOFU") == 0.0
