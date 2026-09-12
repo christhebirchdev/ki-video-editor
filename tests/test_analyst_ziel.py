@@ -34,3 +34,9 @@ def test_cta_nur_bei_bofu_gewichtet():
 def test_alle_ziele_kennen_dieselben_dimensionen():
     schluessel = [set(SCORE_GEWICHTE_JE_ZIEL[z]) for z in ZIELE]
     assert schluessel[0] == schluessel[1] == schluessel[2]
+
+
+def test_altlauf_ohne_ziel_laedt_unveraendert():
+    from models.analyst import AnalystResult
+    r = AnalystResult(id="x", filename="c.mp4", duration_sec=1.0, scene_count=0, scenes=[])
+    assert r.gewaehltes_ziel == ""

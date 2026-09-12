@@ -479,3 +479,9 @@ class AnalystResult(BaseModel):
     geplante_texthook: str = ""        # vom Nutzer vor der Analyse eingetragene, geplante Texthook (Freifeld)
     gewaehltes_format: str = ""        # vom Nutzer beim Upload gewähltes Format (Pflicht, genau eines aus
                                        # FORMATE); leer nur bei Altläufen → Modell klassifiziert dann selbst
+    gewaehltes_ziel: str = ""           # vom Nutzer gewähltes Videoziel (Pflicht bei Engine v3,
+                                        # genau eines aus ZIELE). Leer = Altlauf oder v2 → die
+                                        # Nachbearbeitung verhält sich wie vor V3. Dieses Feld ist
+                                        # der Schalter für die V3-Logik, NICHT `engine`:
+                                        # analyst_engine._run() setzt `result.engine` erst NACH dem
+                                        # Aufruf von nachbearbeiten(), dort stünde sonst der Default.
