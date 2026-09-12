@@ -689,6 +689,65 @@ def baue_videoende_schritt(parsed: AnalystEvaluationV2, result: AnalystResult) -
     return parsed
 
 
+# Ziel-Lautheit für Social-Media-Video (Vorgabe Chris, Lauf dc5c0a3d):
+# „optimale lautstärke wäre ~-14 LUFS (+-3 LU), -1 dBTP."
+# Anlass: Bei gemessenen -35,8 LUFS empfahl das Modell „um ca. 3 Dezibel anheben" — es fehlten rund
+# 22 LU. Der Messwert stand im Prompt; die Rechnung gehört in den Code.
+LUFS_ZIEL = -14.0
+LUFS_TOLERANZ = 3.0
+TRUE_PEAK_MAX = -1.0
+
+_LAUTSTAERKE_EMPFEHLUNG = re.compile(
+    r"(lautstärke|lautheit|lufs|dezibel|\bdb\b|tonspur .*(anheb|lauter)|lauter (machen|abmischen))",
+    re.IGNORECASE)
+
+
+def baue_lautstaerke_schritt(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
+    """Lautheit gegen den Zielkorridor prüfen und die Differenz ausrechnen.
+
+    Nur V3 (Ziel gesetzt). Ohne Messwert (kein Audio) passiert nichts.
+
+    Die Verzweigung hängt an `gewaehltes_ziel`, NICHT an `result.engine`: engine wird von
+    analyst_engine._run() erst NACH der Nachbearbeitung gesetzt.
+    """
+    if not (getattr(result, "gewaehltes_ziel", "") or "").strip():
+        return parsed
+    metrics = getattr(result, "quality_metrics", None)
+    lufs = getattr(metrics, "lufs_integrated", None) if metrics else None
+    if lufs is None:
+        return parsed
+    # Das Modell hat die Zahl schon einmal falsch übersetzt (Lauf dc5c0a3d) — was es zur Lautstärke
+    # selbst schreibt, fliegt raus, auch wenn der Messwert danach gar keinen Schritt erzeugt.
+    parsed.empfehlungen = [
+        e for e in parsed.empfehlungen if not _LAUTSTAERKE_EMPFEHLUNG.search(e.anweisung or "")
+    ]
+    lufs = round(lufs, 1)
+    saetze: list[str] = []
+    abweichung = lufs - LUFS_ZIEL
+    if abs(abweichung) > LUFS_TOLERANZ:
+        richtung = "zu leise" if abweichung < 0 else "zu laut"
+        handlung = "Heb die Tonspur beim Export um rund {} LU an." if abweichung < 0 \
+            else "Senk die Tonspur beim Export um rund {} LU ab."
+        saetze.append(
+            f"Dein Ton ist {richtung}: gemessen {lufs:g} LUFS, gut wären etwa {LUFS_ZIEL:g} LUFS. "
+            + handlung.format(round(abs(abweichung)))
+        )
+    peak = getattr(metrics, "true_peak_db", None)
+    if peak is not None and peak > TRUE_PEAK_MAX:
+        # „Außerdem", wenn schon ein Lautheits-Satz steht — sonst beginnt der Schritt hiermit.
+        vorspann = "Außerdem übersteuert der Ton" if saetze else "Dein Ton übersteuert"
+        saetze.append(
+            f"{vorspann}: die lauteste Spitze liegt bei {round(peak, 1):g} dBTP, erlaubt sind "
+            f"höchstens {TRUE_PEAK_MAX:g} dBTP. Zieh den Pegel runter, bevor du exportierst."
+        )
+    if not saetze:
+        return parsed
+    parsed.empfehlungen.append(Empfehlung(
+        zeitpunkt_sek=0.0, gruppe="lautstaerke", betrifft="audioqualitaet",
+        anweisung=" ".join(saetze)))
+    return parsed
+
+
 EINBLENDUNGEN_MAX = 3
 
 # Eine Empfehlung, die eine visuelle Einblendung vorschlägt. Wird nur zusammen mit einem
@@ -1320,6 +1379,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = entferne_vorhandene_bewegungs_empfehlung(parsed)
     parsed = baue_pausen_schritt(parsed)
     parsed = baue_videoende_schritt(parsed, result)
+    parsed = baue_lautstaerke_schritt(parsed, result)
     parsed = baue_einblendungs_schritt(parsed)
     # VOR den Erzwingungen: Benannte Probleme deckeln den Score, damit die ≤3-Regel danach
     # überhaupt greift (Lauf 041770c1: zwei Probleme benannt, Score trotzdem 4).

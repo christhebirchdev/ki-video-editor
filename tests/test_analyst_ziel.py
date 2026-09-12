@@ -459,3 +459,56 @@ def test_videoende_ohne_gesprochenes_wort_wird_nicht_geprueft():
     r = _result_mit(duration=24.92, sprech_dauer=0.0)
     r.speech_stats.wort_anzahl = 0
     assert baue_videoende_schritt(ev, r).empfehlungen == []
+
+
+# --- Lautstaerke: Zielkorridor statt Schaetzung (Lauf dc5c0a3d) ---
+
+def test_zu_leiser_ton_nennt_ist_und_soll():
+    from services.analyst_eval import baue_lautstaerke_schritt
+    out = baue_lautstaerke_schritt(_eval_mit_scores(), _result_mit(lufs=-35.8, true_peak=-18.0))
+    schritte = [e for e in out.empfehlungen if e.gruppe == "lautstaerke"]
+    assert len(schritte) == 1
+    text = schritte[0].anweisung
+    assert "-35.8" in text or "-35,8" in text
+    assert "-14" in text
+
+
+def test_lautstaerke_im_korridor_erzeugt_keinen_schritt():
+    from services.analyst_eval import baue_lautstaerke_schritt
+    for lufs in (-17.0, -14.0, -11.0):
+        out = baue_lautstaerke_schritt(_eval_mit_scores(), _result_mit(lufs=lufs))
+        assert [e for e in out.empfehlungen if e.gruppe == "lautstaerke"] == [], lufs
+
+
+def test_uebersteuerung_wird_genannt():
+    from services.analyst_eval import baue_lautstaerke_schritt
+    out = baue_lautstaerke_schritt(_eval_mit_scores(), _result_mit(lufs=-14.0, true_peak=0.5))
+    schritte = [e for e in out.empfehlungen if e.gruppe == "lautstaerke"]
+    assert len(schritte) == 1
+    assert "übersteuert" in schritte[0].anweisung.lower() or "spitze" in schritte[0].anweisung.lower()
+
+
+def test_lautstaerke_verwirft_die_modell_empfehlung():
+    from models.analyst import Empfehlung
+    from services.analyst_eval import baue_lautstaerke_schritt
+    ev = _eval_mit_scores()
+    ev.empfehlungen = [Empfehlung(zeitpunkt_sek=0.0, betrifft="sprechqualitaet",
+                                  anweisung="Hebe die Lautstärke der gesamten Tonspur um ca. "
+                                            "3 Dezibel an.")]
+    out = baue_lautstaerke_schritt(ev, _result_mit(lufs=-14.0))
+    assert not any("Dezibel" in e.anweisung for e in out.empfehlungen)
+
+
+def test_lautstaerke_ohne_ziel_bleibt_unveraendert():
+    from models.analyst import Empfehlung
+    from services.analyst_eval import baue_lautstaerke_schritt
+    ev = _eval_mit_scores()
+    ev.empfehlungen = [Empfehlung(zeitpunkt_sek=0.0, anweisung="Lautstärke um 3 Dezibel anheben")]
+    out = baue_lautstaerke_schritt(ev, _result_mit(lufs=-35.8, ziel=""))
+    assert len(out.empfehlungen) == 1
+
+
+def test_ohne_messwert_kein_lautstaerke_schritt():
+    from services.analyst_eval import baue_lautstaerke_schritt
+    out = baue_lautstaerke_schritt(_eval_mit_scores(), _result_mit(lufs=None))
+    assert [e for e in out.empfehlungen if e.gruppe == "lautstaerke"] == []
