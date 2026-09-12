@@ -596,3 +596,258 @@ def test_alle_gespeicherten_altlaeufe_laden_weiter():
     for p in pfade:
         with open(p, encoding="utf-8") as fh:
             AnalystResult(**json.load(fh))
+
+
+# =====================================================================================
+# Stufe 2, Teil 2 — Score-Integration: Code-Regeln und Gewichtung
+# =====================================================================================
+
+def _result_ziel(ziel="MOFU", transcript="Hallo, heute zeige ich dir etwas.",
+                 lufs=-14.0, true_peak=-2.0):
+    """Lauf mit gesetztem Ziel — die Stufe-2-Regeln greifen nur dort."""
+    from models.analyst import AnalystResult, QualityMetrics
+    return AnalystResult(
+        id="x", filename="c.mp4", duration_sec=25.0, scene_count=0, scenes=[],
+        gewaehltes_ziel=ziel, transcript=transcript,
+        quality_metrics=(QualityMetrics(lufs_integrated=lufs, true_peak_db=true_peak)
+                         if lufs is not None or true_peak is not None else None),
+    )
+
+
+# --- Teil A: Untertitel als zwei bewertete Dimensionen ---
+
+def test_ohne_gesprochenes_wort_sind_untertitel_nicht_bewertbar():
+    """Es gibt nichts zu untertiteln — null heisst „nicht bewertbar", nicht „schlecht"."""
+    from services.analyst_eval import setze_untertitel_scores
+    ev = _eval_mit_scores()
+    ev.untertitel.vorhanden = False
+    ev.untertitel.score = 4
+    ev.untertitel.gestaltung_score = 4
+    out = setze_untertitel_scores(ev, _result_ziel(transcript=""))
+    assert out.untertitel.score is None
+    assert out.untertitel.gestaltung_score is None
+
+
+def test_gesprochen_ohne_untertitel_ist_ein_kritischer_mangel():
+    """Vorgabe Chris 2026-08-06: mitlaufende Untertitel sind Pflicht, sobald gesprochen wird."""
+    from services.analyst_eval import setze_untertitel_scores
+    ev = _eval_mit_scores()
+    ev.untertitel.vorhanden = False
+    ev.untertitel.score = 5           # das Modell darf sich hier nicht durchsetzen
+    ev.untertitel.gestaltung_score = 5
+    out = setze_untertitel_scores(ev, _result_ziel())
+    assert out.untertitel.score == 1
+    assert out.untertitel.gestaltung_score is None   # nichts da, was gestaltet sein koennte
+
+
+def test_vorhandene_untertitel_behalten_das_modellurteil():
+    from services.analyst_eval import setze_untertitel_scores
+    ev = _eval_mit_scores()
+    ev.untertitel.vorhanden = True
+    ev.untertitel.score = 4
+    ev.untertitel.gestaltung_score = 2
+    out = setze_untertitel_scores(ev, _result_ziel())
+    assert out.untertitel.score == 4
+    assert out.untertitel.gestaltung_score == 2
+
+
+def test_untertitel_scores_ohne_ziel_bleiben_unangetastet():
+    """V2 ist die eingefrorene Vergleichsbasis."""
+    from services.analyst_eval import setze_untertitel_scores
+    ev = _eval_mit_scores()
+    ev.untertitel.vorhanden = False
+    ev.untertitel.score = 5
+    out = setze_untertitel_scores(ev, _result_ziel(ziel=""))
+    assert out.untertitel.score == 5
+
+
+def test_fehlende_untertitel_kosten_beim_gesamtscore():
+    """Die Dimension muss auch wirklich in die Rechnung laufen, nicht nur im Modell stehen."""
+    from services.analyst_eval import berechne_performance_score, setze_untertitel_scores
+    mit = _eval_mit_scores()
+    mit.untertitel.vorhanden = True
+    mit.untertitel.score = 5
+    mit.untertitel.gestaltung_score = 5
+    ohne = _eval_mit_scores()
+    ohne.untertitel.vorhanden = False
+    r = _result_ziel()
+    a = berechne_performance_score(setze_untertitel_scores(mit, r), ziel="MOFU").performance_score
+    b = berechne_performance_score(setze_untertitel_scores(ohne, r), ziel="MOFU").performance_score
+    assert b < a
+
+
+# --- Teil B: Audioqualitaet ---
+
+def test_leiser_ton_deckelt_die_audioqualitaet_hart():
+    """Lauf dc5c0a3d: -35,8 LUFS ist auf dem Handy praktisch unhoerbar — keine 5, egal wie sauber."""
+    from services.analyst_eval import deckle_audioqualitaet
+    ev = _eval_mit_scores()
+    ev.audioqualitaet.score = 5
+    out = deckle_audioqualitaet(ev, _result_ziel(lufs=-35.8, true_peak=-18.0))
+    assert out.audioqualitaet.score == 2
+
+
+def test_leichte_abweichung_deckelt_auf_drei():
+    from services.analyst_eval import deckle_audioqualitaet
+    ev = _eval_mit_scores()
+    ev.audioqualitaet.score = 5
+    out = deckle_audioqualitaet(ev, _result_ziel(lufs=-20.0))
+    assert out.audioqualitaet.score == 3
+
+
+def test_uebersteuerung_deckelt_die_audioqualitaet():
+    from services.analyst_eval import deckle_audioqualitaet
+    ev = _eval_mit_scores()
+    ev.audioqualitaet.score = 5
+    out = deckle_audioqualitaet(ev, _result_ziel(lufs=-14.0, true_peak=0.5))
+    assert out.audioqualitaet.score == 3
+
+
+def test_lautheit_im_korridor_deckelt_nicht():
+    from services.analyst_eval import deckle_audioqualitaet
+    for lufs in (-17.0, -14.0, -11.0):
+        ev = _eval_mit_scores()
+        ev.audioqualitaet.score = 5
+        out = deckle_audioqualitaet(ev, _result_ziel(lufs=lufs))
+        assert out.audioqualitaet.score == 5, lufs
+
+
+def test_deckel_hebt_einen_schwachen_score_nie_an():
+    from services.analyst_eval import deckle_audioqualitaet
+    ev = _eval_mit_scores()
+    ev.audioqualitaet.score = 1
+    out = deckle_audioqualitaet(ev, _result_ziel(lufs=-35.8))
+    assert out.audioqualitaet.score == 1
+
+
+def test_ohne_audio_ist_die_audioqualitaet_nicht_bewertbar():
+    from services.analyst_eval import deckle_audioqualitaet
+    ev = _eval_mit_scores()
+    ev.audioqualitaet.score = 4
+    out = deckle_audioqualitaet(ev, _result_ziel(lufs=None, true_peak=None))
+    assert out.audioqualitaet.score is None
+
+
+def test_audioqualitaet_ohne_ziel_bleibt_unangetastet():
+    from services.analyst_eval import deckle_audioqualitaet
+    ev = _eval_mit_scores()
+    ev.audioqualitaet.score = 5
+    out = deckle_audioqualitaet(ev, _result_ziel(ziel="", lufs=-35.8))
+    assert out.audioqualitaet.score == 5
+
+
+def test_benannte_audio_probleme_deckeln_den_score():
+    """Dieselbe Regel wie bei sprechqualitaet und visuelle_aesthetik."""
+    from services.analyst_eval import deckle_score_auf_probleme
+    ev = _eval_mit_scores()
+    ev.audioqualitaet.score = 5
+    ev.audioqualitaet.probleme = ["Deutlicher Hall im Raum.", "Dauerhaftes Rauschen im Hintergrund."]
+    assert deckle_score_auf_probleme(ev).audioqualitaet.score == 3
+
+
+# --- Teil C: CTA ---
+
+def test_cta_zaehlt_bei_bofu_und_nicht_bei_mofu():
+    """Gleiche Bewertung, zwei Ziele: nur bei BOFU darf der CTA den Score bewegen."""
+    from services.analyst_eval import berechne_performance_score
+
+    def score(ziel, cta):
+        ev = _eval_mit_scores()
+        ev.cta.score = cta
+        return berechne_performance_score(ev, ziel=ziel).performance_score
+
+    assert score("BOFU", 1) < score("BOFU", 5)
+    assert score("MOFU", 1) == score("MOFU", 5)
+
+
+def test_cta_ohne_bewertung_faellt_aus_dem_score():
+    """Score 0 ist der Modell-Default, keine echte Bewertung — er darf nicht als 1 durchschlagen."""
+    from services.analyst_eval import berechne_performance_score
+    ohne = berechne_performance_score(_eval_mit_scores(), ziel="BOFU").performance_score
+    ev = _eval_mit_scores()
+    ev.cta.score = 0
+    assert berechne_performance_score(ev, ziel="BOFU").performance_score == ohne
+
+
+# --- Teil D: Funnel-Wirkung ---
+
+def test_gueltige_funnel_wirkung_bleibt_stehen():
+    from services.analyst_eval import pruefe_funnel_wirkung
+    ev = _eval_mit_scores()
+    ev.funnel_wirkung = "tofu"
+    ev.funnel_wirkung_grund = "Kurz, breit angesprochen, kein Fachbegriff."
+    out = pruefe_funnel_wirkung(ev, _result_ziel())
+    assert out.funnel_wirkung == "TOFU"
+    assert out.funnel_wirkung_grund
+
+
+def test_ungueltige_funnel_wirkung_wird_geleert():
+    """Kein Rateversuch: ein erfundener Wert ist schlechter als keiner."""
+    from services.analyst_eval import pruefe_funnel_wirkung
+    ev = _eval_mit_scores()
+    ev.funnel_wirkung = "Mischung"
+    out = pruefe_funnel_wirkung(ev, _result_ziel())
+    assert out.funnel_wirkung == ""
+
+
+def test_funnel_wirkung_darf_dem_ziel_widersprechen():
+    """Genau dieser Widerspruch ist die wertvollste Information — der Code buegelt ihn nicht glatt."""
+    from services.analyst_eval import pruefe_funnel_wirkung
+    ev = _eval_mit_scores()
+    ev.funnel_wirkung = "BOFU"
+    out = pruefe_funnel_wirkung(ev, _result_ziel(ziel="TOFU"))
+    assert out.funnel_wirkung == "BOFU"
+
+
+def test_funnel_bleibt_das_gewaehlte_ziel():
+    """`funnel` ist die Absicht, `funnel_wirkung` die Einschaetzung — zwei Felder, zwei Quellen."""
+    from services.analyst_eval import nachbearbeiten
+    ev = _eval_mit_scores()
+    ev.funnel = "MOFU"
+    ev.funnel_wirkung = "TOFU"
+    out = nachbearbeiten(ev, _result_ziel(ziel="MOFU"))
+    assert out.funnel == "MOFU"
+    assert out.funnel_wirkung == "TOFU"
+
+
+def test_funnel_wirkung_ohne_ziel_bleibt_unangetastet():
+    from services.analyst_eval import pruefe_funnel_wirkung
+    ev = _eval_mit_scores()
+    ev.funnel_wirkung = "Quatsch"
+    out = pruefe_funnel_wirkung(ev, _result_ziel(ziel=""))
+    assert out.funnel_wirkung == "Quatsch"
+
+
+# --- Die Vier-Stellen-Falle ---
+
+def test_dimensions_scores_deckt_die_gewichtstabelle_vollstaendig():
+    """DER Test gegen die Vier-Stellen-Falle: Eine Dimension mit Gewicht, die dimensions_scores
+    nicht kennt, wird stillschweigend uebersprungen — ihr Gewicht verteilt sich auf den Rest, und
+    niemandem faellt auf, dass die Dimension gar nicht bewertet wird."""
+    from models.analyst import AnalystEvaluationV2, SCORE_GEWICHTE_JE_ZIEL, ZIELE
+    from services.analyst_eval import dimensions_scores
+    bekannt = set(dimensions_scores(AnalystEvaluationV2()))
+    for ziel in ZIELE:
+        assert set(SCORE_GEWICHTE_JE_ZIEL[ziel]) == bekannt, ziel
+
+
+def test_die_vier_neuen_dimensionen_sind_wirklich_da():
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import dimensions_scores
+    neu = {"untertitel_vorhanden", "untertitel_gestaltung", "audioqualitaet", "cta"}
+    assert neu <= set(dimensions_scores(AnalystEvaluationV2()))
+
+
+def test_jede_gewichtete_dimension_hat_eine_kategorie():
+    """Der Lob-Filter laeuft ueber KATEGORIEN — eine Dimension ohne Kategorie kann nie gelobt werden."""
+    from models.analyst import KATEGORIEN, SCORE_GEWICHTE_JE_ZIEL
+    zugeordnet = {d for dims in KATEGORIEN.values() for d in dims}
+    assert set(SCORE_GEWICHTE_JE_ZIEL["BOFU"]) <= zugeordnet
+
+
+def test_score_rechnung_nutzt_dieselbe_zuordnung_wie_die_sortierung():
+    """Zwei getrennte Dimensions-Dicts laufen beim naechsten Feld auseinander."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import DIMENSION_MINIMUM, dimensions_scores
+    assert set(DIMENSION_MINIMUM) <= set(dimensions_scores(AnalystEvaluationV2()))
+    assert DIMENSION_MINIMUM["text_hook"] == 0

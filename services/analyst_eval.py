@@ -19,7 +19,7 @@ import anthropic
 
 from config import settings
 from models.analyst import (ActionStep, AnalystEvaluationV2, AnalystResult, Empfehlung,
-                            KATEGORIEN, SCORE_GEWICHTE_JE_ZIEL)
+                            KATEGORIEN, SCORE_GEWICHTE_JE_ZIEL, ZIELE)
 from services import analyst_prompt_log
 
 # Version der Bewertungslogik (Skill + Schema + Nachbearbeitung). Wird an jedes gespeicherte
@@ -143,6 +143,13 @@ def _zeit_label(sekunden: list[float]) -> str:
     return f"ca. Sek. {s[0]}" if len(s) == 1 else f"ca. Sek. {', '.join(s[:-1])} und {s[-1]}"
 
 
+# Untergrenze der Skala je Dimension. Regelfall ist 1 (1-5); nur beim Text-Hook bedeutet die 0
+# „fehlt komplett" statt „Modell hat nichts gesagt", deshalb rechnet er auf 0-5. Die Ausnahme steht
+# hier EINMAL — vorher stand sie als Inline-Bedingung in schwere_der_dimension und ein zweites Mal
+# als Tupel-Wert in berechne_performance_score.
+DIMENSION_MINIMUM = {"text_hook": 0}
+
+
 def schwere_der_dimension(name: str, score, ziel: str) -> float:
     """Wie viele Punkte diese Dimension am Gesamtscore kostet: Gewicht × (1 − normalisierter Score).
 
@@ -161,7 +168,7 @@ def schwere_der_dimension(name: str, score, ziel: str) -> float:
     gewicht = gewichte.get(name, 0)
     if not gewicht:
         return 0.0
-    minimum = 0 if name == "text_hook" else 1
+    minimum = DIMENSION_MINIMUM.get(name, 1)
     if score < minimum:
         return 0.0
     norm = (score - minimum) / (5 - minimum)
@@ -184,6 +191,13 @@ def dimensions_scores(parsed: AnalystEvaluationV2) -> dict:
         "spannungsbogen": parsed.spannungsbogen.score,
         "struktur": parsed.struktur.score,
         "schnitt_pacing": parsed.schnitt_pacing.score,
+        # Dieselbe Sache, zwei Fragen (Stufe 2): „gibt es Untertitel" ist Retention (Mittelteil),
+        # „wie sind sie gemacht" ist Handwerk (Editing). Die klaren Faelle setzt
+        # setze_untertitel_scores, nicht das Modell.
+        "untertitel_vorhanden": parsed.untertitel.score,
+        "untertitel_gestaltung": parsed.untertitel.gestaltung_score,
+        "audioqualitaet": parsed.audioqualitaet.score,
+        "cta": parsed.cta.score,
     }
 
 
@@ -1077,7 +1091,9 @@ def deckle_score_auf_probleme(parsed: AnalystEvaluationV2) -> AnalystEvaluationV
     `kommentar`; ein Kommentar ist nicht zwingend ein Mangel, daraus einen Abzug zu machen wäre
     erfunden.
     """
-    for attribut in ("sprechqualitaet", "visuelle_aesthetik"):
+    # `audioqualitaet` ist seit Stufe 2 dabei: Sie führt ebenfalls eine echte `probleme`-Liste,
+    # und dieselbe Begründung gilt — wer Hall und Rauschen benennt, darf keine 5 vergeben.
+    for attribut in ("sprechqualitaet", "visuelle_aesthetik", "audioqualitaet"):
         block = getattr(parsed, attribut, None)
         if block is None or getattr(block, "score", None) is None:
             continue
@@ -1320,6 +1336,120 @@ def neutralisiere_stumme_scores(parsed: AnalystEvaluationV2, result: AnalystResu
     return parsed
 
 
+def _ziel_gesetzt(result) -> bool:
+    """Läuft dieser Lauf gegen ein Nutzerziel (V3)?
+
+    Verzweigt wird IMMER an `gewaehltes_ziel`, NIE an `result.engine`: analyst_engine._run() setzt
+    `engine` erst NACH dem Aufruf von nachbearbeiten() — dort stünde zum Zeitpunkt der
+    Nachbearbeitung noch der Default, und die V3-Regeln würden still nie greifen.
+    """
+    return bool((getattr(result, "gewaehltes_ziel", "") or "").strip())
+
+
+def setze_untertitel_scores(parsed: AnalystEvaluationV2,
+                            result: AnalystResult) -> AnalystEvaluationV2:
+    """Die beiden Untertitel-Scores aus der Sachlage setzen, statt sie zu erfragen (Stufe 2).
+
+    Zwei der drei Fälle sind keine Urteilsfrage, sondern folgen aus dem Transkript — und was der
+    Code entscheiden kann, soll er entscheiden (dieselbe Linie wie bei `neutralisiere_stumme_scores`
+    und `erzwinge_nutzer_format`):
+
+    | Zustand                          | score | gestaltung_score |
+    |----------------------------------|-------|------------------|
+    | es wird nicht gesprochen         | None  | None             |
+    | gesprochen, keine Untertitel     | 1     | None             |
+    | gesprochen, Untertitel vorhanden | Modell| Modell           |
+
+    „Es wird gesprochen" wird am Transkript geprüft, exakt wie in `erzwinge_untertitel_empfehlung`.
+    Begründungen: Ein Video ohne gesprochenes Wort hat nichts zu untertiteln — eine 1 hieße
+    „schlecht gemacht", null heißt „nicht bewertbar" (dieselbe Unterscheidung wie beim Sprech-Hook).
+    Fehlen sie, obwohl gesprochen wird, ist das seit dem 2026-08-06 ein kritischer Mangel
+    (Vorgabe Chris: „ein Untertitel, der mitläuft, ist im Video absolut essentiell"), und an etwas,
+    das es nicht gibt, ist nichts gestaltet — deshalb bleibt die Gestaltung dort unbewertet statt
+    ebenfalls auf 1 zu fallen. Sonst würde derselbe Mangel zweimal in den Score schlagen.
+
+    Nur bei gesetztem Ziel: V2 ist die eingefrorene Vergleichsbasis.
+    """
+    if not _ziel_gesetzt(result):
+        return parsed
+    ut = parsed.untertitel
+    gesprochen = bool((getattr(result, "transcript", "") or "").strip())
+    if not gesprochen:
+        ut.score = None
+        ut.gestaltung_score = None
+    elif not ut.vorhanden:
+        ut.score = 1
+        ut.gestaltung_score = None
+    return parsed
+
+
+# Deckel für die Audioqualität, wenn die GEMESSENE Lautheit nicht stimmt. Die Konstanten
+# (LUFS_ZIEL, LUFS_TOLERANZ, TRUE_PEAK_MAX) stehen weiter oben und stammen aus dem Fix zu Lauf
+# dc5c0a3d. Warum überhaupt gedeckelt wird: Den KLANG beurteilt das Modell selbst — Gemini bekommt
+# das Video mit Ton und hört Störgeräusche, Hall und Verständlichkeit. Die LAUTHEIT ist dagegen
+# gemessen, und genau dort lag das Modell schon einmal um rund 22 LU daneben. Ein Video mit
+# -35,8 LUFS ist auf dem Handy praktisch unhörbar — das kann keine 5 sein, egal wie sauber der
+# Klang ist.
+AUDIO_DECKEL = 3            # Lautheit außerhalb des Korridors oder übersteuert
+AUDIO_DECKEL_HART = 2       # mehr als AUDIO_ABWEICHUNG_HART daneben: praktisch unhörbar
+AUDIO_ABWEICHUNG_HART = 10.0   # LU
+
+
+def deckle_audioqualitaet(parsed: AnalystEvaluationV2,
+                          result: AnalystResult) -> AnalystEvaluationV2:
+    """Audioqualität gegen die gemessene Lautheit deckeln (Stufe 2).
+
+    Vorbild ist `deckle_score_auf_probleme`: nur deckeln, nie anheben. Ohne Audio
+    (`lufs_integrated is None`) ist die Dimension nicht bewertbar — null, nicht 1.
+
+    Nur bei gesetztem Ziel (V3).
+    """
+    if not _ziel_gesetzt(result):
+        return parsed
+    block = parsed.audioqualitaet
+    metrics = getattr(result, "quality_metrics", None)
+    lufs = getattr(metrics, "lufs_integrated", None) if metrics else None
+    if lufs is None:
+        block.score = None
+        return parsed
+    if block.score is None:
+        return parsed
+    abweichung = abs(lufs - LUFS_ZIEL)
+    peak = getattr(metrics, "true_peak_db", None)
+    deckel = None
+    if abweichung > LUFS_TOLERANZ or (peak is not None and peak > TRUE_PEAK_MAX):
+        deckel = AUDIO_DECKEL
+    if abweichung > AUDIO_ABWEICHUNG_HART:
+        deckel = AUDIO_DECKEL_HART
+    if deckel is not None and block.score > deckel:
+        block.score = deckel
+    return parsed
+
+
+def pruefe_funnel_wirkung(parsed: AnalystEvaluationV2,
+                          result: AnalystResult) -> AnalystEvaluationV2:
+    """`funnel_wirkung` auf einen der drei ZIELE-Werte festnageln — oder leeren (Stufe 2).
+
+    Das Feld trägt die Einschätzung, auf welche Funnel-Stufe das Video TATSÄCHLICH einzahlt. Es
+    darf dem gewählten Ziel ausdrücklich widersprechen — genau dieser Widerspruch ist die
+    interessante Information, der Code bügelt ihn deshalb NICHT glatt.
+
+    Was der Code tut, ist nur die Formprüfung: Groß-/Kleinschreibung vereinheitlichen und alles
+    verwerfen, was nicht TOFU/MOFU/BOFU ist („Mischung", ein ganzer Satz, eine Erfindung). Kein
+    Rateversuch — ein falsch geratener Wert wäre schlechter als gar keiner, weil er im Frontend
+    nicht als Lücke zu erkennen wäre.
+
+    Nur bei gesetztem Ziel (V3); der V2-Vertrag kennt das Feld gar nicht.
+    """
+    if not _ziel_gesetzt(result):
+        return parsed
+    wert = (parsed.funnel_wirkung or "").strip().upper()
+    parsed.funnel_wirkung = wert if wert in ZIELE else ""
+    if not parsed.funnel_wirkung:
+        parsed.funnel_wirkung_grund = ""
+    return parsed
+
+
 # Gewichte für den performance_score, Summe 100. Bewusst FUNNEL-UNABHÄNGIG (Vorgabe Chris,
 # 2026-07-29): Am stärksten zählen die beiden Hooks sowie Ton- und Bildqualität — das entscheidet in
 # den ersten Sekunden darüber, ob überhaupt jemand dranbleibt. Danach Spannungsbogen, Struktur,
@@ -1349,22 +1479,16 @@ def berechne_performance_score(parsed: AnalystEvaluationV2, ziel: str = "") -> A
     `ziel` (V3): Ist es gesetzt und bekannt, gelten die Gewichte dieses Ziels. Sonst gilt
     SCORE_GEWICHTE wie vor V3 — das hält alle gespeicherten Läufe und
     tools/replay_nachbearbeitung.py unverändert.
+
+    Die Zuordnung Feld → Dimensionsname kommt aus `dimensions_scores`, die Skalen-Untergrenze aus
+    `DIMENSION_MINIMUM`. Vorher stand hier ein zweites, eigenes Dimensions-Dict; mit den vier
+    Dimensionen aus Stufe 2 wären die beiden Listen auseinandergelaufen — genau die Falle, die
+    `dimensions_scores` laut eigenem Docstring verhindern soll.
     """
     gewichte = SCORE_GEWICHTE_JE_ZIEL.get((ziel or "").upper(), SCORE_GEWICHTE)
-    dimensionen = {
-        "sprech_hook": (parsed.hook.sprech_hook_score, 1),
-        "text_hook": (parsed.hook.text_hook_score, 0),
-        # Minimum 1 wie beim Sprech-Hook: None heißt „nicht beurteilbar" und fällt raus, sein
-        # Gewicht verteilt sich auf den Rest. Altläufe ohne das Feld verhalten sich damit wie bisher.
-        "visuell_hook": (parsed.hook.visuell_hook_score, 1),
-        "sprechqualitaet": (parsed.sprechqualitaet.score, 1),
-        "visuelle_aesthetik": (parsed.visuelle_aesthetik.score, 1),
-        "spannungsbogen": (parsed.spannungsbogen.score, 1),
-        "struktur": (parsed.struktur.score, 1),
-        "schnitt_pacing": (parsed.schnitt_pacing.score, 1),
-    }
     summe = gewicht_gesamt = 0.0
-    for name, (score, minimum) in dimensionen.items():
+    for name, score in dimensions_scores(parsed).items():
+        minimum = DIMENSION_MINIMUM.get(name, 1)
         if score is None or score < minimum:
             continue  # nicht bewertbar, oder 0 als Modell-Default statt echter Bewertung
         gewicht = gewichte.get(name, 0)
@@ -1420,6 +1544,13 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = erzwinge_empfehlungen_bei_schwachen_scores(parsed)
     # Nach allen Score-Deckelungen: Der Lob-Filter liest die FERTIGEN Scores. Stünde er davor,
     # würde Lob zu einer Dimension überleben, die deckle_score_auf_probleme danach absenkt.
+    # Stufe 2: Diese drei setzen bzw. deckeln Scores. Sie stehen VOR filtere_staerken und
+    # berechne_performance_score, weil beide die FERTIGEN Scores lesen — danach aufgerufen würde
+    # Lob zu einer Dimension überleben, die hier gerade abgesenkt wurde, und der Gesamtscore
+    # kennte die vier neuen Dimensionen gar nicht.
+    parsed = setze_untertitel_scores(parsed, result)
+    parsed = deckle_audioqualitaet(parsed, result)
+    parsed = pruefe_funnel_wirkung(parsed, result)
     parsed = filtere_staerken(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     parsed = berechne_performance_score(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     return verteile_empfehlungen(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
