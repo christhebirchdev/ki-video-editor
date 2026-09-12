@@ -543,6 +543,9 @@
   background:var(--gold-tint);border:1px solid var(--gold);
   color:var(--gold-press);font-size:13.5px;line-height:1.5;
 }
+/* Die Handlungsempfehlung steht im selben Kasten, aber abgesetzt: erst der Befund, dann der
+   Schritt. */
+.analyst-funnel-empfehlung{margin-top:7px;}
 .analyst-rawdump{
   margin-bottom:16px;border:1px solid var(--line);border-radius:var(--radius-sm);
   padding:12px 16px;background:var(--paper-alt);

@@ -504,6 +504,12 @@ class AnalystEvaluationV2(BaseModel):
     # als geraten.
     funnel_wirkung: str = ""           # TOFU / MOFU / BOFU
     funnel_wirkung_grund: str = ""     # EIN Satz, woran das Modell die Wirkung festmacht
+    # Was der Nutzer TUN müsste, damit das Video zum gewählten Ziel passt. Anlass (Lauf d9988b7d,
+    # Feedback zu `performance_score`): „wenn es vorbeigeht bitte eine empfehlung geben wie man das
+    # video gestalten müsste, das es zum ziel passt. erklärung bitte beispielhaft an dem inhalt des
+    # videos". `funnel_wirkung_grund` sagt bisher nur, WAS das Video tut — die Handlung fehlte.
+    # Nur bei Abweichung gefüllt; `pruefe_funnel_wirkung` leert das Feld sonst.
+    funnel_wirkung_empfehlung: str = ""
     hook: HookEval = Field(default_factory=HookEval)
     struktur: StrukturEval = Field(default_factory=StrukturEval)
     sprechqualitaet: ScoreProbleme = Field(default_factory=ScoreProbleme)

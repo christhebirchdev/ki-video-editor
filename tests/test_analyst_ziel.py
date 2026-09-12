@@ -1231,3 +1231,89 @@ def test_das_standbild_bleibt_die_eins():
 def test_der_visuell_hook_anker_erreicht_den_eroeffnungs_call():
     from services.analyst_eval import build_system_prompt
     assert "ANKER für `visuell_hook" in build_system_prompt(teil="eroeffnung", ziel="MOFU")
+
+
+# =====================================================================================
+# Lauf d9988b7d, Feedback zu `performance_score`: „hier ergaenzen ob das videoziel mit dem video
+# erreicht werden kann oder es am ziel vorbeigeht. wenn es vorbeigeht bitte eine empfehlung geben
+# wie man das video gestalten muesste, das es zum ziel passt. erklaerung bitte beispielhaft an dem
+# inhalt des videos"
+#
+# `funnel_wirkung` sagt bisher nur, WAS das Video tut. Was fehlt, ist WAS ZU TUN WAERE — und zwar
+# am Inhalt dieses Videos, nicht allgemein.
+# =====================================================================================
+
+def test_die_empfehlung_ist_ein_eigenes_feld_mit_leerem_default():
+    """Altlaeufe kennen das Feld nicht — Default leer, sonst bricht das Laden der 89 Laeufe."""
+    from models.analyst import AnalystEvaluationV2
+    assert AnalystEvaluationV2().funnel_wirkung_empfehlung == ""
+
+
+def test_die_empfehlung_ueberlebt_die_formpruefung():
+    from services.analyst_eval import pruefe_funnel_wirkung
+    ev = _eval_mit_scores()
+    ev.funnel_wirkung = "TOFU"
+    ev.funnel_wirkung_grund = "Kurz und breit angesprochen."
+    ev.funnel_wirkung_empfehlung = "Erklär ab Sekunde 8 kürzer und stell vorne eine Frage."
+    out = pruefe_funnel_wirkung(ev, _result_ziel(ziel="MOFU"))
+    assert out.funnel_wirkung_empfehlung
+
+
+def test_ohne_abweichung_gibt_es_nichts_zu_empfehlen():
+    """Das Frontend zeigt den Block nur bei Abweichung. Steht die Empfehlung trotzdem da, ist sie
+    unsichtbarer Ballast im gespeicherten Lauf — und im Chat eine Quelle fuer Widersprueche."""
+    from services.analyst_eval import pruefe_funnel_wirkung
+    ev = _eval_mit_scores()
+    ev.funnel_wirkung = "MOFU"
+    ev.funnel_wirkung_empfehlung = "Irgendwas, das das Modell trotzdem geschrieben hat."
+    out = pruefe_funnel_wirkung(ev, _result_ziel(ziel="MOFU"))
+    assert out.funnel_wirkung_empfehlung == ""
+
+
+def test_ohne_belastbare_wirkung_faellt_auch_die_empfehlung_weg():
+    from services.analyst_eval import pruefe_funnel_wirkung
+    ev = _eval_mit_scores()
+    ev.funnel_wirkung = "Mischung"
+    ev.funnel_wirkung_empfehlung = "Mach es kürzer."
+    out = pruefe_funnel_wirkung(ev, _result_ziel(ziel="MOFU"))
+    assert out.funnel_wirkung_empfehlung == ""
+
+
+def test_ohne_ziel_bleibt_die_empfehlung_unangetastet():
+    """V2 ist die eingefrorene Vergleichsbasis — die Nachbearbeitung darf dort nichts aendern."""
+    from services.analyst_eval import pruefe_funnel_wirkung
+    ev = _eval_mit_scores()
+    ev.funnel_wirkung = "TOFU"
+    ev.funnel_wirkung_empfehlung = "Bleibt stehen."
+    out = pruefe_funnel_wirkung(ev, _result_ziel(ziel=""))
+    assert out.funnel_wirkung_empfehlung == "Bleibt stehen."
+
+
+def test_die_empfehlung_steht_im_v3_vertrag_und_nicht_im_v2():
+    from services.analyst_eval import build_system_prompt
+    assert '\n  "funnel_wirkung_empfehlung":' in build_system_prompt(ziel="MOFU")
+    assert "funnel_wirkung_empfehlung" not in build_system_prompt()
+
+
+def test_die_empfehlung_kommt_aus_dem_eroeffnungs_call():
+    """Vier-Stellen-Falle: ohne TEIL_FELDER-Eintrag erscheint das Feld in KEINEM Call und faellt
+    beim Zusammenfuehren still weg."""
+    from services.analyst_eval import TEIL_FELDER, build_system_prompt, merge_teilergebnisse
+    assert "funnel_wirkung_empfehlung" in TEIL_FELDER["eroeffnung"]
+    assert '\n  "funnel_wirkung_empfehlung":' in build_system_prompt(teil="eroeffnung", ziel="MOFU")
+    # Nur die VERTRAGS-Zeile darf im Handwerks-Call fehlen: Der Abschnitt „Videoziel" steht in
+    # beiden Calls (ABSCHNITT_ZUORDNUNG: BEIDE), der Feldname taucht dort also als Prosa auf.
+    assert '\n  "funnel_wirkung_empfehlung":' not in build_system_prompt(teil="handwerk", ziel="MOFU")
+    eroeffnung = _eval_mit_scores()
+    eroeffnung.funnel_wirkung_empfehlung = "Kürze den Erklärteil."
+    out = merge_teilergebnisse(eroeffnung, _eval_mit_scores())
+    assert out.funnel_wirkung_empfehlung == "Kürze den Erklärteil."
+
+
+def test_der_skill_verlangt_die_empfehlung_am_inhalt_des_videos():
+    """„erklaerung bitte beispielhaft an dem inhalt des videos" — ein allgemeiner Ratschlag
+    („mach es kuerzer") ist genau das, was der Nutzer nicht wollte."""
+    text = " ".join(_v3_text().split())
+    assert "funnel_wirkung_empfehlung" in text
+    assert "am INHALT dieses Videos" in text
+    assert "Stimmen Ziel und Wirkung überein, bleibt das Feld leer" in text

@@ -44,6 +44,24 @@ MOFU, auch wenn BOFU draufsteht. Widersprich ruhig: Der Widerspruch ist der Befu
 Nur einer von drei Werten: `TOFU`, `MOFU` oder `BOFU`. Kein „Mischung", kein Satz, keine Nennung
 von zweien. Bist du unsicher, nimm die Stufe, auf die das Video am stärksten einzahlt.
 
+### `funnel_wirkung_empfehlung` — was zu TUN wäre
+
+Weicht `funnel_wirkung` vom vorgegebenen Ziel ab, sagt dein Grund bisher nur, WAS das Video tut.
+Der Nutzer will aber wissen, was er ÄNDERN müsste, damit es zum Ziel passt. Genau das gehört in
+`funnel_wirkung_empfehlung`: 1–2 Sätze, erklärt am INHALT dieses Videos — mit der Sekunde oder der
+Szene, um die es geht. Ein allgemeiner Ratschlag („mach es kürzer", „sprich die Zielgruppe direkter
+an") ist wertlos; er würde für jedes Video passen und hilft deshalb bei keinem.
+
+So sieht das aus: „Dein Video erklärt ab Sekunde 8 ausführlich, wie die Nachkalkulation funktioniert
+— das baut Vertrauen auf, erreicht aber keine neuen Leute. Für Reichweite müsstest du mit der
+Situation einsteigen, in der sich jeder Handwerker wiedererkennt, und die Erklärung auf einen Satz
+eindampfen."
+
+Stimmen Ziel und Wirkung überein, bleibt das Feld leer — dann gibt es nichts umzustellen. Schreib
+dort auch keine Bestätigung hinein; das System leert das Feld in diesem Fall ohnehin.
+Anlass (Lauf d9988b7d): „wenn es vorbeigeht bitte eine empfehlung geben wie man das video gestalten
+müsste, das es zum ziel passt. erklärung bitte beispielhaft an dem inhalt des videos".
+
 ## Sprache des Outputs — Laiensprache (WICHTIG)
 Der Leser ist ANFÄNGER ohne Marketing-Wissen. Alle Freitext-Felder (`zielgruppe`,
 `*_grund`, `kommentar`, `probleme`, `top_tipps`) MÜSSEN in einfacher, konkreter

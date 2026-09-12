@@ -1318,6 +1318,14 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                   ⚠ Du wolltest <b>{ZIEL_LABEL[result.gewaehltes_ziel] || result.gewaehltes_ziel}</b>. Dieses
                   Video zahlt eher auf <b>{ZIEL_LABEL[ev.funnel_wirkung] || ev.funnel_wirkung}</b> ein
                   {ev.funnel_wirkung_grund ? ` — ${ev.funnel_wirkung_grund}` : "."}
+                  {/* Was zu TUN wäre, am Inhalt dieses Videos erklärt. Anlass (Lauf d9988b7d):
+                      „wenn es vorbeigeht bitte eine empfehlung geben wie man das video gestalten
+                      müsste, das es zum ziel passt". Ohne diesen Satz wusste der Nutzer nur, DASS
+                      sein Video am Ziel vorbeigeht. Das Feld ist nur bei Abweichung gefüllt —
+                      dieselbe Bedingung, unter der dieser Block überhaupt steht. */}
+                  {ev.funnel_wirkung_empfehlung && (
+                    <div className="analyst-funnel-empfehlung">{ev.funnel_wirkung_empfehlung}</div>
+                  )}
                   <Feedback field="funnel_wirkung" />
                 </div>
               )}

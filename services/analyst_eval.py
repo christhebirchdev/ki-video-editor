@@ -1358,6 +1358,11 @@ def _ziel_gesetzt(result) -> bool:
     return bool((getattr(result, "gewaehltes_ziel", "") or "").strip())
 
 
+def _gewaehltes_ziel(result) -> str:
+    """Das Nutzerziel in Grossschreibung — Vergleichsgrundlage für „weicht die Wirkung ab?"."""
+    return (getattr(result, "gewaehltes_ziel", "") or "").strip().upper()
+
+
 def setze_untertitel_scores(parsed: AnalystEvaluationV2,
                             result: AnalystResult) -> AnalystEvaluationV2:
     """Die beiden Untertitel-Scores aus der Sachlage setzen, statt sie zu erfragen (Stufe 2).
@@ -1459,6 +1464,12 @@ def pruefe_funnel_wirkung(parsed: AnalystEvaluationV2,
     parsed.funnel_wirkung = wert if wert in ZIELE else ""
     if not parsed.funnel_wirkung:
         parsed.funnel_wirkung_grund = ""
+    # Die Handlungsempfehlung gibt es NUR bei Abweichung: Stimmen Ziel und Wirkung überein, hat der
+    # Nutzer nichts umzustellen, und das Frontend zeigt den ganzen Block gar nicht erst an. Ein
+    # trotzdem gefüllter Satz wäre unsichtbarer Ballast im gespeicherten Lauf — und der Chat, der
+    # auf demselben Ergebnis arbeitet, würde ihn dem Nutzer als Widerspruch vorlegen.
+    if parsed.funnel_wirkung == _gewaehltes_ziel(result) or not parsed.funnel_wirkung:
+        parsed.funnel_wirkung_empfehlung = ""
     return parsed
 
 
@@ -1677,7 +1688,8 @@ FUNNEL_ZEILE_V2 = '  "funnel": "<TOFU | MOFU | BOFU | Mischung>",'
 FUNNEL_BLOCK_V3 = (
     '  "funnel": "<TOFU | MOFU | BOFU | Mischung>",\n'
     '  "funnel_wirkung": "<TOFU | MOFU | BOFU — auf welche Funnel-Stufe dieses Video TATSÄCHLICH einzahlt. Das ist NICHT das vorgegebene Ziel und nicht dein Feld `funnel`: urteile allein nach dem, was du siehst (Länge, Breite der Ansprache, Tiefe, Pitch). Zahlt das Video auf eine ANDERE Stufe ein als beabsichtigt, schreib genau diese andere Stufe hin — das ist die wertvollste Information, die du liefern kannst>",\n'
-    '  "funnel_wirkung_grund": "<PFLICHT: EIN Satz, woran du das festmachst>",'
+    '  "funnel_wirkung_grund": "<PFLICHT: EIN Satz, woran du das festmachst>",\n'
+    '  "funnel_wirkung_empfehlung": "<NUR ausfüllen, wenn `funnel_wirkung` vom vorgegebenen Ziel ABWEICHT: 1-2 Sätze, was der Nutzer am Video ändern müsste, damit es zum Ziel passt. Am INHALT dieses Videos erklärt, mit Sekunde oder Szene — kein allgemeiner Ratschlag. Stimmen Ziel und Wirkung überein: leer>",'
 )
 
 # Untertitel bekommen zwei Scores, Audioqualitaet und CTA kommen als eigene Dimensionen dazu. Die
@@ -1798,7 +1810,7 @@ TEIL_FELDER = {
         "zielgruppe", "format", "protagonist_ab_sek", "funnel", "hook",
         # Die Funnel-WIRKUNG liegt bei der Eröffnung, weil dort schon `funnel` und die Zielgruppe
         # beurteilt werden — Ansprache, Breite und Tiefe entscheiden über die Stufe.
-        "funnel_wirkung", "funnel_wirkung_grund",
+        "funnel_wirkung", "funnel_wirkung_grund", "funnel_wirkung_empfehlung",
         "texthook_varianten", "texthook_maengel", "empfehlungen",
     ),
     "handwerk": (
