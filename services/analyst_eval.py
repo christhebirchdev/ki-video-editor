@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-13a"   # V3: Wissensbasis docs/analyst_knowledge.md in den Skill uebertragen
+PROMPT_VERSION = "2026-09-13b"   # V3: Score-Anker fuer die ankerlosen Dimensionen (Lauf d9988b7d)
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -1764,6 +1764,8 @@ ABSCHNITT_ZUORDNUNG = {
     "Empfehlungen — die kanonische Regel (gilt in JEDEM Modus)": BEIDE,
     "Harte Regeln": BEIDE,
     "Videoziel": BEIDE,   # nur im V3-Skill; steuert beide Teil-Calls
+    # nur im V3-Skill: die 5-Regel gilt fuer jede bewertete Dimension, also in beiden Calls.
+    "Score-Anker — wann eine 5 eine 5 ist": BEIDE,
     # nur im V3-Skill: Format-Regeln greifen in beide Calls (Sprech-Hook/Reaction in der
     # Eroeffnung, Bildausschnitt/Blick/Pausen im Handwerk) — deshalb BEIDE, nicht eine Seite.
     "Format — formatabhängige Maßstäbe": BEIDE,

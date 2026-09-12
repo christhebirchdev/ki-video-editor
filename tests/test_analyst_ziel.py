@@ -951,7 +951,7 @@ def test_prompt_version_wurde_hochgezaehlt():
     """Betriebsregel: bei jeder inhaltlichen Prompt-Aenderung hochzaehlen, sonst ist Feedback zu
     zwei verschiedenen Prompts nicht mehr auseinanderzuhalten."""
     from services.analyst_eval import PROMPT_VERSION
-    assert PROMPT_VERSION == "2026-09-13a"
+    assert PROMPT_VERSION == "2026-09-13b"
 
 
 def test_v3_verlangt_hoechstens_eine_empfehlung_je_dimension():
@@ -1115,3 +1115,95 @@ def test_altlauf_ohne_das_feld_laedt_unveraendert():
     from models.analyst import AnalystEvaluationV2
     ev = AnalystEvaluationV2(**{"action_steps": [{"zeitpunkt": "x", "anweisung": "y"}]})
     assert ev.action_steps[0].erzwungen is False
+
+
+# =====================================================================================
+# Nutzer-Feedback aus Lauf d9988b7d — „keine Auffaelligkeiten = 5/5"
+#
+# Der Nutzer schrieb es dreimal (sprechqualitaet, visuelle_aesthetik, audioqualitaet):
+# „wenn keine auffaelligkeiten sollte der score auch eine 5/5 sein". Der strukturelle Grund steht
+# in docs/analyst_knowledge_luecken.md: Sieben der zwoelf bewerteten Dimensionen hatten ueberhaupt
+# keine Score-Anker. Ohne Anker rutscht ein Modell zur Mitte — es gibt keinen Grund, 5 zu vergeben,
+# wenn nirgends steht, wie eine 5 aussieht (belegt fuer visuelle_aesthetik: 5 von 5 Laeufen exakt 3).
+# =====================================================================================
+
+# Die Dimensionen, die einen ANKER-Block im V3-Skill haben muessen. `visuelle_aesthetik` ist das
+# Vorbild und stand schon vorher da — sie ist hier mit drin, damit ein Umbau des Vorbilds auffaellt.
+ANKER_DIMENSIONEN = [
+    "struktur", "spannungsbogen", "schnitt_pacing", "sprechqualitaet",
+    "visuelle_aesthetik", "untertitel_vorhanden", "untertitel_gestaltung", "audioqualitaet", "cta",
+]
+
+
+def _v3_text():
+    from services.analyst_eval import SKILL_PATH_V3, load_skill_body
+    return load_skill_body(SKILL_PATH_V3)
+
+
+def _ankerblock(name: str) -> str:
+    """Der Text von der ANKER-Ueberschrift bis zur naechsten Leerzeile-Ueberschrift."""
+    text = _v3_text()
+    kopf = f"ANKER für `{name}"
+    start = text.index(kopf)
+    rest = text[start:]
+    ende = rest.index("\n\n")
+    # Zeilenumbrueche raus: Die Skill-Datei bricht bei 100 Zeichen um, ein geprueftes Satzstueck
+    # laege sonst zufaellig auf zwei Zeilen.
+    return " ".join(rest[:ende].split())
+
+
+def test_jede_bewertete_dimension_hat_einen_score_anker():
+    """Die groesste Einzelluecke aus der Lueckenanalyse: sieben Dimensionen ohne jeden Anker."""
+    text = _v3_text()
+    for name in ANKER_DIMENSIONEN:
+        assert f"ANKER für `{name}" in text, name
+
+
+def test_jeder_anker_nutzt_die_ganze_skala():
+    """Ein halber Anker (nur 5, 3, 1 — so stand visuell_hook da) laesst 4 und 2 unbesetzt und
+    schiebt genau deshalb zur Mitte."""
+    for name in ANKER_DIMENSIONEN:
+        block = _ankerblock(name)
+        for stufe in ("**5**", "**4**", "**3**", "**2**", "**1**"):
+            assert stufe in block, f"{name}: {stufe}"
+
+
+def test_die_fuenf_braucht_keine_auszeichnung():
+    """Der Kern des Feedbacks: Die 5 muss erreichbar sein, wenn nichts auffaellt — nicht erst bei
+    herausragender Leistung. Steht die Regel nur einmal global, uebersieht sie das Modell beim
+    Bewerten einer einzelnen Dimension; deshalb in JEDEM Ankerblock."""
+    for name in ANKER_DIMENSIONEN:
+        block = _ankerblock(name)
+        assert "Abwesenheit von Mängeln genügt" in block, name
+
+
+def test_die_fuenf_regel_steht_auch_als_eigener_abschnitt():
+    text = _v3_text()
+    assert "## Score-Anker — wann eine 5 eine 5 ist" in text
+    assert "Es braucht keine Auszeichnung für eine 5" in text
+
+
+def test_schnitt_pacing_zieht_nicht_mehr_zur_mitte():
+    """c-7 der Lueckenanalyse: „Lieber vorsichtig als falsch" ohne Format-Massstab ist eine
+    Einladung, immer 3 zu vergeben — dieselbe Pflicht-Mechanik, die fuer die visuelle Aesthetik
+    (KB 8.5, Laeufe 30d6b472/82bda700) schon abgeschafft wurde."""
+    text = _v3_text()
+    assert "Zurückhaltung heißt NICHT, im Zweifel 3 zu vergeben" in text
+
+
+def test_die_anker_gelten_nur_fuer_v3():
+    """V2 ist die eingefrorene Vergleichsbasis der A/B-Messung."""
+    from services.analyst_eval import load_skill_body
+    v2 = load_skill_body()
+    for name in ("sprechqualitaet", "audioqualitaet", "cta"):
+        assert f"ANKER für `{name}" not in v2, name
+    assert "Abwesenheit von Mängeln genügt" not in v2
+
+
+def test_die_anker_erreichen_beide_teil_calls():
+    """Die Anker nuetzen nichts, wenn `_skill_fuer` sie aus dem Call herausfiltert — die neun
+    Dimensionen dieses Schritts liegen alle im Handwerks-Call."""
+    from services.analyst_eval import build_system_prompt
+    handwerk = build_system_prompt(teil="handwerk", ziel="MOFU")
+    for name in ("sprechqualitaet", "audioqualitaet", "cta", "struktur"):
+        assert f"ANKER für `{name}" in handwerk, name

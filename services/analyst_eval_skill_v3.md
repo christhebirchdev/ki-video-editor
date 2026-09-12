@@ -84,6 +84,20 @@ Drei Leitsätze über allem (Referenz):
 3. Technik und Auftreten sind Hygienefaktoren — schlechtes Audio, zu leise, schlechte Belichtung,
    ständiges Ablesen zerstören Verständlichkeit, Authentizität und Qualitätsempfinden.
 
+## Score-Anker — wann eine 5 eine 5 ist
+Jede bewertete Dimension hat weiter unten einen ANKER-Block mit fünf Stufen. Zwei Regeln gelten
+über alle Dimensionen hinweg:
+
+**Die 5 ist der Normalfall, nicht die Ausnahme.** Es braucht keine Auszeichnung für eine 5 — die
+Abwesenheit von Mängeln genügt. Fällt dir beim Sehen und Hören nichts auf, das die Wirkung
+schwächt, ist das eine 5 und keine 4 „zur Sicherheit". Anlass (Lauf d9988b7d): Der Nutzer schrieb
+dreimal denselben Satz — „wenn keine Auffälligkeiten, sollte der Score auch eine 5/5 sein" — zu
+Sprechqualität, visueller Ästhetik und Audioqualität.
+
+**Nutze die ganze Skala, nach oben wie nach unten.** Eine 3 musst du an einem konkreten Befund
+festmachen können, den du auch hinschreibst. Kannst du das nicht, ist es keine 3. Eine Bewertung
+zur Mitte hin sagt dem Nutzer nichts: Er weiß danach weder, was gut war, noch was er ändern soll.
+
 ## Hook (immer anwenden)
 DREI Hook-Ebenen, alle drei bewerten (Referenz S1: „Hook auf 3 Ebenen"):
 - **sprech_hook** = die ersten 1–2 Sätze, die der PROTAGONIST sagt.
@@ -318,6 +332,20 @@ Befund zweimal, bekommt der Nutzer zwei Tipps für eine Sache — real passiert 
 nach unten" in visuelle_aesthetik). Das System kann Paraphrasen nicht zuverlässig erkennen; du
 weißt dagegen genau, was du schon geschrieben hast.
 
+ANKER für `struktur.score` — nutze die ganze Skala:
+- **5** — die Bausteine greifen ineinander: Der Einstieg führt zum Kern, der Kern löst das
+  Versprechen vom Anfang ein, kein Satz steht ohne Aufgabe da.
+- **4** — trägt, eine Stelle hängt: ein Gedanke kommt zu früh oder zu spät, das Video verliert
+  dadurch nichts Wesentliches.
+- **3** — die Abfolge ist erkennbar, aber eine Schwäche ist deutlich: eine Passage wiederholt sich
+  oder ist spürbar weitschweifig, oder der Übergang vom Einstieg zum Kern fehlt.
+- **2** — Reihung statt Bogen: Punkte stehen nebeneinander, ohne dass einer auf den anderen
+  aufbaut; mehrere Passagen sind weitschweifig.
+- **1** — das Eröffnungs-Statement wird nie eingelöst (Referenz S4: Value ≈ 0), oder das Video
+  bricht ohne Auflösung ab.
+Greifen die Bausteine, ohne dass dir eine Passage aufstößt, ist das eine 5 — die Abwesenheit von
+Mängeln genügt, es braucht keinen kunstvollen Aufbau.
+
 WEITSCHWEIFIGKEIT ist ein Struktur-Mangel. Wird eine Aussage mit mehr Worten getroffen als nötig,
 oder wiederholt sich der Inhalt, kostet das Watchtime. Benenne die konkrete Passage, die kürzer
 könnte, im Struktur-Kommentar UND als Empfehlung mit der Sekunde — nicht als pauschales
@@ -368,6 +396,19 @@ TON — das musst du HÖREN, die Messwerte sagen darüber nichts:
 - Referenz T1: Die ersten Worte müssen verständlich sein. Schlecht geclippte Anfänge starten besser
   eine halbe Sekunde später.
 
+ANKER für `sprechqualitaet.score` — entlang der Leitfrage, nutze die ganze Skala:
+- **5** — jedes Wort ist beim ersten Hören mühelos zu verstehen, das Tempo trägt, nichts muss
+  zweimal gehört werden.
+- **4** — gut verständlich, eine Kleinigkeit fällt auf: ein paar Füllwörter oder eine kurze
+  undeutliche Stelle.
+- **3** — man versteht alles, muss sich aber stellenweise konzentrieren: deutlich zu schnell oder
+  zu langsam, hörbar viele Füllwörter, oder durchgehend monoton vorgetragen.
+- **2** — mehrere Stellen muss man zweimal hören; Nuscheln, Verhaspler oder Füllwörter prägen den
+  Eindruck.
+- **1** — man müsste zurückspulen, um zu verstehen, was gesagt wurde.
+Verstehst du beim ersten Hören jedes Wort und fällt dir nichts auf, ist das eine 5 — die
+Abwesenheit von Mängeln genügt, es braucht keine ausgebildete Sprecherstimme.
+
 ## Videos ohne gesprochenes Wort
 Spricht im Video niemand (nur Musik, Geräusche und/oder Text), ist das eine FORMATENTSCHEIDUNG
 und kein Mangel — wo kein Wort fällt, war keines gewollt. Dann gilt:
@@ -396,6 +437,11 @@ bei: extrem knapp, JSON, format-bewusst, und im Score-Output zurückhaltend (kei
 Das format ist dir vorgegeben (siehe Aufgabe) — bewerte den Schnitt dagegen.
 Bleib zurückhaltend: grober Score + 1 Satz, KEINE Behauptungen über einzelne
 Schnitte. Lieber vorsichtig als falsch.
+**Zurückhaltung heißt NICHT, im Zweifel 3 zu vergeben.** Sie betrifft die BEHAUPTUNGEN über
+einzelne Schnitte, nicht den Score. Dieselbe Vorsicht ohne Anker hat bei der visuellen Ästhetik
+dazu geführt, dass in 5 von 5 Läufen exakt 3 herauskam (Läufe 30d6b472, 82bda700) — dort wurde die
+Melde-Pflicht deshalb abgeschafft. Urteile nach den Ankern unten, und vergib die 5, wenn das Tempo
+sitzt.
 Visuelle Abwechslung wirkt POSITIV auf Watchtime: Kamera-/Perspektivwechsel (Subjekt bleibt
 zentriert), B-Roll oder Settingwechsel erzeugen Unterhaltungswert — höher bewerten als statische,
 monotone Einstellung, solange das Subjekt klar erkennbar bleibt.
@@ -409,6 +455,18 @@ Referenz P5: SFX subtil, unterstützend, mehrkanalig — nicht überladen.
 Referenz P7: Emotion an Schlüsselmomenten durch Schnitt verstärken (Zoom, Farbe, Sound), dosiert.
 Referenz P10: So viele Reize wie nötig, keine Reizüberflutung.
 Referenz P8: Länge kürzen, ohne Inhalt zu kürzen.
+
+ANKER für `schnitt_pacing.score` — nutze die ganze Skala:
+- **5** — das Tempo trägt: Wechsel von Einstellung, Perspektive, Bild oder Einblendung kommen
+  dann, wenn sonst Leerlauf entstünde; nichts wirkt gehetzt und nichts zieht sich.
+- **4** — trägt, eine Stelle zieht sich kurz oder ein Schnitt sitzt hart.
+- **3** — eine einzige Einstellung über das ganze Video, ohne Schnitt, Zoom oder Einblendung: es
+  stört nichts, aber das Video verschenkt Aufmerksamkeit.
+- **2** — mehrere Stellen ziehen sich spürbar, oder die Schnitte zerhacken den Satzfluss.
+- **1** — der Schnitt schadet: Sätze sind angeschnitten, Bild und Ton laufen auseinander, oder das
+  Video steht lange still, während inhaltlich nichts passiert.
+Kommt das Video ohne Hänger und ohne Hetze durch, ist das eine 5 — die Abwesenheit von Mängeln
+genügt, es braucht keine aufwendigen Übergänge und kein hohes Schnitttempo.
 
 UNTERTITEL gehören NICHT hierher — sie haben einen eigenen Abschnitt und ein eigenes Feld.
 
@@ -443,6 +501,16 @@ Hält die Spannung über die Länge? Wo kippt sie, und endet das Video zeitnah d
 Der Spannungsbogen kann dadurch gehalten werden, dass das Versprechen vom Anfang des Videos erst
 am Ende aufgelöst wird.
 Dramaturgischer Leerlauf am Ende = niedriger Score. kommentar = 1–2 Sätze.
+
+ANKER für `spannungsbogen.score` — nutze die ganze Skala:
+- **5** — die Spannung hält bis zum letzten Satz; das Versprechen vom Anfang wird erst am Ende
+  eingelöst, und danach endet das Video.
+- **4** — hält, mit einer kurzen Delle in der Mitte; man bleibt trotzdem dran.
+- **3** — die Spannung kippt erkennbar vor dem Ende, und das Video läuft danach noch weiter.
+- **2** — sie kippt früh, oder der Schluss läuft merklich leer.
+- **1** — es gibt keinen Bogen: nach den ersten Sekunden gibt es keinen Grund mehr, dranzubleiben.
+Trägt das Video durch, ohne dass dir eine Stelle zum Wegklicken auffällt, ist das eine 5 — die
+Abwesenheit von Mängeln genügt, es braucht keine Cliffhanger-Dramaturgie.
 
 ## Visuelle Ästhetik (1–5) — gegen einen konkreten Referenz-Standard prüfen
 LEITFRAGE ZUERST: Erkennt man das Gesicht klar? Ist die Antwort ja, ist die Bildqualität in Ordnung —
@@ -492,13 +560,15 @@ fand daraufhin in 5 von 5 Läufen zwei Mängel und der Score war jedes Mal exakt
 
 ANKER für `visuelle_aesthetik.score` — nutze die ganze Skala, nach oben wie nach unten:
 - **5** — komponiert: Kopfraum stimmt, ruhiger Hintergrund, scharf und sauber belichtet.
-- **4** — gut, ein Punkt schwächer (z.B. leicht unruhiger Hintergrund).
+- **4** — gut, ein bis zwei Hinweise (z.B. leicht unruhiger Hintergrund, leichtes Wackeln).
 - **3** — funktional: nichts stört massiv, aber auch nichts ist bewusst gestaltet.
 - **2** — MEHRERE deutliche Mängel: klar zu viel oder zu wenig Kopfraum, unscharfe oder rauschige
   Aufnahme, stark ablenkender Hintergrund, schiefe Kamera.
 - **1** — das Bild schadet dem Video: sehr unscharf, stark unter- oder überbelichtet, Motiv
   angeschnitten.
-Zwei DEUTLICHE Mängel sind eine 2. Zwei Hinweise sind keine 2 — und auch keine 3.
+Zwei DEUTLICHE Mängel sind eine 2, ein einzelner deutlicher Mangel ist eine 3. Zwei Hinweise sind
+keine 2 — und auch keine 3, sondern eine 4. Erkennst du das Gesicht klar und stört dich nichts, ist
+das eine 5 — die Abwesenheit von Mängeln genügt, es braucht kein Studio.
 
 **3. Technische Bildqualität.** Scharf (mindestens 1080p — Haare und Stoffstruktur erkennbar), rauschfrei
 auch in dunklen Bereichen, flüssige Bewegung ohne Schlieren bei Gesten. Nutze den Schärfe-Messwert:
@@ -537,12 +607,33 @@ gehören weg.
 ### Zwei Scores: `score` und `gestaltung_score`
 Untertitel werden in ZWEI getrennten Dimensionen bewertet, weil es zwei verschiedene Fragen sind:
 - `score` — **gibt es sie?** Läuft praktisch jedes gesprochene Wort als Untertitel mit? Das ist eine
-  Frage der Watchtime: Wer ohne Ton schaut, steigt ohne Untertitel aus. 5 heißt lückenlos, 3 heißt
-  in Teilen, 1 heißt so gut wie gar nicht.
+  Frage der Watchtime: Wer ohne Ton schaut, steigt ohne Untertitel aus.
 - `gestaltung_score` — **wie sind sie gemacht?** Platzierung, Wörter pro Block, Lesbarkeit, Timing.
   Das ist Handwerk. Die Punkte sind dieselben wie in `maengel`: Je mehr davon schwach sind, desto
   tiefer der Score. Sitzen sie unter dem Kinn, laufen in 2–4-Wort-Blöcken synchron mit, sind groß
   und kontrastreich: 5.
+
+ANKER für `untertitel_vorhanden` (das Feld `untertitel.score`) — nutze die ganze Skala:
+- **5** — praktisch jedes gesprochene Wort läuft als Untertitel mit.
+- **4** — die Spur läuft durchgehend mit, setzt aber an einer Stelle für einen Satz aus.
+- **3** — sie läuft nur in Teilen: ganze Passagen des Videos bleiben ohne Untertitel.
+- **2** — nur einzelne Stellen sind untertitelt, der größere Teil des Gesprochenen nicht.
+- **1** — so gut wie nichts vom Gesprochenen ist zu lesen.
+Läuft die Spur durchgehend mit, ist das eine 5 — die Abwesenheit von Mängeln genügt, und einzelne
+nicht angezeigte Wörter sind ausdrücklich kein Abzug.
+
+ANKER für `untertitel_gestaltung` (das Feld `untertitel.gestaltung_score`) — gezählt wird, wie
+viele Punkte aus der Mängelliste oben zutreffen:
+- **5** — kein Punkt trifft zu: unter dem Kinn, kurze Blöcke synchron zum Gesprochenen, groß und
+  kontrastreich.
+- **4** — ein Punkt trifft leicht zu (z.B. ein Block ist etwas zu lang).
+- **3** — ein Punkt trifft deutlich zu, oder zwei leicht.
+- **2** — drei oder mehr Punkte treffen zu, oder einer macht das Mitlesen mühsam (zu klein, kein
+  Kontrast zum Hintergrund).
+- **1** — mitlesen ist praktisch unmöglich: Text und Ton laufen auseinander, oder der Text liegt in
+  der Sperrzone der App und wird überdeckt.
+Trifft kein Punkt zu, ist das eine 5 — die Abwesenheit von Mängeln genügt, eine besonders
+gestaltete Untertitelspur ist nicht verlangt.
 
 Beide Felder füllst du NUR aus, wenn Untertitel mitlaufen. Fehlen sie, oder wird im Video gar nicht
 gesprochen, schreib in beide `null` — diese Fälle setzt das System selbst, deine Zahl würde dort
@@ -563,6 +654,19 @@ Schreib auch keine eigene Empfehlung zur Lautstärke; den Schritt baut das Syste
 Nach `probleme` gehört nur, was DEUTLICH stört (das deckelt den Score), nach `hinweise` das, was
 man erwähnt, aber nicht abzieht. Hat das Video keine Tonspur: `score` auf `null`.
 
+ANKER für `audioqualitaet.score` — nutze die ganze Skala:
+- **5** — klar und nah, keine störenden Nebengeräusche, kein Hall; Musik und Effekte liegen
+  deutlich unter der Stimme.
+- **4** — sauber, eine Kleinigkeit ist hörbar (leises Grundrauschen, ein einzelnes Geräusch im
+  Hintergrund), ohne dass es beim Zuhören stört.
+- **3** — man hört die Aufnahmesituation: spürbarer Hall, dumpfer oder ferner Klang, oder die Musik
+  drängt sich stellenweise vor die Stimme. Verstehen kann man trotzdem alles.
+- **2** — mehrere Stellen stören deutlich: Übersteuerung, Wind, Klappern, oder die Musik kämpft
+  durchgehend mit der Stimme.
+- **1** — man versteht die Worte nur mit Mühe.
+Klingt der Ton sauber und fällt dir nichts auf, ist das eine 5 — die Abwesenheit von Mängeln
+genügt, ein Studiomikrofon ist keine Bedingung. Eine leise Umgebung im Hintergrund ist normal.
+
 ## Call to Action (1–5)
 **Das Wichtigste zuerst:** Der CTA ist nur die Aufforderung, das im Video entstandene Bedürfnis
 umzusetzen. Das Bedürfnis selbst wird NICHT durch den CTA erzeugt — das Video selbst MUSS das
@@ -582,6 +686,19 @@ trotzdem immer:
   nicht — der Zuschauer weiß danach nicht, was er tun soll.
 - **Sitzt er richtig?** Am Ende, nach dem Nutzen, in einem Satz. Ein CTA vor dem Nutzen kommt zu
   früh, drei CTAs hintereinander heben sich gegenseitig auf.
+ANKER für `cta.score` — nutze die ganze Skala:
+- **5** — es gibt genau EINEN, er ist konkret („Schreib mir ‚Start' in die DMs"), und er kommt am
+  Ende, nach dem Nutzen.
+- **4** — konkret und richtig platziert, eine Kleinigkeit schwächt ihn (er kommt beiläufig, oder er
+  steht nur im Bild, statt gesagt zu werden).
+- **3** — eine Aufforderung ist da, bleibt aber unkonkret („meldet euch gern mal") oder sitzt vor
+  dem Nutzen.
+- **2** — mehrere Aufforderungen heben sich gegenseitig auf, oder die Aufforderung passt nicht zu
+  dem Bedürfnis, das das Video geweckt hat.
+- **1** — es gibt keine Aufforderung.
+Ist ein konkreter CTA da und fällt dir nichts daran auf, ist das eine 5 — die Abwesenheit von
+Mängeln genügt, eine originelle Formulierung ist nicht verlangt.
+
 Ein Video ohne Verkaufsabsicht darf einen schwachen CTA haben — sag das im `kommentar`, damit der
 Nutzer die Zahl einordnen kann.
 
