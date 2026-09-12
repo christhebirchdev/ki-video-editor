@@ -6,6 +6,29 @@ Stand: nach der Übertragung in `services/analyst_eval_skill_v3.md` (PROMPT_VERS
 
 Zeilenverweise „KB:nnn" meinen `docs/analyst_knowledge.md`, „V3:nnn" den V3-Skill.
 
+## Stand 2026-09-13b — was inzwischen erledigt ist
+
+Das Nutzer-Feedback aus Lauf d9988b7d („wenn keine Auffälligkeiten, sollte der Score auch eine 5/5
+sein", dreimal geschrieben) hat Punkt 2 der Ausbauliste vorgezogen. **Im V3-Skill** stehen jetzt
+Score-Anker über fünf Stufen für `struktur`, `spannungsbogen`, `schnitt_pacing`, `sprechqualitaet`,
+`untertitel_vorhanden`, `untertitel_gestaltung`, `audioqualitaet`, `cta` und — vollständig statt
+nur 5/3/1 — `visuell_hook`. Jeder Anker sagt ausdrücklich, dass die Abwesenheit von Mängeln für
+eine 5 genügt. Ebenfalls erledigt: **c-2** (Einzelmangel = 3, zwei Hinweise = 4) und **c-7**, erster
+Spiegelstrich zum Schnitt-Score (die Zurückhaltung gilt jetzt den Behauptungen über einzelne
+Schnitte, nicht dem Score).
+
+**Die Tabellen unten beschreiben weiterhin die WISSENSBASIS, nicht den Skill** — sie ist unverändert
+dünn. Was nachgezogen werden müsste, wenn die Anker in die Wissensbasis zurückwandern sollen:
+Schwellen für „viele Füllwörter" (c-7), eine Pacing-Erwartung je Format (KB 12, dadurch fällt der
+zirkuläre Verweis in KB 5 weg), und eine Operationalisierung von „zeitnah" im Spannungsbogen.
+Offen bleiben außerdem alle vier Fragen an den Nutzer am Ende dieses Dokuments — insbesondere c-1
+(`sprechqualitaet` vs. `audioqualitaet`): Die beiden neuen Anker halten sich an die Abschnitte, wie
+sie heute im Skill stehen, und entscheiden die Zuständigkeitsfrage NICHT.
+
+Neu hinzugekommen sind zwei Freitextfelder, die diese Analyse noch nicht kennt:
+`funnel_wirkung_empfehlung` (was zu tun wäre, wenn das Video am Ziel vorbeigeht) und
+`zielgruppen_relevanz` (leer, solange keine Zielgruppen-/Markendaten hinterlegt sind).
+
 ---
 
 ## a) Was die Analyse überhaupt abfragt
