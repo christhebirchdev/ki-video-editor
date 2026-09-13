@@ -827,3 +827,26 @@
   background:var(--paper-alt); border:1px solid var(--line);
   border-radius:var(--radius-sm); padding:12px 14px;
 }
+
+/* ===== Rueckfrage-Dialog =====
+   Gebaut aus denselben Bausteinen wie der Rest: .card-Flaeche, .btn-Knoepfe, dieselben Variablen.
+   Ein fremd aussehender Dialog mitten in der Oberflaeche liest sich wie eine Browser-Warnung —
+   und genau in dem Moment soll der Nutzer ruhig eine Frage beantworten, nicht erschrecken. */
+.dlg-hinter{
+  position:fixed;inset:0;background:rgba(43,38,32,.44);backdrop-filter:blur(2px);
+  display:flex;align-items:center;justify-content:center;padding:24px;z-index:120;
+}
+.dlg{
+  background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:0 18px 48px rgba(43,38,32,.22);padding:26px 28px;max-width:460px;width:100%;
+}
+.dlg-ico{
+  width:44px;height:44px;border-radius:12px;background:var(--gold-tint);color:var(--gold-deep);
+  display:flex;align-items:center;justify-content:center;margin-bottom:14px;
+}
+.dlg h3{font-size:17px;font-weight:700;margin:0 0 8px;color:var(--ink);}
+.dlg p{font-size:14px;line-height:1.55;color:var(--ink-2);margin:0 0 8px;}
+.dlg .dlg-meta{font-size:13px;color:var(--taupe);margin-bottom:18px;}
+.dlg-knoepfe{display:flex;gap:10px;flex-wrap:wrap;}
+.dlg-knoepfe .btn{flex:1 1 170px;}
+@media(max-width:520px){ .dlg-knoepfe .btn{flex:1 1 100%;} }

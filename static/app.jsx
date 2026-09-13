@@ -892,6 +892,9 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   // Muell, den niemand aufraeumt. Hochgeladen wird sie in startAnalysis, zwischen Upload und Start.
   const [markeFile, setMarkeFile] = useState(null);
   const [markeInfo, setMarkeInfo] = useState(null);   // Antwort des Servers: Woerter, gekuerzt
+  // Rueckfrage vor dem Start, wenn es zu dieser Datei schon eine Analyse gibt.
+  // `{ runId, quelle, erstelltAm, abweichung }` — null heisst: keine Frage offen.
+  const [rueckfrage, setRueckfrage] = useState(null);
   // Format-Auswahl (Pflicht, genau eines). Muss zu models.analyst.FORMATE passen — die API validiert dagegen.
   const [format, setFormat] = useState("");
   const [phase, setPhase] = useState("idle");   // idle | running | done
@@ -1007,6 +1010,17 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
         format,
         ...(engine === "v3" ? { ziel } : {}),
       });
+      // Gibt es zu dieser Datei schon eine Analyse? Dann NICHT einfach rechnen, sondern fragen.
+      // Anlass: Ein Nutzer hat dasselbe Video zweimal hochgeladen und zwei verschiedene
+      // Bewertungen bekommen — er wusste danach nicht, welche Empfehlungen gelten.
+      if (!cacheUmgehen) {
+        const vorher = await api("GET", `/api/analyst/${up.id}/cache-check?${qs}`);
+        if (vorher.treffer) {
+          setRueckfrage({ runId: up.id, quelle: vorher.run_id, erstelltAm: vorher.erstellt_am,
+                          abweichung: vorher.abweichung || [] });
+          return;   // Es geht erst weiter, wenn der Nutzer geantwortet hat.
+        }
+      }
       await api("POST", `/api/analyst/${up.id}/start?${qs}`,
                 adminPw && cacheUmgehen ? { password: adminPw, force: true } : undefined);
       const res = await pollUntilDone(up.id);
@@ -1014,6 +1028,43 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
         setResult(res);
         setPhase("done");
       }
+    } catch (e) {
+      setError(e.message);
+      setPhase("idle");
+    }
+  }
+
+  /** „Nein, unverändert" — das vorhandene Ergebnis zeigen, ohne neue Analyse. */
+  async function uebernehmeAlteAnalyse() {
+    const { runId, quelle } = rueckfrage;
+    setRueckfrage(null);
+    try {
+      setProgress("Vorhandene Analyse wird geladen …");
+      await api("POST", `/api/analyst/${runId}/uebernehmen?von=${encodeURIComponent(quelle)}`);
+      const daten = await api("GET", `/api/analyst/${runId}`);
+      setCacheInfo({ from: quelle, at: rueckfrage.erstelltAm || "" });
+      setResult(daten.result);
+      setPhase("done");
+    } catch (e) {
+      setError(e.message);
+      setPhase("idle");
+    }
+  }
+
+  /** „Ja, ich habe es verändert" — normal durchlaufen lassen. `neu=true` sagt dem Server, dass er
+      den Cache diesmal NICHT nehmen soll; sonst widerspräche er der gerade gestellten Frage. */
+  async function starteTrotzdem() {
+    const { runId } = rueckfrage;
+    setRueckfrage(null);
+    try {
+      setProgress(ANALYSE_LAEUFT);
+      const qs = new URLSearchParams({
+        engine, planned_text_hook: plannedTextHook, format, neu: "true",
+        ...(engine === "v3" ? { ziel } : {}),
+      });
+      await api("POST", `/api/analyst/${runId}/start?${qs}`);
+      const res = await pollUntilDone(runId);
+      if (res) { setResult(res); setPhase("done"); }
     } catch (e) {
       setError(e.message);
       setPhase("idle");
@@ -1033,6 +1084,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     setZiel("");   // engine bleibt bewusst stehen (Admin-Versionswahl über mehrere Läufe)
     setMarkeFile(null);
     setMarkeInfo(null);
+    setRueckfrage(null);
     setRunId("");
     setActivePhase("");
     activePhaseRef.current = "";
@@ -1434,6 +1486,46 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
           )}
         </div>
       </Card>
+
+      {/* Rückfrage vor einer zweiten Analyse desselben Videos. Bewusst ein Dialog und kein
+          Hinweistext: Die Antwort entscheidet, ob gerechnet wird — das darf man nicht überlesen.
+          Gebaut aus denselben Bausteinen wie der Rest der Oberfläche (siehe .dlg in styles.css). */}
+      {rueckfrage && (
+        <div className="dlg-hinter" role="dialog" aria-modal="true" aria-labelledby="dlg-titel">
+          <div className="dlg">
+            <div className="dlg-ico"><Ico.refresh width="22" height="22" /></div>
+            <h3 id="dlg-titel">Dieses Video wurde schon analysiert</h3>
+            <p>
+              Hast du es seit der letzten Analyse verändert — also neu geschnitten, exportiert
+              oder etwas am Ton oder an den Einblendungen geändert?
+            </p>
+            <p className="dlg-meta">
+              {rueckfrage.erstelltAm
+                ? `Letzte Analyse: ${new Date(rueckfrage.erstelltAm).toLocaleString("de-DE",
+                    { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })} Uhr`
+                : "Es liegt bereits eine Analyse zu dieser Datei vor."}
+              {/* Läuft die erste Analyse noch, ist „nein" keine Option — es gibt noch kein
+                  Ergebnis zu zeigen. Dann bleibt nur: warten oder trotzdem rechnen. */}
+              {rueckfrage.abweichung.includes("laeuft_noch") && " — sie läuft gerade noch."}
+            </p>
+            <div className="dlg-knoepfe">
+              <button className="btn btn-primary" onClick={starteTrotzdem}>
+                Ja, verändert — neu analysieren
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={uebernehmeAlteAnalyse}
+                disabled={rueckfrage.abweichung.includes("laeuft_noch")}
+                title={rueckfrage.abweichung.includes("laeuft_noch")
+                  ? "Die erste Analyse läuft noch — es gibt noch kein Ergebnis zu zeigen."
+                  : undefined}
+              >
+                Nein — vorhandene Analyse zeigen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ergebnis */}
       {phase === "done" && result && (

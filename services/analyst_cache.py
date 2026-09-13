@@ -68,6 +68,59 @@ def cache_key(meta: dict):
     )
 
 
+# Die Felder, die dieselbe Datei zu einem LEGITIM anderen Ergebnis machen: Sie beschreiben, WAS
+# bewertet werden soll. `engine` und `prompt_version` beschreiben dagegen, WOMIT bewertet wurde —
+# aendert sich nur das, ist es dasselbe Video mit derselben Frage, und der Nutzer soll die Wahl
+# haben, statt still eine zweite, abweichende Analyse zu bekommen.
+EINGABE_FELDER = ("format", "ziel", "planned_text_hook", "marke_hash")
+WERKZEUG_FELDER = ("engine", "prompt_version")
+
+
+def finde_vorherige_analyse(runs_dir: Path, meta: dict, ausser: str):
+    """Die frueheste fruehere Analyse DERSELBEN Datei mit denselben Eingaben — plus der Grund,
+    warum sie nicht exakt passt.
+
+    Rueckgabe `(pfad, abweichung)`. `abweichung == []` heisst: identische Eingaben UND identisches
+    Werkzeug, das Ergebnis ist eins zu eins uebertragbar. Sonst stehen dort die Feldnamen, in denen
+    sich die Laeufe unterscheiden (`prompt_version`, `engine`), oder `laeuft_noch`.
+
+    Warum das zusaetzlich zu `finde_treffer` existiert: `finde_treffer` ist die AUTOMATIK und darf
+    nur bei voelliger Gleichheit greifen. Diese Funktion ist die RUECKFRAGE — sie findet auch den
+    Fall, in dem inzwischen ein Deploy die Prompt-Version geaendert hat. Genau dort bekam ein
+    Nutzer bisher ungefragt eine zweite, abweichende Bewertung desselben Videos, ohne zu erfahren,
+    dass es die erste ueberhaupt gab.
+
+    Auch ein noch LAUFENDER Lauf zaehlt als Treffer (`laeuft_noch`): Zwei parallele Analysen
+    desselben Clips sind zwei Rechnungen und zwei verschiedene Antworten.
+    """
+    if not meta.get("sha256"):
+        return None, []
+    treffer = []
+    for d in sorted(runs_dir.iterdir()):
+        if not d.is_dir() or d.name == ausser:
+            continue
+        try:
+            alt = json.loads((d / "meta.json").read_text())
+            phase = json.loads((d / "status.json").read_text()).get("phase")
+        except (OSError, json.JSONDecodeError):
+            continue
+        if alt.get("sha256") != meta["sha256"] or phase == "error":
+            continue
+        if any(alt.get(f, "") != meta.get(f, "") for f in EINGABE_FELDER):
+            continue
+        fertig = (d / "analysis.json").exists() and phase == "done"
+        abweichung = ["laeuft_noch"] if not fertig else [
+            f for f in WERKZEUG_FELDER if alt.get(f, "") != meta.get(f, "")]
+        treffer.append((alt.get("created_at", ""), d, abweichung))
+    if not treffer:
+        return None, []
+    treffer.sort(key=lambda x: x[0])
+    # Ein FERTIGER Lauf schlaegt einen laufenden: Aus ihm laesst sich sofort etwas anzeigen.
+    fertige = [x for x in treffer if x[2] != ["laeuft_noch"]]
+    _, pfad, abweichung = (fertige or treffer)[0]
+    return pfad, abweichung
+
+
 def finde_treffer(runs_dir: Path, key, ausser: str):
     """Ältester abgeschlossener Lauf mit demselben Key — oder `None`.
 

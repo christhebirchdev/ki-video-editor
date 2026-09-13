@@ -98,6 +98,65 @@ def upload_marke(run_id: str, file: UploadFile = File(...)):
             "gekuerzt": gekuerzt, "limit": analyst_marke.MAX_WOERTER}
 
 
+def _eingaben(run_dir, format: str, ziel: str, planned_text_hook: str) -> dict:
+    """Die meta-Felder, die den Cache-Schluessel ausmachen — so, wie /start sie schreiben wuerde."""
+    from services.analyst_eval import PROMPT_VERSION
+    meta = json.loads((run_dir / "meta.json").read_text())
+    return {**meta, "format": (format or "").strip(),
+            "ziel": (ziel or "").strip().upper(),
+            "planned_text_hook": (planned_text_hook or "").strip(),
+            "prompt_version": PROMPT_VERSION}
+
+
+@router.get("/{run_id}/cache-check")
+def cache_check(run_id: str, format: str = "", ziel: str = "", planned_text_hook: str = "",
+                engine: str = "v2_split"):
+    """Gibt es zu DIESER Datei mit DIESEN Eingaben schon eine Analyse?
+
+    Das Frontend fragt zwischen Upload und Start. Anlass (Kollege von Chris, 2026-09-13): Er hat
+    dasselbe Video zweimal hochgeladen und zwei verschiedene Bewertungen bekommen. Die Automatik in
+    /start greift nur bei voelliger Gleichheit — hat sich zwischendurch die Prompt-Version geaendert
+    (jeder Deploy), laeuft die zweite Analyse ungefragt komplett neu. Der Nutzer erfaehrt nicht
+    einmal, dass es die erste gab.
+
+    Deshalb ist das hier bewusst LOCKERER als der Cache-Schluessel und meldet den Unterschied mit:
+    Das Frontend fragt dann nach, ob das Video zwischendurch veraendert wurde.
+    """
+    run_dir = _run_dir(run_id)
+    meta = _eingaben(run_dir, format, ziel, planned_text_hook)
+    meta["engine"] = engine
+    quelle, abweichung = analyst_cache.finde_vorherige_analyse(ANALYST_PATH, meta, ausser=run_id)
+    if not quelle:
+        return {"treffer": False}
+    try:
+        quell_meta = json.loads((quelle / "meta.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        quell_meta = {}
+    return {"treffer": True, "run_id": quelle.name, "erstellt_am": quell_meta.get("created_at", ""),
+            "dateiname": quell_meta.get("filename", ""), "abweichung": abweichung}
+
+
+@router.post("/{run_id}/uebernehmen")
+def uebernehmen(run_id: str, von: str):
+    """Die Antwort auf „nein, ich habe am Video nichts veraendert": das vorhandene Ergebnis zeigen.
+
+    Kein Modell-Call, keine Kosten, und vor allem: dieselbe Bewertung wie beim ersten Mal. Genau
+    das ist der Zweck des Caches — zwei abweichende Antworten zu demselben Video lassen den Nutzer
+    im Unklaren, welche Empfehlungen jetzt gelten.
+    """
+    run_dir = _run_dir(run_id)
+    quelle = _run_dir(von)
+    if not (quelle / "analysis.json").exists():
+        raise HTTPException(status_code=409, detail="Diese Analyse ist noch nicht fertig.")
+    herkunft = analyst_cache.uebernehmen(quelle, run_dir)
+    meta_path = run_dir / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta.update(herkunft)
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False))
+    write_status(run_dir, "done", "Analyse abgeschlossen", done=True)
+    return {"id": run_id, "status": "cached", **herkunft}
+
+
 # V1 ist abgeschafft (Entscheidung Chris, 2026-07-31) und deshalb NICHT mehr wählbar.
 # Wichtig für den Prompt: V1 bewertete OHNE Video aus Szenenbeschreibungen und nutzte denselben
 # `build_system_prompt()`. Der Skill ist inzwischen für den Modus „du siehst das Video"
@@ -122,7 +181,8 @@ class StartIn(BaseModel):
 @router.post("/{run_id}/start")
 async def start_analysis(
     run_id: str, background: BackgroundTasks, skip_eval: bool = False, engine: str = "v2_hybrid",
-    planned_text_hook: str = "", format: str = "", ziel: str = "", body: StartIn | None = None,
+    planned_text_hook: str = "", format: str = "", ziel: str = "", neu: bool = False,
+    body: StartIn | None = None,
 ):
     """engine: v1 (Claude bewertet aus Text) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte).
     skip_eval=true → nur lokale Rohanalyse (Whisper/Quality), KEIN Bewertungs-Call (nur v1 sinnvoll).
@@ -161,8 +221,11 @@ async def start_analysis(
     status = json.loads((run_dir / "status.json").read_text())
     if status.get("phase") in RUNNING_PHASES:
         raise HTTPException(status_code=409, detail="Analyse läuft bereits")
-    force = bool(body and body.force)
-    if force and not _admin_ok(body.password):
+    # `neu=true` kommt aus der Rueckfrage „Hast du das Video veraendert?" und braucht deshalb KEIN
+    # Admin-Passwort: Der Nutzer hat gerade selbst gesagt, dass die alte Analyse nicht mehr passt.
+    # Wuerde /start hier trotzdem den Cache nehmen, widerspraeche das System seiner eigenen Frage.
+    force = bool(body and body.force) or neu
+    if force and not neu and not _admin_ok(body.password if body else ""):
         raise HTTPException(status_code=401, detail="Falsches Passwort")
     from services.analyst_eval import PROMPT_VERSION
 
