@@ -111,6 +111,15 @@ class QualityMetrics(BaseModel):
 # Schwelle zu Boilerplate wird — dieselbe Lektion wie bei P2 in docs/offene-fixes-analyst.md.
 POSITIV_DOC = "was an dieser Dimension gut ist; leer, wenn der Score es nicht hergibt"
 
+# Das Gegenstueck: die Kritikseite des Aufklappers. Ein EIGENES Feld und nicht der vorhandene
+# `kommentar`/`grund`, weil genau das nicht funktioniert hat. In Lauf 411b3493 stand unter „Das
+# kannst du besser machen" sechsmal ein Lob — der `kommentar` einer Dimension mit Score 4 oder 5
+# beschreibt nun einmal, was gut laeuft, und keine Prompt-Regel hat das zuverlaessig gedreht
+# (dieselbe P2-Lektion wie in docs/offene-fixes-analyst.md). Ein Feld, das „verbesserung" heisst,
+# kann nur mit einer Verbesserung gefuellt werden.
+VERBESSERUNG_DOC = ("was diese Dimension besser machen wuerde, 1 Satz und konkret; "
+                    "LEER bei Score 5 — dort gibt es nichts zu verbessern")
+
 
 class HookEval(BaseModel):
     """Hook getrennt nach Sprech- und Text-Hook (4-Faktoren-Rubrik, 1–5).
@@ -124,6 +133,7 @@ class HookEval(BaseModel):
     # Drei Hook-Ebenen liegen in EINER Klasse, brauchen aber drei getrennte Lob-Felder: Ein
     # gemeinsames `positiv` würde drei Urteile zu einem verschmelzen. Siehe POSITIV_DOC.
     sprech_hook_positiv: str = ""
+    sprech_hook_verbesserung: str = ""   # siehe VERBESSERUNG_DOC
     # Die Frage, die der Hook offen lässt — PFLICHT, in EINEM Satz.
     # Zweck: „erzeugt Neugier" ist eine Behauptung, die über jeden Text aufgestellt werden kann und
     # die das Modell nicht falsifizieren muss. Eine formulierbare offene Frage ist dagegen prüfbar:
@@ -137,6 +147,7 @@ class HookEval(BaseModel):
     text_hook_score: Optional[int] = None
     text_hook_grund: Optional[str] = None
     text_hook_positiv: str = ""        # siehe POSITIV_DOC
+    text_hook_verbesserung: str = ""   # siehe VERBESSERUNG_DOC
     # Wortlaut des Textes, den das Modell als Text-Hook wertet — PFLICHT wenn vorhanden.
     # Zwei Gründe: (1) Ohne Zitat ist eine Fehlklassifikation unsichtbar. Im Lauf 5502bb37 wertete
     # das Modell die Spaltenüberschrift einer Vergleichsgrafik als Texthook mit Score 4; im Output
@@ -169,6 +180,7 @@ class HookEval(BaseModel):
     visuell_hook_score: Optional[int] = None
     visuell_hook_grund: str = ""
     visuell_hook_positiv: str = ""     # siehe POSITIV_DOC
+    visuell_hook_verbesserung: str = ""  # siehe VERBESSERUNG_DOC
     # True, wenn der Score erst NACH dem Modell-Call im Code geklemmt wurde. Das Modell konnte davon
     # nichts wissen, also muss die Empfehlung dazu erzwungen werden (siehe erzwinge_hook_empfehlungen).
     text_hook_score_geklemmt: bool = False
@@ -233,6 +245,7 @@ class UntertitelEval(BaseModel):
     # schon heute — ein gemeinsames `positiv` wäre der einzige Ort, an dem sie wieder zusammenfielen.
     positiv: str = ""                  # zu `score`, siehe POSITIV_DOC
     gestaltung_positiv: str = ""       # zu `gestaltung_score`
+    verbesserung: str = ""             # siehe VERBESSERUNG_DOC (gilt fuer `score`)
 
     @field_validator("maengel", mode="before")
     @classmethod
@@ -287,6 +300,7 @@ class StrukturEval(BaseModel):
     elemente: StrukturElemente = Field(default_factory=StrukturElemente)
     kommentar: str = ""
     positiv: str = ""                  # siehe POSITIV_DOC
+    verbesserung: str = ""             # siehe VERBESSERUNG_DOC
 
 
 class ScoreProbleme(BaseModel):
@@ -360,6 +374,7 @@ class ScoreKommentar(BaseModel):
     kommentar: str = ""
     # Deckt schnitt_pacing, spannungsbogen, cta und soundeffekte ab. Siehe POSITIV_DOC.
     positiv: str = ""
+    verbesserung: str = ""             # siehe VERBESSERUNG_DOC
 
 
 class ActionStep(BaseModel):

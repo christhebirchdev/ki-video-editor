@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-13h"   # Marken-/Zielgruppen-Datei: eigener Prompt-Abschnitt + zielgruppen_abgleich
+PROMPT_VERSION = "2026-09-13j"   # eigenes Feld verbesserung je Dimension; Nachlauf nur nach oben begrenzt
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -284,9 +284,15 @@ MAX_LOB_PRO_KATEGORIE = 2
 def filtere_staerken(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEvaluationV2:
     """Lob nur dort, wo die eigenen Scores es decken (V3).
 
-    Eine Stärke überlebt, wenn ihre Kategorie mindestens eine Dimension mit Score >= LOB_SCHWELLE
-    hat. Je Kategorie höchstens MAX_LOB_PRO_KATEGORIE Einträge, Reihenfolge wie geliefert.
-    Stärken ohne `betrifft` fallen raus: Ohne Bezug ist nicht prüfbar, worauf sie sich stützen.
+    Eine Stärke überlebt, wenn IHRE EIGENE Dimension einen Score >= LOB_SCHWELLE hat. Je Kategorie
+    höchstens MAX_LOB_PRO_KATEGORIE Einträge, Reihenfolge wie geliefert. Stärken ohne `betrifft`
+    fallen raus: Ohne Bezug ist nicht prüfbar, worauf sie sich stützen.
+
+    Bis 2026-09-13 wurde die KATEGORIE geprüft, nicht die Dimension. Lauf 411b3493 zeigt, warum das
+    zu lasch war: `audioqualitaet.score` stand auf 2 (vom Lautheits-Deckel), und daneben überlebte
+    die Stärke „Die Audioqualität ist auf absolutem Studio-Niveau" — gedeckt allein durch
+    `sprechqualitaet` 5 in derselben Kategorie. Genau dieses Lob ohne Deckung sollte der Filter
+    verhindern.
 
     Ohne `ziel` (v2, Altläufe) bleibt die Liste unverändert — sonst würde ein gespeichertes
     Ergebnis beim erneuten Anzeigen plötzlich weniger Lob enthalten als beim ersten Mal.
@@ -295,14 +301,11 @@ def filtere_staerken(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEval
         return parsed
     scores = dimensions_scores(parsed)
     kategorie_von = {d: k for k, dims in KATEGORIEN.items() for d in dims}
-    gedeckt = {
-        k for k, dims in KATEGORIEN.items()
-        if any((scores.get(d) or 0) >= LOB_SCHWELLE for d in dims)
-    }
     behalten, gezaehlt = [], {}
     for s in parsed.staerken:
-        k = kategorie_von.get((s.betrifft or "").strip())
-        if k is None or k not in gedeckt:
+        name = (s.betrifft or "").strip()
+        k = kategorie_von.get(name)
+        if k is None or (scores.get(name) or 0) < LOB_SCHWELLE:
             continue
         if gezaehlt.get(k, 0) >= MAX_LOB_PRO_KATEGORIE:
             continue
@@ -316,6 +319,90 @@ def filtere_staerken(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEval
 # Nachricht — ein Lob daneben relativiert sie und ist fast immer Fuellmaterial („immerhin ist die
 # Kamera an").
 POSITIV_SCHWELLE = 3
+
+
+# Die Kritikseite des Aufklappers je Dimension, als (Objekt, Attributname) — das Gegenstueck zu
+# positiv_felder(). Hier stehen NUR die neun Dimensionen, deren Kritikseite ein einzelnes Textfeld
+# ist. Die uebrigen liefern ihre Kritik ueber `probleme`/`hinweise`; die behandelt
+# filtere_verbesserung getrennt, weil dort Listen stehen und kein Satz.
+#
+# Es ist ausdruecklich `verbesserung` und NICHT `kommentar`/`grund` (siehe VERBESSERUNG_DOC in
+# models/analyst.py): `kommentar` beschreibt bei gutem Score, was gut laeuft — genau deshalb stand
+# in Lauf 411b3493 sechsmal ein Lob unter der Ueberschrift „Das kannst du besser machen".
+def kritik_felder(parsed: AnalystEvaluationV2) -> dict:
+    return {
+        "sprech_hook": (parsed.hook, "sprech_hook_verbesserung"),
+        "text_hook": (parsed.hook, "text_hook_verbesserung"),
+        "visuell_hook": (parsed.hook, "visuell_hook_verbesserung"),
+        "spannungsbogen": (parsed.spannungsbogen, "verbesserung"),
+        "struktur": (parsed.struktur, "verbesserung"),
+        "schnitt_pacing": (parsed.schnitt_pacing, "verbesserung"),
+        "soundeffekte": (parsed.soundeffekte, "verbesserung"),
+        "untertitel_vorhanden": (parsed.untertitel, "verbesserung"),
+        "cta": (parsed.cta, "verbesserung"),
+    }
+
+
+# Dimensionen, deren Kritikseite aus Listen besteht.
+def _listen_dimensionen(parsed: AnalystEvaluationV2) -> dict:
+    return {
+        "skript": parsed.skript,
+        "sprechqualitaet": parsed.sprechqualitaet,
+        "visuelle_aesthetik": parsed.visuelle_aesthetik,
+        "audioqualitaet": parsed.audioqualitaet,
+        "einblendungen": parsed.einblendungen_eval,
+        "protagonist_auftreten": parsed.protagonist_auftreten,
+    }
+
+
+# Ab diesem Score gibt es nichts mehr zu verbessern. Genau 5 und nichts darunter: Chris zu einer
+# Dimension mit 4/5 — „hier fehlt ein verbesserungsvorschlag. da der score eine 4/5 ist muss ja noch
+# was besser gehen."
+KEINE_KRITIK_AB = 5
+
+# Der Notnagel. Er ist bewusst ein EINGESTAENDNIS und kein Ratschlag: Ein erfundener
+# Verbesserungsvorschlag waere genau der Fehler, den er verhindern soll. Er zeigt ausserdem, wo der
+# Prompt noch nicht liefert — taucht er haeufig auf, gehoert die Dimension in den Skill, nicht hier.
+NOTNAGEL_KRITIK = (
+    "Der Analyst hat hier nichts Konkretes benannt, obwohl der Score noch Luft lässt. "
+    "Frag im Chat nach, was an dieser Stelle besser ginge."
+)
+
+
+def filtere_verbesserung(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEvaluationV2:
+    """Die Kritikseite jeder Dimension ist Kritik — oder sie ist leer (V3).
+
+    Anlass ist Lauf 411b3493. Chris hat SECHSMAL dasselbe geschrieben: „der tipp ist kein tipp
+    sondern ein weiteres Lob. das ist falsch." Ursache: Der Aufklapper zeigt unter „Das kannst du
+    besser machen" das Feld `kommentar` bzw. `*_grund`, und die enthalten bei einem guten Score
+    naturgemaess Lob („Die Schnitte sind hervorragend getaktet").
+
+    Zwei Regeln, beide am Score aufgehaengt und deshalb im Code pruefbar:
+    - Score 5: Es gibt nichts zu verbessern → die Kritikseite wird geleert. („in dem fall sollte es
+      dann auch kein vorschlag zur verbesserung geben, da der score ja bei 5/5 liegt.")
+    - Score 4 oder schlechter: Es MUSS etwas dastehen. Steht nichts da, setzt der Notnagel ein.
+
+    Was das Modell selbst geschrieben hat, bleibt unangetastet — der Code ergaenzt nur die Luecke.
+    Ohne `ziel` (v2, Altlaeufe) passiert nichts.
+    """
+    if not ziel:
+        return parsed
+    scores = dimensions_scores(parsed)
+    for name, (obj, attr) in kritik_felder(parsed).items():
+        score = scores.get(name)
+        if score is None:
+            continue
+        if score >= KEINE_KRITIK_AB:
+            setattr(obj, attr, "")
+        elif not (getattr(obj, attr, "") or "").strip():
+            setattr(obj, attr, NOTNAGEL_KRITIK)
+    for name, obj in _listen_dimensionen(parsed).items():
+        score = scores.get(name)
+        if score is None or score >= KEINE_KRITIK_AB:
+            continue
+        if not obj.probleme and not obj.hinweise:
+            obj.hinweise = [NOTNAGEL_KRITIK]
+    return parsed
 
 
 def filtere_positiv(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEvaluationV2:
@@ -753,13 +840,12 @@ def baue_pausen_schritt(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
 # Anlass: Das Modell empfahl, einen „unnötigen Leerlauf" zu kürzen, den es nicht gab — gemessen
 # waren 0,24 s. Die Zahl stand als duration_sec und sprech_dauer_sec im Prompt; das Modell hat sie
 # nicht verrechnet. Deshalb rechnet das jetzt der Code.
-NACHLAUF_MIN_SEC = 1.0
+# Nur ein ZU LANGER Nachlauf ist ein Mangel (Vorgabe Chris, Lauf 411b3493): „das video soll nach
+# dem peak oder cta direkt enden ohne nachlauf. wenn aber 1-2 sekunden nachlauf waere ist es kein
+# grund das als mangel zu sehen." Bis 2026-09-13 gab es auch eine Untergrenze von 1,0 s — bei
+# gemessenen 0,24 s Nachlauf erzeugte sie einen Schritt fuer etwas, das genau so gewollt war.
 NACHLAUF_MAX_SEC = 2.0
 
-NACHLAUF_ZU_KURZ_ANWEISUNG = (
-    "Häng am Ende 1 bis 2 Sekunden Puffer an — das Bild darf nach dem letzten Wort kurz stehen "
-    "bleiben, sonst wirkt der Schluss abgehackt."
-)
 NACHLAUF_ZU_LANG_ANWEISUNG = (
     "Kürze den Schluss: Nach dem letzten Wort sollen höchstens 2 Sekunden stehen bleiben."
 )
@@ -768,15 +854,15 @@ NACHLAUF_ZU_LANG_ANWEISUNG = (
 # schreibt — der Satz entsteht aus dem Messwert.
 _VIDEOENDE_EMPFEHLUNG = re.compile(
     r"(leerlauf|am ende (des videos )?(ab)?schneid|beende das video|letzten satz (leicht )?(ab)?kürz"
-    r"|nachlauf|ende des videos (ab)?kürz)", re.IGNORECASE)
+    r"|nachlauf|ende des videos (ab)?kürz|puffer an)", re.IGNORECASE)
 
 
 def baue_videoende_schritt(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
     """Den Schluss des Videos aus Messwerten beurteilen statt aus dem Bauch des Modells.
 
     `nachlauf = duration_sec - (sprechbeginn_sec + sprech_dauer_sec)` — die Zeit nach dem letzten
-    gesprochenen Wort. Unter NACHLAUF_MIN_SEC wirkt der Schluss abgehackt, über NACHLAUF_MAX_SEC
-    plätschert er aus. Dazwischen: kein Schritt.
+    gesprochenen Wort. Nur über NACHLAUF_MAX_SEC gibt es einen Schritt: Ein Video, das direkt nach
+    dem letzten Wort endet, ist genau so gewollt, und bis zu zwei Sekunden Nachlauf sind es auch.
 
     Nur V3 (Ziel gesetzt). Ohne gesprochenes Wort gibt es keinen Nachlauf zu messen.
 
@@ -796,11 +882,11 @@ def baue_videoende_schritt(parsed: AnalystEvaluationV2, result: AnalystResult) -
     parsed.empfehlungen = [
         e for e in parsed.empfehlungen if not _VIDEOENDE_EMPFEHLUNG.search(e.anweisung or "")
     ]
-    if NACHLAUF_MIN_SEC <= nachlauf <= NACHLAUF_MAX_SEC:
+    if nachlauf <= NACHLAUF_MAX_SEC:
         return parsed
-    anweisung = NACHLAUF_ZU_KURZ_ANWEISUNG if nachlauf < NACHLAUF_MIN_SEC else NACHLAUF_ZU_LANG_ANWEISUNG
     parsed.empfehlungen.append(Empfehlung(
-        zeitpunkt_sek=round(sprechende, 1), gruppe="videoende", anweisung=anweisung))
+        zeitpunkt_sek=round(sprechende, 1), gruppe="videoende",
+        anweisung=NACHLAUF_ZU_LANG_ANWEISUNG))
     return parsed
 
 
@@ -1513,9 +1599,27 @@ def deckle_audioqualitaet(parsed: AnalystEvaluationV2,
         deckel = AUDIO_DECKEL
     if abweichung > AUDIO_ABWEICHUNG_HART:
         deckel = AUDIO_DECKEL_HART
-    if deckel is not None and block.score > deckel:
-        block.score = deckel
+    if deckel is not None:
+        block.score = min(block.score, deckel)
+        # Der Deckel muss sich ERKLAEREN. Lauf 411b3493: score 2, probleme [], hinweise [],
+        # positiv "" — der Aufklapper war komplett leer, und Chris schrieb „mir fehlt das feedback
+        # und die handlungsaufforderung komplett". Eine Zahl ohne Begruendung ist keine Bewertung.
+        # Der Satz steht in `probleme`, weil er der Grund fuer den Deckel ist; die HANDLUNG
+        # („heb um X LU an") baut weiterhin baue_lautstaerke_schritt, damit sie nicht doppelt steht.
+        block.probleme = [_lautheit_begruendung(lufs, peak)] + list(block.probleme)
     return parsed
+
+
+def _lautheit_begruendung(lufs: float, peak) -> str:
+    teile = []
+    if abs(lufs - LUFS_ZIEL) > LUFS_TOLERANZ:
+        richtung = "leise" if lufs < LUFS_ZIEL else "laut"
+        teile.append(f"Der Ton ist zu {richtung}: gemessen {lufs:.1f} LUFS, "
+                     f"gut wären etwa {LUFS_ZIEL:.0f} LUFS.")
+    if peak is not None and peak > TRUE_PEAK_MAX:
+        teile.append(f"Die Spitzen liegen bei {peak:.1f} dBTP und damit über {TRUE_PEAK_MAX:.0f} dBTP "
+                     f"— das kann beim Abspielen verzerren.")
+    return " ".join(teile) or "Die gemessene Lautheit liegt außerhalb des Zielkorridors."
 
 
 def erzwinge_marken_abhaengige_felder(parsed: AnalystEvaluationV2,
@@ -1684,6 +1788,8 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     # FERTIGEN Scores. Frueher aufgerufen wuerde Lob zu einer Dimension ueberleben, die
     # deckle_score_auf_probleme oder deckle_audioqualitaet danach absenkt.
     parsed = filtere_positiv(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
+    # Direkt dahinter und aus demselben Grund: Die Kritikseite haengt am fertigen Score.
+    parsed = filtere_verbesserung(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     parsed = berechne_performance_score(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     return verteile_empfehlungen(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
 
@@ -1793,6 +1899,15 @@ staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Erg
 # („wie viel Lob bei welchem Score") steht einmal im Skill-Abschnitt „Lob und Kritik je Dimension".
 # KEINE eckigen oder geschweiften Klammern im Text: `_schema_fuer` zaehlt sie mit, um die
 # Feldgrenzen zu finden, und eine unpaarige Klammer wuerde den Filter aus dem Tritt bringen.
+def _verbesserung(name: str = "verbesserung") -> str:
+    """Die Kritikseite. Genauso knapp wie _positiv und aus demselben Grund — sie kommt neunmal vor.
+    Die BEDINGUNG steht im Text selbst und nicht nur im Skill: Der Vertrag ist die Anweisung, der
+    das Modell am zuverlaessigsten folgt."""
+    return (f'"{name}": "<was diese Dimension konkret besser machen wuerde, 1 Satz. '
+            f'Bei Score 5 LEER lassen — da gibt es nichts zu verbessern. Bei 4 oder schlechter '
+            f'PFLICHT: benenne die eine Sache, die noch fehlt. Kein Lob, das steht in positiv>"')
+
+
 def _positiv(name: str = "positiv") -> str:
     return (f'"{name}": "<was hier gut ist, 1 Satz. Leer lassen, wenn der Score 1 oder 2 ist '
             f'und es nichts Ehrliches zu sagen gibt>"')
@@ -1827,14 +1942,14 @@ ZIELGRUPPE_BLOCK_V3 = (
 # Hook: drei Ebenen, drei Lob-Felder — sie liegen in einer gemeinsamen Klasse, ein geteiltes
 # `positiv` wuerde drei Urteile zu einem verschmelzen (siehe HookEval in models/analyst.py).
 HOOK_SPRECH_GRUND_V2 = '    "sprech_hook_grund": "<1-2 Sätze>",'
-HOOK_SPRECH_BLOCK_V3 = HOOK_SPRECH_GRUND_V2 + '\n    ' + _positiv("sprech_hook_positiv") + ','
+HOOK_SPRECH_BLOCK_V3 = HOOK_SPRECH_GRUND_V2 + '\n    ' + _positiv("sprech_hook_positiv") + ',\n    ' + _verbesserung("sprech_hook_verbesserung") + ','
 
 HOOK_TEXT_GRUND_V2 = '    "text_hook_grund": "<1-2 Sätze; bei score 0 die Ansage + Tipp (3 Varianten über Instagram-Testreel testen)>",'
-HOOK_TEXT_BLOCK_V3 = HOOK_TEXT_GRUND_V2 + '\n    ' + _positiv("text_hook_positiv") + ','
+HOOK_TEXT_BLOCK_V3 = HOOK_TEXT_GRUND_V2 + '\n    ' + _positiv("text_hook_positiv") + ',\n    ' + _verbesserung("text_hook_verbesserung") + ','
 
 # Letzte Zeile im hook-Objekt, deshalb OHNE Komma am Ende — das neue Feld haengt sich davor.
 HOOK_VISUELL_GRUND_V2 = '    "visuell_hook_grund": "<1-2 Sätze: WAS optisch passiert (oder eben nicht) und wie es wirkt>"'
-HOOK_VISUELL_BLOCK_V3 = HOOK_VISUELL_GRUND_V2 + ',\n    ' + _positiv("visuell_hook_positiv")
+HOOK_VISUELL_BLOCK_V3 = HOOK_VISUELL_GRUND_V2 + ',\n    ' + _positiv("visuell_hook_positiv") + ',\n    ' + _verbesserung("visuell_hook_verbesserung")
 
 FUNNEL_ZEILE_V2 = '  "funnel": "<TOFU | MOFU | BOFU | Mischung>",'
 FUNNEL_BLOCK_V3 = (
@@ -1854,11 +1969,11 @@ HANDWERK_BLOCK_V3 = (
     '"maengel": ["<NUR was wirklich schwach ist, aus: position | statisch | groesse | lesbarkeit | wortzahl | timing. Sind sie in Ordnung: []>"], "kommentar": "<1 Satz>", '
     # Zwei Lob-Felder, weil es zwei Dimensionen sind: `positiv` gehoert zu `score` („gibt es sie"),
     # `gestaltung_positiv` zu `gestaltung_score` („wie sind sie gemacht").
-    + _positiv() + ', ' + _positiv("gestaltung_positiv") + '},\n'
+    + _positiv() + ', ' + _positiv("gestaltung_positiv") + ', ' + _verbesserung() + '},\n'
     '  "audioqualitaet": {"score": <int 1-5: wie SAUBER klingt der Ton — Störgeräusche, Hall, Verständlichkeit, Balance zwischen Musik und Stimme. Die LAUTHEIT beurteilst du NICHT nach Gehör: sie ist gemessen und steht in der Aufgabe, das System deckelt den Score selbst. Hat das Video keine Tonspur: null>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"], '
     + _positiv() + '},\n'
     '  "cta": {"score": <int 1-5: der Call to Action — gibt es einen, ist er konkret, kommt er an der richtigen Stelle? Fehlt er, obwohl das Video auf eine Handlung hinarbeitet: 1. Will das Format gar keine Handlung anstoßen (reine Unterhaltung, Statement, Ausschnitt): null — das ist kein Mangel>, "kommentar": "<1 Satz>", '
-    + _positiv() + '},'
+    + _positiv() + ', ' + _verbesserung() + '},'
 )
 
 # Auftreten der Person vor der Kamera (Vorgabe Chris, 2026-09-13). Die neue Zeile steht direkt
@@ -1884,11 +1999,11 @@ AUFTRETEN_BLOCK_V3 = (
 SCHNITT_ZEILE_V2 = '  "schnitt_pacing": {"score": <int 1-5>, "kommentar": "<1-2 Sätze, format-bewusst>"},'
 EDITING_BLOCK_V3 = (
     '  "schnitt_pacing": {"score": <int 1-5: NUR Schnittrhythmus und Tempo — wie oft wird geschnitten, sitzen die Schnitte, passt das Tempo zum Format? Einblendungen und Soundeffekte gehoeren NICHT hierher, die haben eigene Felder>, "kommentar": "<1-2 Sätze, format-bewusst>", '
-    + _positiv() + '},\n'
+    + _positiv() + ', ' + _verbesserung() + '},\n'
     '  "einblendungen_eval": {"score": <int 1-5: Grafiken, Symbole, B-Roll, eingeblendete Bilder und Text-Overlays (NICHT die Text-Hook). Sind sie da, wo sie helfen? Verstärken sie das Gesagte oder lenken sie ab? Liegen sie in der Safe Zone? Ein statisches Video ganz ohne Einblendungen ist hier schwach, auch wenn der Schnitt sauber ist>, "probleme": ["<nur DEUTLICHE Mängel, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"], '
     + _positiv() + '},\n'
     '  "soundeffekte": {"score": <int 1-5: Ton als GESTALTUNGSMITTEL — kurze Effekte (Whoosh, Klick, Pop), Musikeinsatz, Betonung von Schnitten und Pointen. NICHT die Aufnahmequalität, die steht in audioqualitaet. Ganz ohne Sound-Gestaltung in einem schnittintensiven Video: höchstens 3>, "kommentar": "<1 Satz>", '
-    + _positiv() + '},'
+    + _positiv() + ', ' + _verbesserung() + '},'
 )
 
 # Skript sitzt im Mittelteil und haengt deshalb am struktur-Block.
@@ -1900,7 +2015,7 @@ EDITING_BLOCK_V3 = (
 STRUKTUR_ZEILE_V2 = '  "struktur": {\n    "score": <int 1-5>,\n    "elemente": {"hook": <bool>, "bridge": <bool>, "mid": <bool>, "peak": <bool>, "cta": <bool>},\n    "kommentar": "<1-2 Sätze>"\n  },'
 MITTELTEIL_BLOCK_V3 = (
     '  "struktur": {\n    "score": <int 1-5>,\n    "elemente": {"hook": <bool>, "bridge": <bool>, "mid": <bool>, "peak": <bool>, "cta": <bool>},\n'
-    '    "kommentar": "<1-2 Sätze>",\n    ' + _positiv() + '\n  },\n'
+    '    "kommentar": "<1-2 Sätze>",\n    ' + _positiv() + ',\n    ' + _verbesserung() + '\n  },\n'
     '  "skript": {"score": <int 1-5: die inhaltliche SUBSTANZ — trägt der Gedanke? Ist die Aussage konkret oder beliebig? Nimmt der Zuschauer etwas mit? Ist die Sprache einfach genug (siehe Abschnitt Sprache)? Passt der Inhalt zum Videoziel und zum Format? Auch bei einem Video OHNE gesprochenes Wort bewertbar: dann zählt die Geschichte, die Bild und Schnitt erzählen. NICHT die Form (das ist struktur) und nicht der Verlauf (das ist spannungsbogen)>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"], '
     + _positiv() + '},'
 )
@@ -1912,7 +2027,7 @@ SPRECHQUALITAET_ZEILE_V2 = '  "sprechqualitaet": {"score": <int 1-5, oder null w
 SPRECHQUALITAET_ZEILE_V3 = SPRECHQUALITAET_ZEILE_V2[:-2] + ', ' + _positiv() + '},'
 
 SPANNUNGSBOGEN_ZEILE_V2 = '  "spannungsbogen": {"score": <int 1-5>, "kommentar": "<1-2 Sätze>"},'
-SPANNUNGSBOGEN_ZEILE_V3 = SPANNUNGSBOGEN_ZEILE_V2[:-2] + ', ' + _positiv() + '},'
+SPANNUNGSBOGEN_ZEILE_V3 = SPANNUNGSBOGEN_ZEILE_V2[:-2] + ', ' + _positiv() + ', ' + _verbesserung() + '},'
 
 AESTHETIK_ZEILE_V2 = '  "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},'
 AESTHETIK_ZEILE_V3 = AESTHETIK_ZEILE_V2[:-2] + ', ' + _positiv() + '},'

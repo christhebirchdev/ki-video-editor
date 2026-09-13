@@ -494,6 +494,15 @@ function listeText(eintraege) {
   return (eintraege || []).map((e) => String(e || "").trim()).filter(Boolean).join(" · ");
 }
 
+// Die Kritikseite einer Dimension mit Listen: erst die deutlichen Mängel, dann die leichten
+// Hinweise. `hinweise` fehlte hier bis 2026-09-13 — in Lauf 411b3493 stand die einzige
+// Verbesserungsidee zum Skript ("der letzte Satz bleibt vage") genau dort und wurde nie gezeigt,
+// woraufhin Chris schrieb: "hier fehlt ein verbesserungsvorschlag. da der score eine 4/5 ist muss
+// ja noch was besser gehen."
+function kritikText(block) {
+  return listeText([...(block?.probleme || []), ...(block?.hinweise || [])]);
+}
+
 /* ===== Stufe 2: Ergebnis in vier Kategorien =====
    Spiegel von KATEGORIEN in models/analyst.py — dort ist die führende Fassung. Ändert sich die
    Zuordnung dort, muss sie hier nachgezogen werden; das Frontend kann sie nicht erfragen.
@@ -522,66 +531,73 @@ const DIMENSION_ZU_KATEGORIE = {
 // Fehlt ein Wert (Altlauf, oder vom Code als „nicht bewertbar" auf null gesetzt), zeigt
 // ScoreChip von selbst „–" — hier wird deshalb nichts herausgefiltert.
 //
-// Je Chip ZWEI Texte statt eines: `positiv` ist das neue Lob-Feld der Dimension, `kritik` die
-// Seite, die es schon gab (kommentar / probleme / grund / maengel). Reihenfolge innerhalb einer
-// Kategorie wie in KATEGORIEN (models/analyst.py).
+// Je Chip ZWEI Texte statt eines: `positiv` ist das Lob-Feld der Dimension, `kritik` die
+// Verbesserungsseite. Reihenfolge innerhalb einer Kategorie wie in KATEGORIEN (models/analyst.py).
+//
+// `kritik` liest NICHT mehr aus `kommentar`/`grund` (Stand 2026-09-13). Diese Felder beschreiben
+// bei gutem Score, was gut laeuft — in Lauf 411b3493 stand dadurch sechsmal ein Lob unter der
+// Ueberschrift "Das kannst du besser machen". Dimensionen mit einem eigenen Textfeld lesen jetzt
+// `verbesserung`, die uebrigen `probleme` + `hinweise` (siehe kritikText).
+// `?? kommentar` faengt die Altlaeufe ab, die das Feld noch nicht kennen. `??` und nicht `||`:
+// Bei einem neuen Lauf ist der LEERE String die Absicht (Score 5 = nichts zu verbessern) und darf
+// nicht auf den alten Kommentar zurueckfallen; `undefined` heisst dagegen "gab es damals nicht".
 function kategorieChips(ev, key, ziel) {
   const u = ev.untertitel || {};
   if (key === "hook") {
     return [
       { field: "hook.sprech",  label: "🎤 Sprech-Hook", score: ev.hook?.sprech_hook_score,
-        positiv: ev.hook?.sprech_hook_positiv, kritik: ev.hook?.sprech_hook_grund },
+        positiv: ev.hook?.sprech_hook_positiv, kritik: ev.hook?.sprech_hook_verbesserung ?? ev.hook?.sprech_hook_grund },
       { field: "hook.text",    label: ev.hook?.text_hook_vorhanden ? "📝 Text-Hook" : "📝 Text-Hook (fehlt)", score: ev.hook?.text_hook_score,
-        positiv: ev.hook?.text_hook_positiv, kritik: ev.hook?.text_hook_grund },
+        positiv: ev.hook?.text_hook_positiv, kritik: ev.hook?.text_hook_verbesserung ?? ev.hook?.text_hook_grund },
       { field: "hook.visuell", label: "👁 Visuelle Hook", score: ev.hook?.visuell_hook_score,
-        positiv: ev.hook?.visuell_hook_positiv, kritik: ev.hook?.visuell_hook_grund },
+        positiv: ev.hook?.visuell_hook_positiv, kritik: ev.hook?.visuell_hook_verbesserung ?? ev.hook?.visuell_hook_grund },
     ];
   }
   if (key === "mittelteil") {
     return [
       { field: "spannungsbogen", label: "📈 Spannungsbogen", score: ev.spannungsbogen?.score,
-        positiv: ev.spannungsbogen?.positiv, kritik: ev.spannungsbogen?.kommentar },
+        positiv: ev.spannungsbogen?.positiv, kritik: ev.spannungsbogen?.verbesserung ?? ev.spannungsbogen?.kommentar },
       { field: "struktur",       label: "📖 Struktur", score: ev.struktur?.score,
         beschreibung: bausteineText(ev.struktur),
-        positiv: ev.struktur?.positiv, kritik: ev.struktur?.kommentar },
+        positiv: ev.struktur?.positiv, kritik: ev.struktur?.verbesserung ?? ev.struktur?.kommentar },
       // Stufe 3 im Backend gebaut, Chip seit 2026-09-13: die inhaltliche Substanz.
       { field: "skript",         label: "✍️ Skript", score: ev.skript?.score,
-        positiv: ev.skript?.positiv, kritik: listeText(ev.skript?.probleme) },
+        positiv: ev.skript?.positiv, kritik: kritikText(ev.skript) },
       { field: "untertitel",     label: "💬 Untertitel vorhanden", score: u.score,
-        positiv: u.positiv, kritik: u.kommentar },
+        positiv: u.positiv, kritik: u.verbesserung ?? u.kommentar },
       // Der CTA ist nur beim Ziel BOFU gewichtet (SCORE_GEWICHTE_JE_ZIEL in models/analyst.py).
       // Bei TOFU/MOFU stünde hier ein Score, der auf das Ergebnis gar nicht einzahlt — das
       // verwirrt mehr, als es hilft.
       ...(ziel === "BOFU" ? [{ field: "cta", label: "🎯 Call to Action", score: ev.cta?.score,
-        positiv: ev.cta?.positiv, kritik: ev.cta?.kommentar }] : []),
+        positiv: ev.cta?.positiv, kritik: ev.cta?.verbesserung ?? ev.cta?.kommentar }] : []),
     ];
   }
   if (key === "editing") {
     return [
       { field: "schnitt_pacing",        label: "✂️ Schnitt & Pacing", score: ev.schnitt_pacing?.score,
-        positiv: ev.schnitt_pacing?.positiv, kritik: ev.schnitt_pacing?.kommentar },
+        positiv: ev.schnitt_pacing?.positiv, kritik: ev.schnitt_pacing?.verbesserung ?? ev.schnitt_pacing?.kommentar },
       { field: "untertitel_gestaltung", label: "🔠 Untertitel-Gestaltung", score: u.gestaltung_score,
         positiv: u.gestaltung_positiv, kritik: listeText(u.maengel) },
       { field: "einblendungen",         label: "🖼️ Einblendungen", score: ev.einblendungen_eval?.score,
-        positiv: ev.einblendungen_eval?.positiv, kritik: listeText(ev.einblendungen_eval?.probleme) },
+        positiv: ev.einblendungen_eval?.positiv, kritik: kritikText(ev.einblendungen_eval) },
       { field: "soundeffekte",          label: "🎵 Soundeffekte", score: ev.soundeffekte?.score,
-        positiv: ev.soundeffekte?.positiv, kritik: ev.soundeffekte?.kommentar },
+        positiv: ev.soundeffekte?.positiv, kritik: ev.soundeffekte?.verbesserung ?? ev.soundeffekte?.kommentar },
     ];
   }
   return [
     { field: "sprechqualitaet",   label: "🎙️ Sprechqualität", score: ev.sprechqualitaet?.score,
-      positiv: ev.sprechqualitaet?.positiv, kritik: listeText(ev.sprechqualitaet?.probleme) },
+      positiv: ev.sprechqualitaet?.positiv, kritik: kritikText(ev.sprechqualitaet) },
     { field: "visuelle_aesthetik", label: "🎨 Bildqualität", score: ev.visuelle_aesthetik?.score,
-      positiv: ev.visuelle_aesthetik?.positiv, kritik: listeText(ev.visuelle_aesthetik?.probleme) },
+      positiv: ev.visuelle_aesthetik?.positiv, kritik: kritikText(ev.visuelle_aesthetik) },
     { field: "audioqualitaet",    label: "🔊 Audioqualität", score: ev.audioqualitaet?.score,
-      positiv: ev.audioqualitaet?.positiv, kritik: listeText(ev.audioqualitaet?.probleme) },
+      positiv: ev.audioqualitaet?.positiv, kritik: kritikText(ev.audioqualitaet) },
     // score ist null, solange dem Analysten keine Daten zur Person/Marke vorliegen — ScoreChip
     // zeigt dann „–" statt 0 von 5 Punkten. `beschreibung` ist in genau diesem Normalfall die
     // einzige Information und steht deshalb wertfrei oben im Aufklapper, nicht unter der Kritik.
     { field: "protagonist_auftreten", label: "🧍 Auftreten", score: ev.protagonist_auftreten?.score,
       beschreibung: ev.protagonist_auftreten?.beschreibung,
       positiv: ev.protagonist_auftreten?.positiv,
-      kritik: listeText(ev.protagonist_auftreten?.probleme) },
+      kritik: kritikText(ev.protagonist_auftreten) },
   ];
 }
 

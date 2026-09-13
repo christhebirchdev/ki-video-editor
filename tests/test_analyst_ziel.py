@@ -410,19 +410,22 @@ def _result_mit(duration=25.0, sprechbeginn=0.0, sprech_dauer=24.7, ziel="MOFU",
     )
 
 
-def test_kurzer_nachlauf_verlangt_puffer():
-    """Lauf dc5c0a3d: 0,24s Nachlauf, das Modell empfahl trotzdem zu kuerzen."""
+def test_kurzer_nachlauf_ist_kein_mangel():
+    """Zwei Laeufe, zwei Lektionen am selben Messwert (0,24 s Nachlauf):
+
+    dc5c0a3d — das MODELL empfahl zu kuerzen, obwohl da nichts zu kuerzen war. Seitdem verwirft
+    der Code, was das Modell zum Videoende schreibt.
+    411b3493 — der CODE empfahl daraufhin, Puffer anzuhaengen. Auch das war falsch: „das video
+    soll nach dem peak oder cta direkt enden ohne nachlauf." Es gibt seitdem keine Untergrenze."""
     from services.analyst_eval import baue_videoende_schritt
     ev = _eval_mit_scores()
     out = baue_videoende_schritt(ev, _result_mit(duration=24.92, sprech_dauer=24.68))
-    schritte = [e for e in out.empfehlungen if e.gruppe == "videoende"]
-    assert len(schritte) == 1
-    assert "Puffer" in schritte[0].anweisung or "puffer" in schritte[0].anweisung
+    assert [e for e in out.empfehlungen if e.gruppe == "videoende"] == []
 
 
 def test_nachlauf_im_korridor_erzeugt_keinen_schritt():
     from services.analyst_eval import baue_videoende_schritt
-    for nachlauf in (1.0, 1.5, 2.0):
+    for nachlauf in (0.0, 1.0, 1.5, 2.0):
         ev = _eval_mit_scores()
         out = baue_videoende_schritt(ev, _result_mit(duration=24.7 + nachlauf, sprech_dauer=24.7))
         assert [e for e in out.empfehlungen if e.gruppe == "videoende"] == [], nachlauf
@@ -956,7 +959,7 @@ def test_prompt_version_wurde_hochgezaehlt():
     """Betriebsregel: bei jeder inhaltlichen Prompt-Aenderung hochzaehlen, sonst ist Feedback zu
     zwei verschiedenen Prompts nicht mehr auseinanderzuhalten."""
     from services.analyst_eval import PROMPT_VERSION
-    assert PROMPT_VERSION == "2026-09-13h"
+    assert PROMPT_VERSION == "2026-09-13j"
 
 
 def test_v3_verlangt_hoechstens_eine_empfehlung_je_dimension():
