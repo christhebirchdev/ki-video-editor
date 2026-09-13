@@ -469,57 +469,37 @@ def test_videoende_ohne_gesprochenes_wort_wird_nicht_geprueft():
     assert baue_videoende_schritt(ev, r).empfehlungen == []
 
 
-# --- Lautstaerke: Zielkorridor statt Schaetzung (Lauf dc5c0a3d) ---
+# --- Lautheit wird NICHT bewertet (Vorgabe Chris, Lauf 411b3493) ---
 
-def test_zu_leiser_ton_nennt_ist_und_soll():
-    from services.analyst_eval import baue_lautstaerke_schritt
-    out = baue_lautstaerke_schritt(_eval_mit_scores(), _result_mit(lufs=-35.8, true_peak=-18.0))
-    schritte = [e for e in out.empfehlungen if e.gruppe == "lautstaerke"]
-    assert len(schritte) == 1
-    text = schritte[0].anweisung
-    assert "-35.8" in text or "-35,8" in text
-    assert "-14" in text
-
-
-def test_lautstaerke_im_korridor_erzeugt_keinen_schritt():
-    from services.analyst_eval import baue_lautstaerke_schritt
-    for lufs in (-17.0, -14.0, -11.0):
-        out = baue_lautstaerke_schritt(_eval_mit_scores(), _result_mit(lufs=lufs))
-        assert [e for e in out.empfehlungen if e.gruppe == "lautstaerke"] == [], lufs
+def test_lautstaerke_erzeugt_keinen_schritt_mehr():
+    """Der Zielkorridor lag an einem echten Fall falsch: -35,8 LUFS bei -18 dBTP, und Chris hoerte
+    nach: „die lautstaerke ist wirklich super. nicht zu leise. nicht zu laut." Die Plattformen
+    normalisieren beim Abspielen — der Pegel der Datei sagt ueber das Hoererlebnis nichts."""
+    from services.analyst_eval import verwirf_lautstaerke_empfehlungen
+    out = verwirf_lautstaerke_empfehlungen(_eval_mit_scores(), _result_mit(lufs=-35.8, true_peak=-18.0))
+    assert [e for e in out.empfehlungen if e.gruppe == "lautstaerke"] == []
 
 
-def test_uebersteuerung_wird_genannt():
-    from services.analyst_eval import baue_lautstaerke_schritt
-    out = baue_lautstaerke_schritt(_eval_mit_scores(), _result_mit(lufs=-14.0, true_peak=0.5))
-    schritte = [e for e in out.empfehlungen if e.gruppe == "lautstaerke"]
-    assert len(schritte) == 1
-    assert "übersteuert" in schritte[0].anweisung.lower() or "spitze" in schritte[0].anweisung.lower()
-
-
-def test_lautstaerke_verwirft_die_modell_empfehlung():
+def test_die_modell_empfehlung_zur_lautstaerke_fliegt_weiterhin_raus():
+    """Solange niemand die Lautheit beurteilt, soll es auch das Modell nicht tun — es lag schon
+    einmal um rund 22 LU daneben (Lauf dc5c0a3d)."""
     from models.analyst import Empfehlung
-    from services.analyst_eval import baue_lautstaerke_schritt
+    from services.analyst_eval import verwirf_lautstaerke_empfehlungen
     ev = _eval_mit_scores()
     ev.empfehlungen = [Empfehlung(zeitpunkt_sek=0.0, betrifft="sprechqualitaet",
                                   anweisung="Hebe die Lautstärke der gesamten Tonspur um ca. "
                                             "3 Dezibel an.")]
-    out = baue_lautstaerke_schritt(ev, _result_mit(lufs=-14.0))
+    out = verwirf_lautstaerke_empfehlungen(ev, _result_mit(lufs=-14.0))
     assert not any("Dezibel" in e.anweisung for e in out.empfehlungen)
 
 
-def test_lautstaerke_ohne_ziel_bleibt_unveraendert():
+def test_ohne_ziel_bleibt_die_lautstaerke_empfehlung_stehen():
     from models.analyst import Empfehlung
-    from services.analyst_eval import baue_lautstaerke_schritt
+    from services.analyst_eval import verwirf_lautstaerke_empfehlungen
     ev = _eval_mit_scores()
     ev.empfehlungen = [Empfehlung(zeitpunkt_sek=0.0, anweisung="Lautstärke um 3 Dezibel anheben")]
-    out = baue_lautstaerke_schritt(ev, _result_mit(lufs=-35.8, ziel=""))
+    out = verwirf_lautstaerke_empfehlungen(ev, _result_mit(lufs=-35.8, ziel=""))
     assert len(out.empfehlungen) == 1
-
-
-def test_ohne_messwert_kein_lautstaerke_schritt():
-    from services.analyst_eval import baue_lautstaerke_schritt
-    out = baue_lautstaerke_schritt(_eval_mit_scores(), _result_mit(lufs=None))
-    assert [e for e in out.empfehlungen if e.gruppe == "lautstaerke"] == []
 
 
 # --- Hoechstens eine Empfehlung je Dimension in den Top 3 (Lauf dc5c0a3d) ---
@@ -686,62 +666,31 @@ def test_fehlende_untertitel_kosten_beim_gesamtscore():
 
 # --- Teil B: Audioqualitaet ---
 
-def test_leiser_ton_deckelt_die_audioqualitaet_hart():
-    """Lauf dc5c0a3d: -35,8 LUFS ist auf dem Handy praktisch unhoerbar — keine 5, egal wie sauber."""
-    from services.analyst_eval import deckle_audioqualitaet
+def test_leiser_ton_deckelt_nichts_mehr():
+    """Der Lautheits-Deckel ist raus (Vorgabe Chris, Lauf 411b3493). Er hat ein Video auf 2/5
+    gesetzt, das der Nutzer nach eigenem Abhoeren als „wirklich super" bezeichnet hat."""
+    from services.analyst_eval import pruefe_audio_bewertbar
     ev = _eval_mit_scores()
     ev.audioqualitaet.score = 5
-    out = deckle_audioqualitaet(ev, _result_ziel(lufs=-35.8, true_peak=-18.0))
-    assert out.audioqualitaet.score == 2
-
-
-def test_leichte_abweichung_deckelt_auf_drei():
-    from services.analyst_eval import deckle_audioqualitaet
-    ev = _eval_mit_scores()
-    ev.audioqualitaet.score = 5
-    out = deckle_audioqualitaet(ev, _result_ziel(lufs=-20.0))
-    assert out.audioqualitaet.score == 3
-
-
-def test_uebersteuerung_deckelt_die_audioqualitaet():
-    from services.analyst_eval import deckle_audioqualitaet
-    ev = _eval_mit_scores()
-    ev.audioqualitaet.score = 5
-    out = deckle_audioqualitaet(ev, _result_ziel(lufs=-14.0, true_peak=0.5))
-    assert out.audioqualitaet.score == 3
-
-
-def test_lautheit_im_korridor_deckelt_nicht():
-    from services.analyst_eval import deckle_audioqualitaet
-    for lufs in (-17.0, -14.0, -11.0):
-        ev = _eval_mit_scores()
-        ev.audioqualitaet.score = 5
-        out = deckle_audioqualitaet(ev, _result_ziel(lufs=lufs))
-        assert out.audioqualitaet.score == 5, lufs
-
-
-def test_deckel_hebt_einen_schwachen_score_nie_an():
-    from services.analyst_eval import deckle_audioqualitaet
-    ev = _eval_mit_scores()
-    ev.audioqualitaet.score = 1
-    out = deckle_audioqualitaet(ev, _result_ziel(lufs=-35.8))
-    assert out.audioqualitaet.score == 1
+    out = pruefe_audio_bewertbar(ev, _result_ziel(lufs=-35.8, true_peak=-18.0))
+    assert out.audioqualitaet.score == 5
 
 
 def test_ohne_audio_ist_die_audioqualitaet_nicht_bewertbar():
-    from services.analyst_eval import deckle_audioqualitaet
+    from services.analyst_eval import pruefe_audio_bewertbar
     ev = _eval_mit_scores()
     ev.audioqualitaet.score = 4
-    out = deckle_audioqualitaet(ev, _result_ziel(lufs=None, true_peak=None))
+    out = pruefe_audio_bewertbar(ev, _result_ziel(lufs=None, true_peak=None))
     assert out.audioqualitaet.score is None
 
 
 def test_audioqualitaet_ohne_ziel_bleibt_unangetastet():
-    from services.analyst_eval import deckle_audioqualitaet
+    from services.analyst_eval import pruefe_audio_bewertbar
     ev = _eval_mit_scores()
     ev.audioqualitaet.score = 5
-    out = deckle_audioqualitaet(ev, _result_ziel(ziel="", lufs=-35.8))
+    out = pruefe_audio_bewertbar(ev, _result_ziel(ziel="", lufs=None))
     assert out.audioqualitaet.score == 5
+
 
 
 def test_benannte_audio_probleme_deckeln_den_score():
@@ -959,7 +908,7 @@ def test_prompt_version_wurde_hochgezaehlt():
     """Betriebsregel: bei jeder inhaltlichen Prompt-Aenderung hochzaehlen, sonst ist Feedback zu
     zwei verschiedenen Prompts nicht mehr auseinanderzuhalten."""
     from services.analyst_eval import PROMPT_VERSION
-    assert PROMPT_VERSION == "2026-09-13j"
+    assert PROMPT_VERSION == "2026-09-13k"
 
 
 def test_v3_verlangt_hoechstens_eine_empfehlung_je_dimension():
@@ -1095,14 +1044,9 @@ def test_baue_schritte_sind_kein_notnagel():
     """`baue_*_schritt` baut aus Modell-Urteil plus Messwert — das ist die gewollte Arbeitsteilung,
     kein Rueckfall. Wuerde es mitzaehlen, waere die Quote dauerhaft unbrauchbar hoch."""
     from models.analyst import AnalystEvaluationV2
-    from services.analyst_eval import baue_lautstaerke_schritt, baue_pausen_schritt
+    from services.analyst_eval import baue_pausen_schritt
     ev = baue_pausen_schritt(AnalystEvaluationV2(
         pausen_urteile=[{"start_sec": 12.0, "urteil": "raus"}]))
-    assert ev.empfehlungen and all(e.erzwungen is False for e in ev.empfehlungen)
-
-    ev = baue_lautstaerke_schritt(
-        AnalystEvaluationV2(),
-        _result(gewaehltes_ziel="TOFU", quality_metrics={"lufs_integrated": -35.8}))
     assert ev.empfehlungen and all(e.erzwungen is False for e in ev.empfehlungen)
 
 

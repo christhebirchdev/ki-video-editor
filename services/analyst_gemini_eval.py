@@ -137,6 +137,23 @@ def _texthook_instruction(result: AnalystResult) -> str:
     )
 
 
+# Nur V3. Der Block steht in der USER-Message und nicht nur im System-Prompt, weil das Modell
+# Toneffekte nachweislich uebersieht (Lauf 411b3493: „es gibt toneffekte, die wurden hier aber
+# nicht mehr erkannt" — sie lagen subtil unter der Musik). Die User-Message kommt zuletzt und wird
+# am zuverlaessigsten befolgt; dieselbe Begruendung wie bei den anderen PFLICHT-Bloecken hier.
+_PFLICHT_TONEFFEKTE = (
+    "PFLICHT Toneffekte — das ist eine SUCHE, kein Nebenbei-Eindruck: Geh die BILDWECHSEL durch "
+    "(harter Schnitt, Zoomsprung, aufpoppende Einblendung, Sprecherwechsel, Beginn und Ende einer "
+    "B-Roll) und hör gezielt in das Fenster von etwa einer Viertelsekunde davor bis einer "
+    "Viertelsekunde danach. Gesucht sind: Whoosh/Swish, Riser, Klick, Pop, Impact, Tape-Stop, "
+    "Glitch, ein Ping auf einem eingeblendeten Symbol. Diese Effekte sind fast immer LEISE unter "
+    "die Musik gemischt — „ich höre Musik\" ist KEIN Beleg dafür, dass keine da sind. Schreib in "
+    "`soundeffekte.kommentar` als Erstes hin, was du an den Schnitten gehört hast. Bist du unsicher, "
+    "empfiehl KEINE Toneffekte: In einem früheren Lauf wurde empfohlen, Übergangsgeräusche zu "
+    "ergänzen, die längst im Video waren.\n"
+)
+
+
 def _user_message(result: AnalystResult, mode: str) -> str:
     head = f"Video: {result.filename}, Länge {result.duration_sec:.1f}s."
     if mode == "hybrid":
@@ -235,6 +252,8 @@ def _evaluate(video_path: Path, result: AnalystResult, mode: str, run_dir=None) 
     system = analyst_eval.build_system_prompt(ziel=getattr(result, "gewaehltes_ziel", ""),
                                               marke=getattr(result, "marke_text", ""))
     user = _user_message(result, mode)
+    if getattr(result, "gewaehltes_ziel", ""):
+        user += _PFLICHT_TONEFFEKTE
     cfg = types.GenerateContentConfig(
         system_instruction=system,
         response_mime_type="application/json",
@@ -321,6 +340,9 @@ def _evaluate_teil(video_file, result: AnalystResult, teil: str, run_dir,
     system = analyst_eval.build_system_prompt(teil=teil, ziel=getattr(result, "gewaehltes_ziel", ""),
                                               marke=getattr(result, "marke_text", ""))
     user = _TEIL_AUFGABE[teil] + _user_message(result, "hybrid")
+    # Nur im Handwerk-Teil: Dort wird `soundeffekte` bewertet, in der Eroeffnung nicht.
+    if getattr(result, "gewaehltes_ziel", "") and teil == "handwerk":
+        user += _PFLICHT_TONEFFEKTE
     if kontext:
         user += "\n\n" + kontext
     cfg = types.GenerateContentConfig(

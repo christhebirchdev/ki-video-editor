@@ -621,6 +621,35 @@ Ein Video, das seine Aussage ohne Einblendungen trägt (starke Mimik, klarer Sch
 Format), ist hier NICHT automatisch schwach. Entscheidend ist, ob dem Zuschauer etwas fehlt.
 
 ## Soundeffekte (1–5)
+
+### So findest du Soundeffekte — das ist eine SUCHE, kein Nebenbei-Eindruck
+Der haeufigste Fehler an dieser Dimension ist, Effekte zu uebersehen und dann ihr Hinzufuegen zu
+empfehlen. In Lauf 411b3493 lautete der Tipp „Untermale die Bildwechsel mit dezenten Toneffekten" —
+die Uebergangsgeraeusche WAREN da: subtil, aber hoerbar, gemischt UNTER der Musik. Der Nutzer hat
+das korrigiert. Eine Empfehlung, etwas hinzuzufuegen, was es schon gibt, kostet Vertrauen in die
+ganze Analyse.
+
+Geh deshalb so vor, in dieser Reihenfolge:
+1. **Finde die Schnitte.** Jeder Bildwechsel ist ein Kandidat: harter Schnitt, Zoomsprung,
+   Einblendung, die aufpoppt, Wechsel zwischen zwei Sprechern, Beginn und Ende einer B-Roll.
+2. **Hoer in das Fenster um jeden Schnitt** — etwa eine Viertelsekunde davor bis eine
+   Viertelsekunde danach. Nicht im Durchlauf: Im Durchlauf hoerst du die Musik, und die Musik ist
+   nicht die Frage.
+3. **Wonach du suchst**, und wie es klingt: Whoosh/Swish (ein kurzer Rauschsweep, „fffp"),
+   Riser (ein ansteigender Ton vor dem Schnitt), Klick oder Pop (sehr kurz, trocken), Impact/Boom
+   (ein dumpfer Schlag auf dem Schnitt), Tape-Stop, Glitch, Ticken bei Zahlen-Einblendungen,
+   ein kurzes Ping bei einem eingeblendeten Symbol.
+4. **Rechne damit, dass sie LEISE sind.** Sound-Designer mischen Uebergaenge bewusst unter die
+   Musik — sie sollen wirken, nicht auffallen. „Ich hoere Musik" ist deshalb KEIN Beleg dafuer,
+   dass keine Effekte da sind. Ein Effekt, der dir erst beim zweiten Hinhoeren auffaellt, ist ein
+   gut gemachter Effekt und zaehlt voll.
+5. **Sag im `kommentar` ausdruecklich, was du an den Schnitten gehoert hast** — auch wenn es nur
+   „ein kurzer Whoosh bei den Bildwechseln" ist. Dieser Satz ist Pflicht: Er zwingt dich, wirklich
+   hinzuhoeren, statt einen Gesamteindruck aufzuschreiben.
+6. **Im Zweifel: nichts behaupten.** Bist du dir nicht sicher, ob Effekte da sind, empfiehl KEINE.
+   Eine fehlende Empfehlung kostet nichts; eine falsche kostet die Glaubwuerdigkeit der ganzen
+   Analyse.
+
 Ton als GESTALTUNGSMITTEL: kurze Effekte (Whoosh, Klick, Pop), Musikeinsatz, Betonung von Schnitten
 und Pointen durch Ton.
 
@@ -817,25 +846,20 @@ Beide Felder füllst du NUR aus, wenn Untertitel mitlaufen. Fehlen sie, oder wir
 gesprochen, schreib in beide `null` — diese Fälle setzt das System selbst, deine Zahl würde dort
 überschrieben.
 
-**Bevor du empfiehlst, Toneffekte zu ERGAENZEN, vergewissere dich, dass keine da sind.** In Lauf
-411b3493 lautete der Tipp „Untermale die Bildwechsel mit dezenten Toneffekten" — die
-Uebergangsgeraeusche waren im Video enthalten, nur leise unter der Musik. Ein kurzer Whoosh oder
-Klick auf einem Schnitt geht neben Musik leicht unter: Hoer an den SCHNITTSTELLEN genau hin, nicht
-im Durchlauf. Bist du dir nicht sicher, ob welche da sind, empfiehl nichts dazu und schreib
-stattdessen nichts — eine Empfehlung, etwas hinzuzufuegen, was es schon gibt, kostet den Nutzer
-Vertrauen in die ganze Analyse.
-
 ## Audioqualität (1–5)
 Du hörst den Ton — beurteile, wie SAUBER er klingt, und trag das in `audioqualitaet` ein:
 Störgeräusche (Rauschen, Wind, Klappern), Hall und Raumklang, Verständlichkeit der Stimme, und ob
 Musik oder Effekte die Stimme zudecken. 5 heißt: klar, nah, ohne Nebengeräusche. 1 heißt: man
 versteht die Worte nur mit Mühe.
 
-**Die LAUTSTÄRKE beurteilst du NICHT.** Sie ist gemessen und steht als LUFS-Wert in der Aufgabe; das
-System vergleicht sie selbst mit dem Zielkorridor und deckelt den Score, wenn sie danebenliegt. Ein
-Gehör-Urteil dazu wäre doppelt und nachweislich unzuverlässig — in einem Lauf mit gemessenen
-−35,8 LUFS lautete die Empfehlung „um ca. 3 Dezibel anheben"; es fehlten rund 22 LU.
-Schreib auch keine eigene Empfehlung zur Lautstärke; den Schritt baut das System.
+**Die LAUTSTÄRKE wird NICHT bewertet — von niemandem.** Nicht von dir, nicht vom System. Instagram,
+TikTok und YouTube normalisieren die Lautheit beim Abspielen: Was der Zuschauer hört, hängt nicht am
+Pegel der hochgeladenen Datei. Der LUFS-Wert in der Aufgabe ist reine Information. Ein Video mit
+gemessenen −35,8 LUFS klang für den Nutzer „wirklich super, nicht zu leise, nicht zu laut" — das
+System hatte es auf 2/5 gedeckelt, und das war falsch. Also: kein „zu leise", kein „zu laut", kein
+Abzug dafür und KEINE Empfehlung dazu. Das System wirft Empfehlungen zur Lautstärke ohnehin weg.
+Was du sehr wohl beurteilst, ist das VERHÄLTNIS: Musik, die die Stimme zudeckt, ist ein Problem —
+das ist eine Mischung und keine Lautheit.
 
 Was du dabei HÖRST — die Messwerte sagen darüber nichts:
 - **Störgeräusche:** Rauschen, Brummen, Hall, Übersteuerung, Klopfen, Wind. Entscheidend ist nicht,

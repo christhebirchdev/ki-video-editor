@@ -114,23 +114,38 @@ def test_v2_laeufe_behalten_ihre_kommentare():
     assert e.schnitt_pacing.verbesserung == "Hervorragend."
 
 
-# --- 4) Der Lautheits-Deckel sagt, warum er deckelt ----------------------------------------------
+# --- 4) Die Lautheit wird gar nicht mehr bewertet ------------------------------------------------
 
-def test_gedeckelte_audioqualitaet_nennt_den_messwert():
-    """„mir fehlt das feedback und die handlungsaufforderung komplett." Im Lauf stand
-    `audioqualitaet`: score 2, probleme [], hinweise [], positiv "" — der Aufklapper war leer."""
-    from services.analyst_eval import deckle_audioqualitaet
+def test_die_lautheit_deckelt_die_audioqualitaet_nicht_mehr():
+    """„ich habe das video nochmal angehoert und die lautstaerke ist wirklich super." Gemessen
+    waren -35,8 LUFS — die Zahl stimmt, das Urteil daraus war trotzdem falsch."""
+    from services.analyst_eval import pruefe_audio_bewertbar
     e = AnalystEvaluationV2(audioqualitaet={"score": 5})
-    e = deckle_audioqualitaet(e, _result(lufs=-35.8, peak=-18.0))
-    assert e.audioqualitaet.score < 5
-    text = " ".join(e.audioqualitaet.probleme)
-    assert "-35.8" in text or "−35,8" in text or "35,8" in text
-    assert "14" in text, "der Zielwert gehoert dazu, sonst weiss der Nutzer nicht, wohin"
-
-
-def test_gute_lautheit_erzeugt_keinen_zusatztext():
-    from services.analyst_eval import deckle_audioqualitaet
-    e = AnalystEvaluationV2(audioqualitaet={"score": 5})
-    e = deckle_audioqualitaet(e, _result(lufs=-14.0, peak=-2.0))
+    e = pruefe_audio_bewertbar(e, _result(lufs=-35.8, peak=-18.0))
     assert e.audioqualitaet.score == 5
     assert e.audioqualitaet.probleme == []
+
+
+# --- 5) Toneffekte: der Suchauftrag steht im Prompt, nicht nur als Hinweis ----------------------
+
+def test_der_toneffekt_suchauftrag_steht_in_der_v3_user_message():
+    """„sie liegen auf der musik. subtil aber hoerbar." Der Block steht in der USER-Message, weil
+    sie zuletzt kommt und am zuverlaessigsten befolgt wird — und NUR bei gesetztem Ziel, damit die
+    V2-Vergleichsbasis byte-identisch bleibt."""
+    from models.analyst import AnalystResult
+    from services.analyst_gemini_eval import _evaluate_teil  # noqa: F401  (Import-Smoke)
+    from services.analyst_gemini_eval import _PFLICHT_TONEFFEKTE, _user_message
+
+    r = AnalystResult(id="x", filename="c.mp4", duration_sec=10.0, scene_count=0, scenes=[])
+    assert "Toneffekte" not in _user_message(r, "hybrid"), "V2 bleibt unberuehrt"
+    for wort in ("Whoosh", "Viertelsekunde", "unter", "unsicher"):
+        assert wort in _PFLICHT_TONEFFEKTE, wort
+
+
+def test_der_soundeffekt_kommentar_verlangt_den_befund_an_den_schnitten():
+    """Ein Pflichtfeld, das eine FRAGE stellt, wird zuverlaessiger beantwortet als eine Regel im
+    Fliesstext — das Modell muss den Satz schreiben und hoert dafuer hin."""
+    from services.analyst_eval import OUTPUT_SCHEMA, v3_schema
+    zeile = [l for l in v3_schema().splitlines() if l.strip().startswith('"soundeffekte"')][0]
+    assert "SCHNITTSTELLEN" in zeile
+    assert "SCHNITTSTELLEN" not in OUTPUT_SCHEMA, "V2-Vertrag bleibt unberuehrt"

@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-13j"   # eigenes Feld verbesserung je Dimension; Nachlauf nur nach oben begrenzt
+PROMPT_VERSION = "2026-09-13k"   # Lautheit wird nicht mehr bewertet; Suchauftrag fuer Toneffekte
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -890,62 +890,37 @@ def baue_videoende_schritt(parsed: AnalystEvaluationV2, result: AnalystResult) -
     return parsed
 
 
-# Ziel-Lautheit für Social-Media-Video (Vorgabe Chris, Lauf dc5c0a3d):
-# „optimale lautstärke wäre ~-14 LUFS (+-3 LU), -1 dBTP."
-# Anlass: Bei gemessenen -35,8 LUFS empfahl das Modell „um ca. 3 Dezibel anheben" — es fehlten rund
-# 22 LU. Der Messwert stand im Prompt; die Rechnung gehört in den Code.
-LUFS_ZIEL = -14.0
-LUFS_TOLERANZ = 3.0
-TRUE_PEAK_MAX = -1.0
-
+# LAUTHEIT WIRD NICHT BEWERTET (Vorgabe Chris, 2026-09-13).
+#
+# Bis heute deckelte der Code die `audioqualitaet` gegen einen Zielkorridor (~-14 LUFS, -1 dBTP) und
+# baute daraus einen Handlungsschritt. Die Regel ist rausgeflogen, weil sie an einem echten Fall
+# nachweislich falsch lag: Lauf 411b3493 mass -35,8 LUFS bei -18 dBTP und wurde auf 2/5 gedeckelt —
+# Chris hat das Video daraufhin abgehoert: „die lautstaerke ist wirklich super. nicht zu leise.
+# nicht zu laut."
+#
+# Der Grund, warum die Rechnung trotz korrekter Messung zum falschen Urteil fuehrt: Instagram,
+# TikTok und YouTube normalisieren die Lautheit beim Abspielen. Was der Zuschauer hoert, haengt
+# also nicht am Pegel der hochgeladenen Datei. Ein Messwert allein ist damit kein Qualitaetsurteil.
+#
+# Was BLEIBT ist der Verwerfungsfilter: Das Modell hat die Zahl schon einmal grob falsch uebersetzt
+# („um ca. 3 Dezibel anheben" bei rund 22 LU Abstand, Lauf dc5c0a3d). Solange niemand die Lautheit
+# beurteilt, soll es auch das Modell nicht tun.
 _LAUTSTAERKE_EMPFEHLUNG = re.compile(
     r"(lautstärke|lautheit|lufs|dezibel|\bdb\b|tonspur .*(anheb|lauter)|lauter (machen|abmischen))",
     re.IGNORECASE)
 
 
-def baue_lautstaerke_schritt(parsed: AnalystEvaluationV2, result: AnalystResult) -> AnalystEvaluationV2:
-    """Lautheit gegen den Zielkorridor prüfen und die Differenz ausrechnen.
+def verwirf_lautstaerke_empfehlungen(parsed: AnalystEvaluationV2,
+                                     result: AnalystResult) -> AnalystEvaluationV2:
+    """Empfehlungen zur Lautstaerke aussortieren — niemand beurteilt sie, auch das Modell nicht.
 
-    Nur V3 (Ziel gesetzt). Ohne Messwert (kein Audio) passiert nichts.
-
-    Die Verzweigung hängt an `gewaehltes_ziel`, NICHT an `result.engine`: engine wird von
-    analyst_engine._run() erst NACH der Nachbearbeitung gesetzt.
+    Nur V3 (Ziel gesetzt): In V2 bleibt alles, wie es war.
     """
-    if not (getattr(result, "gewaehltes_ziel", "") or "").strip():
+    if not _ziel_gesetzt(result):
         return parsed
-    metrics = getattr(result, "quality_metrics", None)
-    lufs = getattr(metrics, "lufs_integrated", None) if metrics else None
-    if lufs is None:
-        return parsed
-    # Das Modell hat die Zahl schon einmal falsch übersetzt (Lauf dc5c0a3d) — was es zur Lautstärke
-    # selbst schreibt, fliegt raus, auch wenn der Messwert danach gar keinen Schritt erzeugt.
     parsed.empfehlungen = [
         e for e in parsed.empfehlungen if not _LAUTSTAERKE_EMPFEHLUNG.search(e.anweisung or "")
     ]
-    lufs = round(lufs, 1)
-    saetze: list[str] = []
-    abweichung = lufs - LUFS_ZIEL
-    if abs(abweichung) > LUFS_TOLERANZ:
-        richtung = "zu leise" if abweichung < 0 else "zu laut"
-        handlung = "Heb die Tonspur beim Export um rund {} LU an." if abweichung < 0 \
-            else "Senk die Tonspur beim Export um rund {} LU ab."
-        saetze.append(
-            f"Dein Ton ist {richtung}: gemessen {lufs:g} LUFS, gut wären etwa {LUFS_ZIEL:g} LUFS. "
-            + handlung.format(round(abs(abweichung)))
-        )
-    peak = getattr(metrics, "true_peak_db", None)
-    if peak is not None and peak > TRUE_PEAK_MAX:
-        # „Außerdem", wenn schon ein Lautheits-Satz steht — sonst beginnt der Schritt hiermit.
-        vorspann = "Außerdem übersteuert der Ton" if saetze else "Dein Ton übersteuert"
-        saetze.append(
-            f"{vorspann}: die lauteste Spitze liegt bei {round(peak, 1):g} dBTP, erlaubt sind "
-            f"höchstens {TRUE_PEAK_MAX:g} dBTP. Zieh den Pegel runter, bevor du exportierst."
-        )
-    if not saetze:
-        return parsed
-    parsed.empfehlungen.append(Empfehlung(
-        zeitpunkt_sek=0.0, gruppe="lautstaerke", betrifft="audioqualitaet",
-        anweisung=" ".join(saetze)))
     return parsed
 
 
@@ -1561,65 +1536,26 @@ def setze_untertitel_scores(parsed: AnalystEvaluationV2,
     return parsed
 
 
-# Deckel für die Audioqualität, wenn die GEMESSENE Lautheit nicht stimmt. Die Konstanten
-# (LUFS_ZIEL, LUFS_TOLERANZ, TRUE_PEAK_MAX) stehen weiter oben und stammen aus dem Fix zu Lauf
-# dc5c0a3d. Warum überhaupt gedeckelt wird: Den KLANG beurteilt das Modell selbst — Gemini bekommt
-# das Video mit Ton und hört Störgeräusche, Hall und Verständlichkeit. Die LAUTHEIT ist dagegen
-# gemessen, und genau dort lag das Modell schon einmal um rund 22 LU daneben. Ein Video mit
-# -35,8 LUFS ist auf dem Handy praktisch unhörbar — das kann keine 5 sein, egal wie sauber der
-# Klang ist.
-AUDIO_DECKEL = 3            # Lautheit außerhalb des Korridors oder übersteuert
-AUDIO_DECKEL_HART = 2       # mehr als AUDIO_ABWEICHUNG_HART daneben: praktisch unhörbar
-AUDIO_ABWEICHUNG_HART = 10.0   # LU
+# Den KLANG beurteilt das Modell selbst: Gemini bekommt das Video mit Ton und hoert Stoergeraeusche,
+# Hall und Verstaendlichkeit. Der Code prueft hier nur noch, OB es ueberhaupt eine Tonspur gibt.
 
 
-def deckle_audioqualitaet(parsed: AnalystEvaluationV2,
-                          result: AnalystResult) -> AnalystEvaluationV2:
-    """Audioqualität gegen die gemessene Lautheit deckeln (Stufe 2).
+def pruefe_audio_bewertbar(parsed: AnalystEvaluationV2,
+                           result: AnalystResult) -> AnalystEvaluationV2:
+    """Ohne Tonspur ist die Audioqualitaet nicht bewertbar — null, nicht 1.
 
-    Vorbild ist `deckle_score_auf_probleme`: nur deckeln, nie anheben. Ohne Audio
-    (`lufs_integrated is None`) ist die Dimension nicht bewertbar — null, nicht 1.
+    Hier stand bis 2026-09-13 zusaetzlich der Lautheits-Deckel. Warum er weg ist, steht ausfuehrlich
+    bei `verwirf_lautstaerke_empfehlungen`: Die Plattformen normalisieren die Lautheit, der Messwert
+    der Datei taugt deshalb nicht als Qualitaetsurteil.
 
     Nur bei gesetztem Ziel (V3).
     """
     if not _ziel_gesetzt(result):
         return parsed
-    block = parsed.audioqualitaet
     metrics = getattr(result, "quality_metrics", None)
-    lufs = getattr(metrics, "lufs_integrated", None) if metrics else None
-    if lufs is None:
-        block.score = None
-        return parsed
-    if block.score is None:
-        return parsed
-    abweichung = abs(lufs - LUFS_ZIEL)
-    peak = getattr(metrics, "true_peak_db", None)
-    deckel = None
-    if abweichung > LUFS_TOLERANZ or (peak is not None and peak > TRUE_PEAK_MAX):
-        deckel = AUDIO_DECKEL
-    if abweichung > AUDIO_ABWEICHUNG_HART:
-        deckel = AUDIO_DECKEL_HART
-    if deckel is not None:
-        block.score = min(block.score, deckel)
-        # Der Deckel muss sich ERKLAEREN. Lauf 411b3493: score 2, probleme [], hinweise [],
-        # positiv "" — der Aufklapper war komplett leer, und Chris schrieb „mir fehlt das feedback
-        # und die handlungsaufforderung komplett". Eine Zahl ohne Begruendung ist keine Bewertung.
-        # Der Satz steht in `probleme`, weil er der Grund fuer den Deckel ist; die HANDLUNG
-        # („heb um X LU an") baut weiterhin baue_lautstaerke_schritt, damit sie nicht doppelt steht.
-        block.probleme = [_lautheit_begruendung(lufs, peak)] + list(block.probleme)
+    if (getattr(metrics, "lufs_integrated", None) if metrics else None) is None:
+        parsed.audioqualitaet.score = None
     return parsed
-
-
-def _lautheit_begruendung(lufs: float, peak) -> str:
-    teile = []
-    if abs(lufs - LUFS_ZIEL) > LUFS_TOLERANZ:
-        richtung = "leise" if lufs < LUFS_ZIEL else "laut"
-        teile.append(f"Der Ton ist zu {richtung}: gemessen {lufs:.1f} LUFS, "
-                     f"gut wären etwa {LUFS_ZIEL:.0f} LUFS.")
-    if peak is not None and peak > TRUE_PEAK_MAX:
-        teile.append(f"Die Spitzen liegen bei {peak:.1f} dBTP und damit über {TRUE_PEAK_MAX:.0f} dBTP "
-                     f"— das kann beim Abspielen verzerren.")
-    return " ".join(teile) or "Die gemessene Lautheit liegt außerhalb des Zielkorridors."
 
 
 def erzwinge_marken_abhaengige_felder(parsed: AnalystEvaluationV2,
@@ -1753,7 +1689,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = entferne_vorhandene_bewegungs_empfehlung(parsed)
     parsed = baue_pausen_schritt(parsed)
     parsed = baue_videoende_schritt(parsed, result)
-    parsed = baue_lautstaerke_schritt(parsed, result)
+    parsed = verwirf_lautstaerke_empfehlungen(parsed, result)
     parsed = baue_einblendungs_schritt(parsed)
     # VOR den Erzwingungen: Benannte Probleme deckeln den Score, damit die ≤3-Regel danach
     # überhaupt greift (Lauf 041770c1: zwei Probleme benannt, Score trotzdem 4).
@@ -1780,13 +1716,13 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     # Lob zu einer Dimension überleben, die hier gerade abgesenkt wurde, und der Gesamtscore
     # kennte die vier neuen Dimensionen gar nicht.
     parsed = setze_untertitel_scores(parsed, result)
-    parsed = deckle_audioqualitaet(parsed, result)
+    parsed = pruefe_audio_bewertbar(parsed, result)
     parsed = pruefe_funnel_wirkung(parsed, result)
     parsed = erzwinge_marken_abhaengige_felder(parsed, result)
     parsed = filtere_staerken(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     # Direkt neben filtere_staerken und aus demselben Grund an dieser Stelle: Beide lesen die
     # FERTIGEN Scores. Frueher aufgerufen wuerde Lob zu einer Dimension ueberleben, die
-    # deckle_score_auf_probleme oder deckle_audioqualitaet danach absenkt.
+    # deckle_score_auf_probleme danach absenkt.
     parsed = filtere_positiv(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     # Direkt dahinter und aus demselben Grund: Die Kritikseite haengt am fertigen Score.
     parsed = filtere_verbesserung(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
@@ -2002,7 +1938,7 @@ EDITING_BLOCK_V3 = (
     + _positiv() + ', ' + _verbesserung() + '},\n'
     '  "einblendungen_eval": {"score": <int 1-5: Grafiken, Symbole, B-Roll, eingeblendete Bilder und Text-Overlays (NICHT die Text-Hook). Sind sie da, wo sie helfen? Verstärken sie das Gesagte oder lenken sie ab? Liegen sie in der Safe Zone? Ein statisches Video ganz ohne Einblendungen ist hier schwach, auch wenn der Schnitt sauber ist>, "probleme": ["<nur DEUTLICHE Mängel, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"], '
     + _positiv() + '},\n'
-    '  "soundeffekte": {"score": <int 1-5: Ton als GESTALTUNGSMITTEL — kurze Effekte (Whoosh, Klick, Pop), Musikeinsatz, Betonung von Schnitten und Pointen. NICHT die Aufnahmequalität, die steht in audioqualitaet. Ganz ohne Sound-Gestaltung in einem schnittintensiven Video: höchstens 3>, "kommentar": "<1 Satz>", '
+    '  "soundeffekte": {"score": <int 1-5: Ton als GESTALTUNGSMITTEL — kurze Effekte (Whoosh, Klick, Pop), Musikeinsatz, Betonung von Schnitten und Pointen. NICHT die Aufnahmequalität, die steht in audioqualitaet. Ganz ohne Sound-Gestaltung in einem schnittintensiven Video: höchstens 3>, "kommentar": "<PFLICHT, erster Halbsatz: was du an den SCHNITTSTELLEN gehört hast (z.B. \'ein kurzer Whoosh bei den Bildwechseln\' oder \'an den Schnitten liegt nichts\') — hör dafür gezielt in das Fenster um jeden Bildwechsel, Effekte liegen oft leise UNTER der Musik. Danach 1 Satz Bewertung>", '
     + _positiv() + ', ' + _verbesserung() + '},'
 )
 
