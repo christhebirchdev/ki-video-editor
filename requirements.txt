@@ -28,6 +28,15 @@ httpx==0.28.1
 # kein Nebeneffekt eines Deploys — der gehört bewusst getestet und einzeln hochgezogen.
 scenedetect==0.7
 opencv-python-headless==4.13.0.92
+# scenedetect verlangt `opencv-python` OHNE Obergrenze und zieht damit die NICHT-headless-Variante
+# als Transitivabhaengigkeit mit herein — beide liefern dasselbe Modul `cv2`, und installiert wird
+# am Ende die letzte. Der Pin auf die headless-Variante allein greift deshalb ins Leere: Frisch
+# aufgeloest landet man inzwischen bei opencv-python 5.0. Genau der Major-Sprung in der
+# Bildmessung, den der Kommentar oben verhindern soll, und er passiert beim naechsten Rebuild von
+# selbst, sobald sich irgendetwas an dieser Datei aendert (dann faellt der pip-Layer aus dem Cache).
+# Deshalb hier explizit auf dieselbe 4er-Reihe festgenagelt. Ein Umstieg auf opencv 5 gehoert
+# einzeln getestet, nicht als Nebeneffekt eines Deploys.
+opencv-python==4.13.0.92
 
 # Marken-/Zielgruppen-Datei (services/analyst_marke.py): .pdf und .docx werden beim Upload zu Text
 # extrahiert. Exakt gepinnt wie alles hier — die Versionen sind die lokal verifizierten. Ohne diese
