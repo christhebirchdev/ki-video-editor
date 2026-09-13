@@ -493,23 +493,17 @@ dämpft das auch die Hook-, Skript- und Struktur-Bewertung.
 ## Sprechqualität (1–5)
 LEITFRAGE ZUERST: Versteht man jedes Wort ohne Anstrengung? Muss man sich konzentrieren oder
 zurückspulen, ist das der Mangel — alles andere ist Detail.
-Tempo, Deutlichkeit und TONQUALITÄT zu EINEM Score. Die ENERGIE gehört NICHT hierher — sie hat ein
-eigenes, score-freies Feld (siehe Abschnitt „Energie im Auftreten"). Stütze dich auf die
-Sprachstatistik (WPM/Füllwörter/Pausen) — nenne die Zahlen NICHT im Output. probleme nur bei
-STARK Auffälligem (monoton, viele Füllwörter, undeutlich), sonst leeres Array.
-
-TON — das musst du HÖREN, die Messwerte sagen darüber nichts:
-- **Störgeräusche:** Rauschen, Brummen, Hall, Übersteuerung, Klopfen, Wind. Entscheidend ist nicht,
-  ob etwas da ist, sondern ob es beim Zuhören STÖRT. Eine leise Umgebung im Hintergrund ist normal;
-  ein Kratzen mitten im Satz nicht.
-- **Mikrofonabstand:** Klingt es dumpf und übersteuert, sitzt das Mikro zu nah am Mund oder es wird
-  zu laut hineingesprochen. Klingt es hallig und fern, ist es zu weit weg.
-- **Hintergrundmusik neben Sprache:** Sie muss deutlich LEISER liegen als die Stimme — hörbar, aber
-  klar untergeordnet. Liegt sie auf gleicher Lautstärke, kämpft sie mit dem Gesprochenen: als
-  Problem benennen. Wird nicht gesprochen, darf die Musik normal laut sein und trägt das Video —
-  dann ist Lautstärke kein Mangel.
-- Referenz T1: Die ersten Worte müssen verständlich sein. Schlecht geclippte Anfänge starten besser
-  eine halbe Sekunde später.
+**Die Trennlinie zu `audioqualitaet` (Entscheidung Chris, 2026-09-13):**
+`sprechqualitaet` ist alles, was die PERSON macht — Tempo, Deutlichkeit, Artikulation, Füllwörter,
+Verhaspler, Betonung im Sinne von Verständlichkeit. `audioqualitaet` ist alles, was die AUFNAHME
+macht — Störgeräusche, Hall, Mikrofonabstand, Balance zwischen Musik und Stimme. „Er nuschelt" ist
+sprechqualitaet, „es hallt" ist audioqualitaet, auch wenn beides dazu führt, dass man schlechter
+versteht. Es gilt JEDE BEOBACHTUNG NUR EINMAL: Was hier steht, steht nicht auch in
+`audioqualitaet`, und umgekehrt.
+Die ENERGIE gehört ebenfalls NICHT hierher — sie hat ein eigenes, score-freies Feld (siehe
+Abschnitt „Energie im Auftreten"). Stütze dich auf die Sprachstatistik (WPM/Füllwörter/Pausen) —
+nenne die Zahlen NICHT im Output. probleme nur bei STARK Auffälligem (monoton, viele Füllwörter,
+undeutlich), sonst leeres Array.
 
 ANKER für `sprechqualitaet.score` — entlang der Leitfrage, nutze die ganze Skala:
 - **5** — jedes Wort ist beim ersten Hören mühelos zu verstehen, das Tempo trägt, nichts muss
@@ -696,7 +690,10 @@ das eine Stärke und kein Thema.
 oder „Andere" bewertest du den Ausschnitt nach dem, was das Format braucht, und ziehst hier nichts ab.
 - Einstellung: Brustbild bis Taille (Medium Close-up). Zu weit weg (Totale) oder zu nah (nur Gesicht) = Abzug.
 - Kamera auf Augenhöhe und frontal. Blick von oben/unten wirkt distanziert.
-- Kopfraum: ca. 10–15 % Luft über dem Kopf — genug Platz für eine Texthook, die NICHT auf der Stirn klebt.
+- Kopfraum: ca. 20 % Luft über dem Kopf. Der Grund ist geometrisch: Die Safe Zone sperrt die oberen
+  13 % des Bildes, die Texthook gehört in den Streifen DARUNTER und über dem Kopf. Bei 10–15 %
+  Kopfraum gäbe es diesen Streifen nicht — die Texthook müsste entweder in die Sperrzone oder auf
+  die Stirn.
   Deutlich MEHR Luft (Kopf sitzt tief im Bild) ist genauso ein Mangel wie zu wenig: Das Gesicht wird
   klein, das Bild wirkt zufällig statt komponiert.
   Angeschnittener Kopf oder halbes leeres Bild darüber = Abzug.
@@ -815,6 +812,21 @@ Gehör-Urteil dazu wäre doppelt und nachweislich unzuverlässig — in einem La
 −35,8 LUFS lautete die Empfehlung „um ca. 3 Dezibel anheben"; es fehlten rund 22 LU.
 Schreib auch keine eigene Empfehlung zur Lautstärke; den Schritt baut das System.
 
+Was du dabei HÖRST — die Messwerte sagen darüber nichts:
+- **Störgeräusche:** Rauschen, Brummen, Hall, Übersteuerung, Klopfen, Wind. Entscheidend ist nicht,
+  ob etwas da ist, sondern ob es beim Zuhören STÖRT. Eine leise Umgebung im Hintergrund ist normal;
+  ein Kratzen mitten im Satz nicht.
+- **Mikrofonabstand:** Klingt es dumpf und übersteuert, sitzt das Mikro zu nah am Mund oder es wird
+  zu laut hineingesprochen. Klingt es hallig und fern, ist es zu weit weg.
+- **Hintergrundmusik neben Sprache:** Sie muss deutlich LEISER liegen als die Stimme — hörbar, aber
+  klar untergeordnet. Liegt sie auf gleicher Lautstärke, kämpft sie mit dem Gesprochenen: als
+  Problem benennen. Wird nicht gesprochen, darf die Musik normal laut sein und trägt das Video —
+  dann ist Lautstärke kein Mangel.
+- Referenz T1: Die ersten Worte müssen verständlich sein. Schlecht geclippte Anfänge starten besser
+  eine halbe Sekunde später.
+Was die PERSON macht — Tempo, Deutlichkeit, Füllwörter — gehört NICHT hierher, sondern in
+`sprechqualitaet`.
+
 Nach `probleme` gehört nur, was DEUTLICH stört (das deckelt den Score), nach `hinweise` das, was
 man erwähnt, aber nicht abzieht. Hat das Video keine Tonspur: `score` auf `null`.
 
@@ -841,11 +853,17 @@ Bedürfnis wecken. Jedes Video hat ein anderes Ziel und kann unterschiedliche Be
   ist der beste Indikator dafür.
 - **BOFU** — der Inhalt soll eine Kontaktaufnahme fördern, zum Beispiel den Klick auf einen
   angekündigten Link, eine Direktnachricht oder ein Interessenssignal in den Kommentaren.
-Fehlender CTA ist KEIN Mangel, wenn das Format ihn nicht braucht.
+Fehlender CTA ist KEIN Mangel, wenn das Format ihn nicht braucht. **Dann ist `cta.score` = `null`,
+keine 1** (Entscheidung Chris, 2026-09-13): Eine 1 für etwas, das kein Mangel ist, verwirrt den
+Nutzer, und das System verteilt das Gewicht einer null-Dimension auf die übrigen. Setz `null`,
+wenn das Video erkennbar keine Handlung anstoßen WILL — reine Unterhaltung, ein Statement, ein
+Ausschnitt. Setz eine 1, wenn das Video sichtbar auf eine Handlung hinarbeitet und die
+Aufforderung dann ausbleibt.
 
 `cta` bewertet die Aufforderung am Ende — gewichtet wird sie nur bei BOFU, beurteilt wird sie
 trotzdem immer:
-- **Gibt es einen?** Fehlt jede Aufforderung, ist das eine 1.
+- **Gibt es einen?** Fehlt jede Aufforderung, obwohl das Video auf eine Handlung hinarbeitet, ist
+  das eine 1. Will das Video gar keine Handlung anstoßen: `null`.
 - **Ist er konkret?** „Schreib mir ‚Start' in die DMs" ist konkret. „Meldet euch gern mal" ist es
   nicht — der Zuschauer weiß danach nicht, was er tun soll.
 - **Sitzt er richtig?** Am Ende, nach dem Nutzen, in einem Satz. Ein CTA vor dem Nutzen kommt zu
@@ -859,12 +877,17 @@ ANKER für `cta.score` — nutze die ganze Skala:
   dem Nutzen.
 - **2** — mehrere Aufforderungen heben sich gegenseitig auf, oder die Aufforderung passt nicht zu
   dem Bedürfnis, das das Video geweckt hat.
-- **1** — es gibt keine Aufforderung.
+- **1** — es gibt keine Aufforderung, obwohl das Video auf eine Handlung hinarbeitet.
+- **null** — das Format will gar keine Handlung anstoßen. Nicht bewertbar, kein Mangel.
 Ist ein konkreter CTA da und fällt dir nichts daran auf, ist das eine 5 — die Abwesenheit von
 Mängeln genügt, eine originelle Formulierung ist nicht verlangt.
 
 Ein Video ohne Verkaufsabsicht darf einen schwachen CTA haben — sag das im `kommentar`, damit der
-Nutzer die Zahl einordnen kann.
+Nutzer die Zahl einordnen kann. Und noch einmal, weil es die häufigste Fehlbewertung ist: Wichtiger
+als der CTA ist, dass das Bedürfnis zur gewünschten Handlung INTRINSISCH durch den Videoinhalt
+entsteht. Der CTA ist nur der kleine Schubs am Ende. Ein Video, das kein Bedürfnis geweckt hat,
+rettet auch der beste CTA nicht — dann gehört die Empfehlung an den Inhalt, nicht an die
+Formulierung der Aufforderung.
 
 ## Dynamik & Effekte
 `dynamik.urteil` beschreibt, wie viel im Bild passiert:

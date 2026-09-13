@@ -179,7 +179,7 @@ die Bausteine ineinandergreifen — nicht bloßes Abhaken.
 Referenz S6: Hook → (Legitimation) → Value → Payoff; zu lang oder ausschweifend → straffen, Kern in
 3–5 s.
 
-- Fehlender CTA ist KEIN Mangel, wenn das Format ihn nicht braucht. Das wichtigste: Der CTA ist nur die Aufforderung das im Video entstandene Bedürfnis umzusetzen. Das Bedürfnis selbst wird NICHT durch den CTA erzeugt. Das Video selbst MUSS das Bedürfnis wecken. Jedes Video hat ein anderes Ziel und kann unterschiedliche Bedürfnisse wecken. Ein TOF Video soll zum Teilen anregen oder Diskussion in den Kommentaren fördern. Das Video noch ein Zweites mal anzuschauen kann auch ein Bedürfnis im TOF sein. Bei MOF Videos soll das Bedürfnis erzeugt werden, das Video zu speichern oder dem Account zu folgen. Speichern ist der beste Indikator dafür. In BOF Videos soll der Inhalt eine Kontaktaufnahme fördern wie beispielsweise der Klick auf einen angekündigten Link, eine Direktnachricht oder eine Interessenssignal in den Kommentaren. 
+- Fehlender CTA ist KEIN Mangel, wenn das Format ihn nicht braucht — dann ist der Score `null`, keine 1 (Entscheidung Chris, 2026-09-13). Das wichtigste: Der CTA ist nur die Aufforderung das im Video entstandene Bedürfnis umzusetzen. Das Bedürfnis selbst wird NICHT durch den CTA erzeugt. Das Video selbst MUSS das Bedürfnis wecken. Jedes Video hat ein anderes Ziel und kann unterschiedliche Bedürfnisse wecken. Ein TOF Video soll zum Teilen anregen oder Diskussion in den Kommentaren fördern. Das Video noch ein Zweites mal anzuschauen kann auch ein Bedürfnis im TOF sein. Bei MOF Videos soll das Bedürfnis erzeugt werden, das Video zu speichern oder dem Account zu folgen. Speichern ist der beste Indikator dafür. In BOF Videos soll der Inhalt eine Kontaktaufnahme fördern wie beispielsweise der Klick auf einen angekündigten Link, eine Direktnachricht oder eine Interessenssignal in den Kommentaren. 
 - MEHRERE CTAs am Ende sind eine Schwäche (zwingen den Zuschauer zur Entscheidung) → auf genau EINEN
   klaren CTA reduzieren.
 - **Weitschweifigkeit ist ein Struktur-Mangel.** Wird eine Aussage mit mehr Worten getroffen als nötig,
@@ -214,11 +214,15 @@ das auch Skript und Struktur-Bewertung.
 LEITFRAGE ZUERST: Versteht man jedes Wort ohne Anstrengung? Muss man sich konzentrieren oder
 zurückspulen, ist das der Mangel — alles andere ist Detail.
 
-Tempo, Deutlichkeit und TONQUALITÄT ergeben EINEN Score. Energie gehört nicht dazu (KB 10).
-Urteilsgrundlage sind die gemessenen Werte (WPM, Füllwörter, Pausen). Auffällig sind nur STARKE
-Abweichungen: monoton, viele Füllwörter, undeutlich.
+**Zwei Scores, klar getrennt (Entscheidung Chris, 2026-09-13):** `sprechqualitaet` ist alles, was die
+PERSON macht — Tempo, Deutlichkeit, Artikulation, Füllwörter, Verhaspler. `audioqualitaet` ist alles,
+was die AUFNAHME macht — Störgeräusche, Hall, Mikrofonabstand, Balance zwischen Musik und Stimme.
+„Er nuschelt" ist sprechqualitaet, „es hallt" ist audioqualitaet. Jede Beobachtung gehört in genau
+eines der beiden Felder. Energie gehört in keines von beiden (KB 10).
+Urteilsgrundlage für sprechqualitaet sind die gemessenen Werte (WPM, Füllwörter, Pausen). Auffällig
+sind nur STARKE Abweichungen: monoton, viele Füllwörter, undeutlich.
 
-TON — das muss GEHÖRT werden, die Messwerte sagen darüber nichts:
+TON (= `audioqualitaet`) — das muss GEHÖRT werden, die Messwerte sagen darüber nichts:
 - **Störgeräusche:** Rauschen, Brummen, Hall, Übersteuerung, Klopfen, Wind. Entscheidend ist nicht,
   ob etwas da ist, sondern ob es beim Zuhören STÖRT. Eine leise Umgebung im Hintergrund ist normal;
   ein Kratzen mitten im Satz nicht.
@@ -309,8 +313,9 @@ Stärke und kein Thema.
 - Einstellung: Brustbild bis Taille (Medium Close-up). Zu weit weg (Totale) oder zu nah (nur Gesicht)
   = Abzug.
 - Kamera auf Augenhöhe und frontal. Blick von oben/unten wirkt distanziert.
-- Kopfraum: ca. 10–15 % Luft über dem Kopf — genug Platz für eine Texthook, die NICHT auf der Stirn
-  klebt. Deutlich MEHR Luft (Kopf sitzt tief im Bild) ist genauso ein Mangel wie zu wenig: Das Gesicht
+- Kopfraum: ca. 20 % Luft über dem Kopf (Entscheidung Chris, 2026-09-13). Der Grund ist geometrisch:
+  Die Safe Zone sperrt die oberen 13 % (KB 8.1), die Texthook gehört in den Streifen DARUNTER und
+  über dem Kopf. Bei 10–15 % Kopfraum gäbe es diesen Streifen nicht. Deutlich MEHR Luft (Kopf sitzt tief im Bild) ist genauso ein Mangel wie zu wenig: Das Gesicht
   wird klein, das Bild wirkt zufällig statt komponiert. Angeschnittener Kopf oder halbes leeres Bild
   darüber = Abzug.
 - Person mittig; das Kinn liegt auf der vertikalen Bildmitte oder knapp darüber, damit die Untertitel

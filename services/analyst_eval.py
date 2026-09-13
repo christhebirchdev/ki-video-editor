@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-13f"   # betrifft-Enum auf alle 16 Dimensionen (nur V3)
+PROMPT_VERSION = "2026-09-13g"   # Entscheidungen Chris: Kopfraum 20 %, Person-/Aufnahme-Trennung, cta null
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -1826,7 +1826,7 @@ HANDWERK_BLOCK_V3 = (
     + _positiv() + ', ' + _positiv("gestaltung_positiv") + '},\n'
     '  "audioqualitaet": {"score": <int 1-5: wie SAUBER klingt der Ton — Störgeräusche, Hall, Verständlichkeit, Balance zwischen Musik und Stimme. Die LAUTHEIT beurteilst du NICHT nach Gehör: sie ist gemessen und steht in der Aufgabe, das System deckelt den Score selbst. Hat das Video keine Tonspur: null>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"], '
     + _positiv() + '},\n'
-    '  "cta": {"score": <int 1-5: der Call to Action — gibt es einen, ist er konkret, kommt er an der richtigen Stelle? Fehlt er ganz: 1>, "kommentar": "<1 Satz>", '
+    '  "cta": {"score": <int 1-5: der Call to Action — gibt es einen, ist er konkret, kommt er an der richtigen Stelle? Fehlt er, obwohl das Video auf eine Handlung hinarbeitet: 1. Will das Format gar keine Handlung anstoßen (reine Unterhaltung, Statement, Ausschnitt): null — das ist kein Mangel>, "kommentar": "<1 Satz>", '
     + _positiv() + '},'
 )
 
