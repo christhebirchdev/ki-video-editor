@@ -286,3 +286,24 @@ def test_die_neuen_felder_nutzen_das_design_system():
     assert 'className="input"\n              type="text"\n              value={plannedTextHook}' in quelle
     assert 'className="dropzone dropzone-klein"' in quelle
     assert 'type="file"' in quelle and "hidden" in quelle
+
+
+def test_chip_und_feedback_teilen_sich_eine_rasterzelle():
+    """Screenshot Chris, 2026-09-13: In der Admin-Ansicht lief der Label-Text unter den
+    Bewertungspunkten durch. Ursache war nicht die Schrift, sondern das Raster — Chip und
+    Feedback-Block waren Geschwister in `.sc-grid` und belegten damit ZWEI Zellen. Jede Kachel
+    stand auf halber Breite."""
+    quelle = _appjsx()
+    stelle = quelle.index("kategorieChips(ev, k.key")
+    block = quelle[stelle:stelle + 400]
+    assert 'className="sc-zelle"' in block
+    assert "React.Fragment" not in block
+
+
+def test_label_und_bewertung_stehen_untereinander():
+    """Fuenf Elemente in einer Zeile passen in eine 228px-Kachel nicht. Label oben, Punkte und
+    Wert darunter — dann darf das Label so lang sein, wie es sein muss."""
+    css = __import__("pathlib").Path("static/styles.css").read_text(encoding="utf-8")
+    assert ".sc-top{display:flex;flex-direction:column" in css
+    # Der Ueberlauf selbst: ohne Umbruchregel stand ein zu langes Label ueber seinem Kasten hinaus.
+    assert "overflow-wrap:anywhere" in css.split(".sc-label{")[1][:200]

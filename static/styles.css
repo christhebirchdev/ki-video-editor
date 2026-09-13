@@ -508,17 +508,23 @@
    geht, ohne dass man den Satz gelesen haben muss. */
 .analyst-zielgruppe-ico{margin-right:7px;font-size:15px;line-height:1;}
 .sc-grid{
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:12px;
+  align-items:start;
 }
+/* Eine Zelle = eine Kachel samt ihrem Feedback-Block. Als Geschwister im Raster belegten die
+   beiden zwei Zellen, und in der Admin-Ansicht stand dann jede zweite Kachel auf halber Breite. */
+.sc-zelle{min-width:0;}
 .sc-chip{
   padding:13px 15px;background:var(--paper-alt);border:1px solid var(--line);
   border-radius:var(--radius-sm);
 }
-/* Eine Zeile: Label links, Punkte und Wert rechts, Pfeil ganz aussen. Der frueher darunter
-   stehende Wert ist hochgerutscht — die Flaeche darunter gehoert jetzt dem Aufklapper. */
-.sc-top{display:flex;align-items:center;gap:9px;}
-.sc-label{font-size:13px;font-weight:700;color:var(--ink);flex:1 1 auto;min-width:0;}
-.sc-row{display:flex;align-items:center;gap:9px;margin-left:auto;flex:0 0 auto;}
+/* ZWEI Zeilen: Label oben ueber die volle Breite, darunter Punkte, Wert und der Klick-Hinweis.
+   Nebeneinander (Stand bis 2026-09-13) teilten sich fuenf Elemente eine Zeile — bei schmaler
+   Kachel lief der Label-Text unter den Punkten durch, weil er mit `min-width:0` schmaler wurde
+   als sein Inhalt und ohne Umbruchregel einfach ueberstand. */
+.sc-top{display:flex;flex-direction:column;gap:7px;}
+.sc-label{font-size:13px;font-weight:700;color:var(--ink);min-width:0;overflow-wrap:anywhere;}
+.sc-row{display:flex;align-items:center;gap:9px;min-width:0;}
 .sc-num{font-size:12px;font-weight:600;color:var(--taupe);font-variant-numeric:tabular-nums;}
 
 /* Aufklapper statt Hover-Tooltip (siehe ScoreChip in app.jsx). Reines <details>/<summary>:
@@ -530,8 +536,11 @@
 /* Der Klick-Hinweis. Eine Kachel, die aussieht wie eine Anzeige, laedt niemanden zum Tippen ein —
    also steht dran, dass da etwas drin ist. Nur im geschlossenen Zustand: Ist die Kachel offen,
    sieht man die Antwort ja schon. Klein und in Taupe, damit er die Zahl nicht ueberstimmt. */
-.sc-mehr{flex:0 0 auto;font-size:10.5px;font-weight:600;letter-spacing:.02em;color:var(--taupe-soft);
-  transition:color .12s;}
+/* Schiebt sich ans rechte Ende der Bewertungszeile, damit Punkte und Wert links zusammenbleiben. */
+.sc-mehr{flex:0 0 auto;margin-left:auto;font-size:10.5px;font-weight:600;letter-spacing:.02em;
+  color:var(--taupe-soft);transition:color .12s;}
+/* Ohne den Hinweis (offene Kachel) uebernimmt der Pfeil das Abstandhalten. */
+.sc-klapp[open]>summary .sc-pfeil{margin-left:auto;}
 .sc-klapp[open]>summary .sc-mehr{display:none;}
 .sc-klapp>summary:hover .sc-mehr,
 .sc-klapp>summary:focus-visible .sc-mehr{color:var(--gold-deep);}
@@ -546,7 +555,9 @@
 .sc-text{font-size:12.5px;line-height:1.5;color:var(--ink-2);margin:0 0 11px;}
 .sc-auf>.sc-text:last-child{margin-bottom:0;}
 @media(max-width:720px){
-  .sc-grid{grid-template-columns:1fr 1fr;}
+  /* Eine Spalte statt zwei: Bei 228px Mindestbreite je Kachel waeren zwei Spalten auf dem Handy
+     schmaler als der Inhalt — genau der Fall, der die Labels kaputtgemacht hat. */
+  .sc-grid{grid-template-columns:1fr;}
 }
 
 /* Skip-Eval-Checkbox + Gemma-Rohanalyse-Dropdown */

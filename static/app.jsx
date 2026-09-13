@@ -385,30 +385,36 @@ function ScoreChip({ label, score, positiv, kritik, beschreibung }) {
   const lob = txt(positiv);
   const mangel = txt(kritik);
   const neutral = txt(beschreibung);
-  const werte = (
+  // ZWEI Zeilen statt einer: Label oben, Bewertung darunter. Vorher standen Label, Punkte, Wert,
+  // Hinweis und Pfeil nebeneinander — in der Admin-Ansicht, wo neben jeder Kachel noch ein
+  // Feedback-Block im selben Raster liegt, blieb fuer das Label so wenig Platz, dass sein Text
+  // unter den Punkten durchlief (Screenshot Chris, 2026-09-13). Untereinander passt es in jeder
+  // Breite, und das Label darf so lang sein, wie es sein muss.
+  const werte = (klapp) => (
     <span className="sc-row">
       {/* score === null heißt "nicht bewertbar" (z.B. Sprech-Hook in einem Video ohne Sprache).
           Dann gar keine Punkte zeigen — 0 von 5 gefüllten Punkten liest sich wie eine 0-Wertung. */}
       {score != null && <RatingDots value={score} />}
       <span className="sc-num">{score != null ? `${score}/5` : "–"}</span>
+      {klapp && <span className="sc-mehr">Details</span>}
+      {klapp && <span className="sc-pfeil" aria-hidden="true">▸</span>}
     </span>
   );
   if (!lob && !mangel && !neutral) {
     return (
       <div className="sc-chip">
-        <div className="sc-top"><span className="sc-label">{label}</span>{werte}</div>
+        <div className="sc-top"><span className="sc-label">{label}</span>{werte(false)}</div>
       </div>
     );
   }
   return (
     <details className="sc-chip sc-klapp">
+      {/* „Details" und der Pfeil stehen in derselben Zeile wie die Punkte (siehe werte()):
+          Sie sagen einmal je Kachel, dass hier etwas drinsteckt. Nur im geschlossenen Zustand
+          sichtbar (CSS) — ist die Kachel offen, sieht man die Antwort ja schon. */}
       <summary className="sc-top">
         <span className="sc-label">{label}</span>
-        {werte}
-        {/* Sagt einmal je Kachel, dass hier etwas drinsteckt. Nur im geschlossenen Zustand
-            sichtbar (CSS): Ist die Kachel offen, sieht man die Antwort ja schon. */}
-        <span className="sc-mehr">Details</span>
-        <span className="sc-pfeil" aria-hidden="true">▸</span>
+        {werte(true)}
       </summary>
       <div className="sc-auf">
         {neutral && <p className="sc-text">{neutral}</p>}
@@ -1696,11 +1702,16 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                     {k.titel} <span className="muted" style={{ fontWeight: 500, fontSize: 12.5 }}>— {k.sub}</span>
                   </summary>
                   <div className="sc-grid" style={{ marginTop: 10 }}>
+                    {/* Chip UND sein Feedback-Block in EINER Zelle. Als Geschwister belegten sie
+                        zwei Rasterzellen: In der Admin-Ansicht hatte damit jede zweite Spalte eine
+                        Kachel statt einer — halbe Breite, umgebrochene Labels, Text unter den
+                        Punkten. In der Kundenansicht rendert Feedback null, dort aendert sich
+                        nichts. */}
                     {kategorieChips(ev, k.key, result.gewaehltes_ziel).map((c) => (
-                      <React.Fragment key={c.field}>
+                      <div className="sc-zelle" key={c.field}>
                         <ScoreChip {...c} />
                         <Feedback field={c.field} />
-                      </React.Fragment>
+                      </div>
                     ))}
                   </div>
                 </details>
