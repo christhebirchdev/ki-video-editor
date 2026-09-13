@@ -956,7 +956,7 @@ def test_prompt_version_wurde_hochgezaehlt():
     """Betriebsregel: bei jeder inhaltlichen Prompt-Aenderung hochzaehlen, sonst ist Feedback zu
     zwei verschiedenen Prompts nicht mehr auseinanderzuhalten."""
     from services.analyst_eval import PROMPT_VERSION
-    assert PROMPT_VERSION == "2026-09-13e"
+    assert PROMPT_VERSION == "2026-09-13f"
 
 
 def test_v3_verlangt_hoechstens_eine_empfehlung_je_dimension():
@@ -1890,3 +1890,19 @@ def test_die_kategorie_zuordnung_kennt_alle_dimensionen():
     for dims in KATEGORIEN.values():
         for d in dims:
             assert f"{d}:" in block, d
+
+
+def test_betrifft_enum_kennt_alle_dimensionen():
+    """Fehlte ein Name, hatte das Modell fuer diese Dimension keinen zulaessigen `betrifft`-Wert:
+    Die Empfehlung bekam keine Dimension, die Sortierung nach Schwere griff nicht und Lob zu dieser
+    Dimension fiel durch `filtere_staerken`. V2 bleibt bei seinen sieben Namen."""
+    from models.analyst import SCORE_GEWICHTE_JE_ZIEL
+    from services.analyst_eval import OUTPUT_SCHEMA, v3_schema
+
+    schema = v3_schema()
+    zeilen = [z for z in schema.splitlines() if '"betrifft"' in z]
+    assert len(zeilen) == 2, "betrifft steht in empfehlungen UND staerken"
+    for name in SCORE_GEWICHTE_JE_ZIEL["TOFU"]:
+        for zeile in zeilen:
+            assert name in zeile, f"{name} fehlt in: {zeile[:60]}"
+    assert "protagonist_auftreten" not in OUTPUT_SCHEMA, "V2-Vertrag bleibt unberuehrt"

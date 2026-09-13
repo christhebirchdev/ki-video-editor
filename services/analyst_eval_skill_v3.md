@@ -1056,8 +1056,8 @@ Dies ist die einzige Stelle, an der die Empfehlungs-Regeln stehen. Alles andere 
 - **Umgekehrt gilt: Zu JEDER Dimension mit Score 3 oder schlechter gehört eine eigene Empfehlung.**
   Fehlt sie, setzt das System einen allgemeinen Standardsatz ein — der ist immer schwächer als
   deiner, weil er dein Video nicht kennt.
-- **`betrifft` ausfüllen**, wenn die Handlung eine bewertete Dimension verbessert (sprech_hook,
-  text_hook, sprechqualitaet, visuelle_aesthetik, spannungsbogen, struktur, schnitt_pacing).
+- **`betrifft` ausfüllen**, wenn die Handlung eine bewertete Dimension verbessert. Zulässig sind
+  ALLE sechzehn Dimensionsnamen: sprech_hook, text_hook, visuell_hook, spannungsbogen, struktur, skript, untertitel_vorhanden, cta, schnitt_pacing, untertitel_gestaltung, einblendungen, soundeffekte, sprechqualitaet, visuelle_aesthetik, audioqualitaet, protagonist_auftreten.
   Das System erzwingt bei schwachem Score selbst eine Empfehlung — es erkennt an diesem Feld, dass
   du schon eine geschrieben hast, und legt dann KEINE zweite an. Ohne das Feld stand derselbe Mangel
   zweimal im Output: einmal von dir, einmal vom System (Läufe e9f69518, 82bda700, 0c68aa58).
@@ -1096,7 +1096,6 @@ Dies ist die einzige Stelle, an der die Empfehlungs-Regeln stehen. Alles andere 
 - top_tipps: 3–5 wichtigste Hebel, je 1–2 Sätze, nach Wirkung auf CTR/Watchtime priorisiert.
 - staerken: 1–2 ECHTE positive Aspekte JE BEREICH, höchstens 6 insgesamt. Jeder Eintrag ist ein
   Objekt {"text": "…", "betrifft": "<Dimensionsname>"}. `betrifft` ist PFLICHT und muss einer der
-  Namen sein: sprech_hook, text_hook, visuell_hook, spannungsbogen, struktur, schnitt_pacing,
-  sprechqualitaet, visuelle_aesthetik. Gibt es in einem Bereich nichts ehrlich Gutes zu sagen,
+  sechzehn Namen sein: sprech_hook, text_hook, visuell_hook, spannungsbogen, struktur, skript, untertitel_vorhanden, cta, schnitt_pacing, untertitel_gestaltung, einblendungen, soundeffekte, sprechqualitaet, visuelle_aesthetik, audioqualitaet, protagonist_auftreten. Gibt es in einem Bereich nichts ehrlich Gutes zu sagen,
   schreib dort NICHTS — erfinde kein Lob. Der Code streicht Lob, das die Scores nicht decken.
 - empfehlungen: siehe Abschnitt „Empfehlungen — die kanonische Regel" oben. Nicht hier wiederholen.

@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-13e"   # V3 Stufe 4: Lob UND Kritik je Dimension (positiv)
+PROMPT_VERSION = "2026-09-13f"   # betrifft-Enum auf alle 16 Dimensionen (nur V3)
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -1768,8 +1768,18 @@ def _positiv(name: str = "positiv") -> str:
             f'und es nichts Ehrliches zu sagen gibt>"')
 
 
+# `empfehlungen[].betrifft` zaehlte im geteilten Vertrag nur sieben Dimensionen auf — die fuenf
+# Stufe-2/3-Dimensionen (untertitel_vorhanden, untertitel_gestaltung, audioqualitaet, cta, skript,
+# einblendungen, soundeffekte, protagonist_auftreten) hatten damit KEINEN zulaessigen Wert. Folge:
+# Die Regel „zu jeder Dimension mit Score 3 oder schlechter gehoert eine eigene Empfehlung" war
+# dort nicht erfuellbar, das System setzte seinen schwaecheren Standardsatz ein, und die Sortierung
+# nach Schwere konnte die Empfehlung keiner Dimension zuordnen. V2 bleibt bei sieben Namen, weil
+# V2 die anderen Dimensionen gar nicht kennt.
+EMPFEHLUNGEN_BETRIFFT_V2 = '"betrifft": "<welche Bewertungsdimension diese Handlung behebt, aus: sprech_hook | text_hook | sprechqualitaet | visuelle_aesthetik | spannungsbogen | struktur | schnitt_pacing. Gehört sie zu keiner: leer>"'
+EMPFEHLUNGEN_BETRIFFT_V3 = '"betrifft": "<welche Bewertungsdimension diese Handlung behebt, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | skript | untertitel_vorhanden | cta | schnitt_pacing | untertitel_gestaltung | einblendungen | soundeffekte | sprechqualitaet | visuelle_aesthetik | audioqualitaet | protagonist_auftreten. Gehört sie zu keiner: leer>"'
+
 STAERKEN_ZEILE_V2 = '  "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],'
-STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik | untertitel_vorhanden | untertitel_gestaltung | audioqualitaet | protagonist_auftreten | cta>"}]  — NUR staerken ist eine Liste von Objekten. Alle anderen Listen in diesem Vertrag (top_tipps, texthook_varianten, texthook_maengel, probleme, hinweise, maengel) bleiben einfache Texte,'
+STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | skript | untertitel_vorhanden | cta | schnitt_pacing | untertitel_gestaltung | einblendungen | soundeffekte | sprechqualitaet | visuelle_aesthetik | audioqualitaet | protagonist_auftreten>"}]  — NUR staerken ist eine Liste von Objekten. Alle anderen Listen in diesem Vertrag (top_tipps, texthook_varianten, texthook_maengel, probleme, hinweise, maengel) bleiben einfache Texte,'
 
 # Zielgruppe: zum Satz „wer fuehlt sich angesprochen" kommt die Frage, wie relevant das Video FUER
 # diese Gruppe ist. Beantwortbar ist sie erst mit hinterlegten Zielgruppen-/Markendaten — die Datei
@@ -1879,6 +1889,7 @@ AESTHETIK_ZEILE_V3 = AESTHETIK_ZEILE_V2[:-2] + ', ' + _positiv() + '},'
 # Anker -> Ersatz. Reihenfolge egal, die Anker ueberschneiden sich nicht.
 V3_VERTRAG_ERSETZUNGEN = (
     (STAERKEN_ZEILE_V2, STAERKEN_ZEILE_V3),
+    (EMPFEHLUNGEN_BETRIFFT_V2, EMPFEHLUNGEN_BETRIFFT_V3),
     (ZIELGRUPPE_ZEILE_V2, ZIELGRUPPE_BLOCK_V3),
     (FUNNEL_ZEILE_V2, FUNNEL_BLOCK_V3),
     (UNTERTITEL_ZEILE_V2, HANDWERK_BLOCK_V3),
