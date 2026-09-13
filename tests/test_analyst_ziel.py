@@ -956,7 +956,7 @@ def test_prompt_version_wurde_hochgezaehlt():
     """Betriebsregel: bei jeder inhaltlichen Prompt-Aenderung hochzaehlen, sonst ist Feedback zu
     zwei verschiedenen Prompts nicht mehr auseinanderzuhalten."""
     from services.analyst_eval import PROMPT_VERSION
-    assert PROMPT_VERSION == "2026-09-13d"
+    assert PROMPT_VERSION == "2026-09-13e"
 
 
 def test_v3_verlangt_hoechstens_eine_empfehlung_je_dimension():
@@ -1652,3 +1652,69 @@ def test_schnitt_pacing_traegt_die_einblendungen_nicht_mehr():
     schnitt = p[p.index("## Schnitt & Pacing"):p.index("## Einblendungen")]
     assert "mehrfach wirkender Hebel" not in schnitt
     assert "einblendungen_eval" in schnitt      # Querverweis steht
+
+
+# ---------- Stufe 4: Lob UND Kritik je Dimension (Vorgabe Chris, 2026-09-13) ----------
+#
+# Bis hierher hatte jede Dimension nur eine Textseite, und die war Kritik. Der Aufklapper im
+# Frontend zeigt beide Seiten — dafuer braucht jede der sechzehn Dimensionen ein eigenes
+# `positiv`. Die Kritikseite (`probleme`, `kommentar`, `grund`, `maengel`) bleibt, wie sie ist.
+
+
+def test_die_drei_hook_ebenen_haben_eigene_lob_felder():
+    """Sie liegen in EINER Klasse — ein gemeinsames `positiv` wuerde drei Urteile zu einem
+    verschmelzen."""
+    from models.analyst import HookEval
+    h = HookEval()
+    assert h.sprech_hook_positiv == ""
+    assert h.text_hook_positiv == ""
+    assert h.visuell_hook_positiv == ""
+
+
+def test_untertitel_haben_zwei_lob_felder():
+    """Eine Klasse, zwei Dimensionen: „gibt es sie" und „wie sind sie gemacht" sind zwei Urteile,
+    genau wie `kommentar` und `maengel` auf der Kritikseite schon zwei sind."""
+    from models.analyst import UntertitelEval
+    u = UntertitelEval()
+    assert u.positiv == ""
+    assert u.gestaltung_positiv == ""
+
+
+def test_v3_vertrag_verlangt_positiv_je_dimension():
+    """Der Vertrag ist die Anweisung, der das Modell am zuverlaessigsten folgt — eine reine
+    Skill-Bitte reicht nicht (dieselbe Lektion wie bei P2 in docs/offene-fixes-analyst.md)."""
+    from services.analyst_eval import build_system_prompt
+    e = build_system_prompt(teil="eroeffnung", ziel="MOFU")
+    h = build_system_prompt(teil="handwerk", ziel="MOFU")
+    for feld in ('"sprech_hook_positiv"', '"text_hook_positiv"', '"visuell_hook_positiv"'):
+        assert feld in e, feld
+    # Die uebrigen dreizehn liegen im Handwerk-Call und heissen alle schlicht "positiv" —
+    # gezaehlt wird deshalb, statt auf einen Namen zu pruefen.
+    assert h.count('"positiv"') == 12, h.count('"positiv"')
+    assert '"gestaltung_positiv"' in h
+
+
+def test_v2_vertrag_kennt_positiv_nicht():
+    """V2 ist die eingefrorene Vergleichsbasis von 89 Laeufen."""
+    from services.analyst_eval import build_system_prompt, OUTPUT_SCHEMA
+    assert "positiv" not in OUTPUT_SCHEMA.replace("positive Aspekte", "")
+    for teil in (None, "eroeffnung", "handwerk"):
+        p = build_system_prompt(teil=teil)
+        assert "_positiv" not in p
+        assert '"positiv"' not in p
+
+
+def test_v3_skill_bindet_die_menge_an_lob_an_den_score():
+    """„Je geringer der Score, desto weniger positives Feedback" — pruefbar formuliert, nicht als
+    Bitte. Der V2-Skill bleibt unangetastet."""
+    from services.analyst_eval import SKILL_PATH_V3, load_skill_body
+    v3 = load_skill_body(SKILL_PATH_V3)
+    v2 = load_skill_body()
+    assert "Lob und Kritik" in v3
+    assert "Lob und Kritik" not in v2
+    assert "positiv" in v3
+
+
+def _appjsx():
+    import pathlib
+    return pathlib.Path("static/app.jsx").read_text(encoding="utf-8")

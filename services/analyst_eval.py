@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-13d"   # V3 Stufe 3: Skript, Einblendungen und Soundeffekte als eigene Dimensionen
+PROMPT_VERSION = "2026-09-13e"   # V3 Stufe 4: Lob UND Kritik je Dimension (positiv)
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -1691,6 +1691,16 @@ staerken: nenne echte positive Aspekte (nicht schönreden) — sie kommen im Erg
 # den Vertrag zeilenweise ueber die Top-Level-Schluessel; ein ueber mehrere Zeilen umgebrochenes
 # Feld wuerde dort auseinandergerissen.
 
+# Die Lob-Seite je Dimension (Stufe 4). Bewusst KURZ: Sie kommt sechzehnmal im Vertrag vor —
+# jedes zusaetzliche Wort kostet sechzehnmal Tokens, in jeder Analyse. Die ausfuehrliche Regel
+# („wie viel Lob bei welchem Score") steht einmal im Skill-Abschnitt „Lob und Kritik je Dimension".
+# KEINE eckigen oder geschweiften Klammern im Text: `_schema_fuer` zaehlt sie mit, um die
+# Feldgrenzen zu finden, und eine unpaarige Klammer wuerde den Filter aus dem Tritt bringen.
+def _positiv(name: str = "positiv") -> str:
+    return (f'"{name}": "<was hier gut ist, 1 Satz. Leer lassen, wenn der Score 1 oder 2 ist '
+            f'und es nichts Ehrliches zu sagen gibt>"')
+
+
 STAERKEN_ZEILE_V2 = '  "staerken": ["<1-3 konkrete positive Aspekte, was schon gut funktioniert, in einfacher ermutigender Sprache>"],'
 STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, in einfacher ermutigender Sprache>", "betrifft": "<welche Dimension, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | schnitt_pacing | sprechqualitaet | visuelle_aesthetik | untertitel_vorhanden | untertitel_gestaltung | audioqualitaet | protagonist_auftreten | cta>"}]  — NUR staerken ist eine Liste von Objekten. Alle anderen Listen in diesem Vertrag (top_tipps, texthook_varianten, texthook_maengel, probleme, hinweise, maengel) bleiben einfache Texte,'
 
@@ -1706,6 +1716,18 @@ ZIELGRUPPE_BLOCK_V3 = (
 
 # Funnel: die ABSICHT (`funnel`, vom Nutzer) und die WIRKUNG (`funnel_wirkung`, Einschaetzung des
 # Modells) stehen direkt untereinander — damit die Trennung schon beim Lesen des Vertrags auffaellt.
+# Hook: drei Ebenen, drei Lob-Felder — sie liegen in einer gemeinsamen Klasse, ein geteiltes
+# `positiv` wuerde drei Urteile zu einem verschmelzen (siehe HookEval in models/analyst.py).
+HOOK_SPRECH_GRUND_V2 = '    "sprech_hook_grund": "<1-2 Sätze>",'
+HOOK_SPRECH_BLOCK_V3 = HOOK_SPRECH_GRUND_V2 + '\n    ' + _positiv("sprech_hook_positiv") + ','
+
+HOOK_TEXT_GRUND_V2 = '    "text_hook_grund": "<1-2 Sätze; bei score 0 die Ansage + Tipp (3 Varianten über Instagram-Testreel testen)>",'
+HOOK_TEXT_BLOCK_V3 = HOOK_TEXT_GRUND_V2 + '\n    ' + _positiv("text_hook_positiv") + ','
+
+# Letzte Zeile im hook-Objekt, deshalb OHNE Komma am Ende — das neue Feld haengt sich davor.
+HOOK_VISUELL_GRUND_V2 = '    "visuell_hook_grund": "<1-2 Sätze: WAS optisch passiert (oder eben nicht) und wie es wirkt>"'
+HOOK_VISUELL_BLOCK_V3 = HOOK_VISUELL_GRUND_V2 + ',\n    ' + _positiv("visuell_hook_positiv")
+
 FUNNEL_ZEILE_V2 = '  "funnel": "<TOFU | MOFU | BOFU | Mischung>",'
 FUNNEL_BLOCK_V3 = (
     '  "funnel": "<TOFU | MOFU | BOFU | Mischung>",\n'
@@ -1721,9 +1743,14 @@ HANDWERK_BLOCK_V3 = (
     '  "untertitel": {"vorhanden": <true|false — laufen Untertitel mit? Wird gesprochen und fehlen sie, ist das ein MANGEL (siehe Abschnitt „Untertitel"); nur ein Video ohne gesprochenes Wort braucht keine>, '
     '"score": <int 1-5: wie gut deckt die Untertitelspur das Gesprochene ab? Nur ausfüllen, wenn Untertitel MITLAUFEN — fehlen sie oder wird nicht gesprochen, setzt das System den Wert selbst, schreib dann null>, '
     '"gestaltung_score": <int 1-5: wie sind sie GEMACHT — Platzierung, Wörter pro Block, Lesbarkeit, Timing? Nur ausfüllen, wenn Untertitel mitlaufen, sonst null>, '
-    '"maengel": ["<NUR was wirklich schwach ist, aus: position | statisch | groesse | lesbarkeit | wortzahl | timing. Sind sie in Ordnung: []>"], "kommentar": "<1 Satz>"},\n'
-    '  "audioqualitaet": {"score": <int 1-5: wie SAUBER klingt der Ton — Störgeräusche, Hall, Verständlichkeit, Balance zwischen Musik und Stimme. Die LAUTHEIT beurteilst du NICHT nach Gehör: sie ist gemessen und steht in der Aufgabe, das System deckelt den Score selbst. Hat das Video keine Tonspur: null>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},\n'
-    '  "cta": {"score": <int 1-5: der Call to Action — gibt es einen, ist er konkret, kommt er an der richtigen Stelle? Fehlt er ganz: 1>, "kommentar": "<1 Satz>"},'
+    '"maengel": ["<NUR was wirklich schwach ist, aus: position | statisch | groesse | lesbarkeit | wortzahl | timing. Sind sie in Ordnung: []>"], "kommentar": "<1 Satz>", '
+    # Zwei Lob-Felder, weil es zwei Dimensionen sind: `positiv` gehoert zu `score` („gibt es sie"),
+    # `gestaltung_positiv` zu `gestaltung_score` („wie sind sie gemacht").
+    + _positiv() + ', ' + _positiv("gestaltung_positiv") + '},\n'
+    '  "audioqualitaet": {"score": <int 1-5: wie SAUBER klingt der Ton — Störgeräusche, Hall, Verständlichkeit, Balance zwischen Musik und Stimme. Die LAUTHEIT beurteilst du NICHT nach Gehör: sie ist gemessen und steht in der Aufgabe, das System deckelt den Score selbst. Hat das Video keine Tonspur: null>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"], '
+    + _positiv() + '},\n'
+    '  "cta": {"score": <int 1-5: der Call to Action — gibt es einen, ist er konkret, kommt er an der richtigen Stelle? Fehlt er ganz: 1>, "kommentar": "<1 Satz>", '
+    + _positiv() + '},'
 )
 
 # Auftreten der Person vor der Kamera (Vorgabe Chris, 2026-09-13). Die neue Zeile steht direkt
@@ -1738,7 +1765,8 @@ AUFTRETEN_BLOCK_V3 = (
     '"score": <int 1-5 — NUR ausfüllen, wenn dir in der Aufgabe Angaben zur Person oder zur Marke vorliegen (wer der Protagonist ist, wofür er steht, wie die Marke auftreten will). Liegen dir keine vor: null. Ohne diesen Maßstab ist nicht entscheidbar, ob ruhige Sachlichkeit passend oder zu flach ist — rate nicht>, '
     '"beschreibung": "<PFLICHT, IMMER ausfüllen, auch bei score null: 1-2 Sätze, was du an Ausdruckskraft, Betonung, Präsenz und Blickführung SIEHST und HÖRST. Wertfrei beschreiben, nicht beurteilen>", '
     '"probleme": ["<NUR wenn dir Angaben zur Person oder Marke vorliegen, und nur DEUTLICHE Mängel, je 1-2 Sätze. Sonst []>"], '
-    '"hinweise": ["<NUR mit solchen Angaben: leichte Auffälligkeiten ohne Score-Wirkung. Sonst []>"]},'
+    '"hinweise": ["<NUR mit solchen Angaben: leichte Auffälligkeiten ohne Score-Wirkung. Sonst []>"], '
+    + _positiv() + '},'
 )
 
 # Stufe 3 (Vorgabe Chris, 2026-09-13): Einblendungen, Soundeffekte und Skript bekommen eigene
@@ -1747,17 +1775,39 @@ AUFTRETEN_BLOCK_V3 = (
 # damit die Trennung schon beim Lesen des Vertrags sichtbar ist.
 SCHNITT_ZEILE_V2 = '  "schnitt_pacing": {"score": <int 1-5>, "kommentar": "<1-2 Sätze, format-bewusst>"},'
 EDITING_BLOCK_V3 = (
-    '  "schnitt_pacing": {"score": <int 1-5: NUR Schnittrhythmus und Tempo — wie oft wird geschnitten, sitzen die Schnitte, passt das Tempo zum Format? Einblendungen und Soundeffekte gehoeren NICHT hierher, die haben eigene Felder>, "kommentar": "<1-2 Sätze, format-bewusst>"},\n'
-    '  "einblendungen_eval": {"score": <int 1-5: Grafiken, Symbole, B-Roll, eingeblendete Bilder und Text-Overlays (NICHT die Text-Hook). Sind sie da, wo sie helfen? Verstärken sie das Gesagte oder lenken sie ab? Liegen sie in der Safe Zone? Ein statisches Video ganz ohne Einblendungen ist hier schwach, auch wenn der Schnitt sauber ist>, "probleme": ["<nur DEUTLICHE Mängel, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},\n'
-    '  "soundeffekte": {"score": <int 1-5: Ton als GESTALTUNGSMITTEL — kurze Effekte (Whoosh, Klick, Pop), Musikeinsatz, Betonung von Schnitten und Pointen. NICHT die Aufnahmequalität, die steht in audioqualitaet. Ganz ohne Sound-Gestaltung in einem schnittintensiven Video: höchstens 3>, "kommentar": "<1 Satz>"},'
+    '  "schnitt_pacing": {"score": <int 1-5: NUR Schnittrhythmus und Tempo — wie oft wird geschnitten, sitzen die Schnitte, passt das Tempo zum Format? Einblendungen und Soundeffekte gehoeren NICHT hierher, die haben eigene Felder>, "kommentar": "<1-2 Sätze, format-bewusst>", '
+    + _positiv() + '},\n'
+    '  "einblendungen_eval": {"score": <int 1-5: Grafiken, Symbole, B-Roll, eingeblendete Bilder und Text-Overlays (NICHT die Text-Hook). Sind sie da, wo sie helfen? Verstärken sie das Gesagte oder lenken sie ab? Liegen sie in der Safe Zone? Ein statisches Video ganz ohne Einblendungen ist hier schwach, auch wenn der Schnitt sauber ist>, "probleme": ["<nur DEUTLICHE Mängel, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"], '
+    + _positiv() + '},\n'
+    '  "soundeffekte": {"score": <int 1-5: Ton als GESTALTUNGSMITTEL — kurze Effekte (Whoosh, Klick, Pop), Musikeinsatz, Betonung von Schnitten und Pointen. NICHT die Aufnahmequalität, die steht in audioqualitaet. Ganz ohne Sound-Gestaltung in einem schnittintensiven Video: höchstens 3>, "kommentar": "<1 Satz>", '
+    + _positiv() + '},'
 )
 
-# Skript sitzt im Mittelteil und haengt deshalb an der struktur-Zeile.
-STRUKTUR_ZEILE_V2 = '  "struktur": {\n    "score": <int 1-5>,\n    "elemente": {"hook": <bool>, "bridge": <bool>, "mid": <bool>, "peak": <bool>, "cta": <bool>},\n    "kommentar": "<1-2 Sätze>"'
+# Skript sitzt im Mittelteil und haengt deshalb am struktur-Block.
+#
+# Der Anker reicht bis EINSCHLIESSLICH der schliessenden Klammer von `struktur`. Bis 2026-09-13
+# endete er bei `kommentar`, und die angehaengte skript-Zeile landete dadurch INNERHALB der
+# geschweiften Klammern der Struktur — im Vertrag stand `skript` als Unterfeld von `struktur`,
+# genau der Verschachtelung, die der Skill an dieser Stelle ausdruecklich trennt.
+STRUKTUR_ZEILE_V2 = '  "struktur": {\n    "score": <int 1-5>,\n    "elemente": {"hook": <bool>, "bridge": <bool>, "mid": <bool>, "peak": <bool>, "cta": <bool>},\n    "kommentar": "<1-2 Sätze>"\n  },'
 MITTELTEIL_BLOCK_V3 = (
-    STRUKTUR_ZEILE_V2 + '\n'
-    '  "skript": {"score": <int 1-5: die inhaltliche SUBSTANZ — trägt der Gedanke? Ist die Aussage konkret oder beliebig? Nimmt der Zuschauer etwas mit? Ist die Sprache einfach genug (siehe Abschnitt Sprache)? Passt der Inhalt zum Videoziel und zum Format? Auch bei einem Video OHNE gesprochenes Wort bewertbar: dann zählt die Geschichte, die Bild und Schnitt erzählen. NICHT die Form (das ist struktur) und nicht der Verlauf (das ist spannungsbogen)>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},'
+    '  "struktur": {\n    "score": <int 1-5>,\n    "elemente": {"hook": <bool>, "bridge": <bool>, "mid": <bool>, "peak": <bool>, "cta": <bool>},\n'
+    '    "kommentar": "<1-2 Sätze>",\n    ' + _positiv() + '\n  },\n'
+    '  "skript": {"score": <int 1-5: die inhaltliche SUBSTANZ — trägt der Gedanke? Ist die Aussage konkret oder beliebig? Nimmt der Zuschauer etwas mit? Ist die Sprache einfach genug (siehe Abschnitt Sprache)? Passt der Inhalt zum Videoziel und zum Format? Auch bei einem Video OHNE gesprochenes Wort bewertbar: dann zählt die Geschichte, die Bild und Schnitt erzählen. NICHT die Form (das ist struktur) und nicht der Verlauf (das ist spannungsbogen)>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"], '
+    + _positiv() + '},'
 )
+
+# Drei Dimensionen stehen unveraendert im V2-Vertrag und brauchen in V3 nur die Lob-Seite. Sie
+# haengen an keinem der Bloecke oben, weil dazwischen jeweils eine Zeile mit eigenem Anker liegt
+# (schnitt_pacing) — ueberlappende Anker waeren nicht mehr eindeutig ersetzbar.
+SPRECHQUALITAET_ZEILE_V2 = '  "sprechqualitaet": {"score": <int 1-5, oder null wenn niemand spricht>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},'
+SPRECHQUALITAET_ZEILE_V3 = SPRECHQUALITAET_ZEILE_V2[:-2] + ', ' + _positiv() + '},'
+
+SPANNUNGSBOGEN_ZEILE_V2 = '  "spannungsbogen": {"score": <int 1-5>, "kommentar": "<1-2 Sätze>"},'
+SPANNUNGSBOGEN_ZEILE_V3 = SPANNUNGSBOGEN_ZEILE_V2[:-2] + ', ' + _positiv() + '},'
+
+AESTHETIK_ZEILE_V2 = '  "visuelle_aesthetik": {"score": <int 1-5>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},'
+AESTHETIK_ZEILE_V3 = AESTHETIK_ZEILE_V2[:-2] + ', ' + _positiv() + '},'
 
 # Anker -> Ersatz. Reihenfolge egal, die Anker ueberschneiden sich nicht.
 V3_VERTRAG_ERSETZUNGEN = (
@@ -1768,6 +1818,13 @@ V3_VERTRAG_ERSETZUNGEN = (
     (ENERGIE_ZEILE_V2, AUFTRETEN_BLOCK_V3),
     (SCHNITT_ZEILE_V2, EDITING_BLOCK_V3),
     (STRUKTUR_ZEILE_V2, MITTELTEIL_BLOCK_V3),
+    # Stufe 4: Lob-Seite je Dimension.
+    (HOOK_SPRECH_GRUND_V2, HOOK_SPRECH_BLOCK_V3),
+    (HOOK_TEXT_GRUND_V2, HOOK_TEXT_BLOCK_V3),
+    (HOOK_VISUELL_GRUND_V2, HOOK_VISUELL_BLOCK_V3),
+    (SPRECHQUALITAET_ZEILE_V2, SPRECHQUALITAET_ZEILE_V3),
+    (SPANNUNGSBOGEN_ZEILE_V2, SPANNUNGSBOGEN_ZEILE_V3),
+    (AESTHETIK_ZEILE_V2, AESTHETIK_ZEILE_V3),
 )
 
 for _anker, _ in V3_VERTRAG_ERSETZUNGEN:
@@ -1837,6 +1894,9 @@ ABSCHNITT_ZUORDNUNG = {
     "Videoziel": BEIDE,   # nur im V3-Skill; steuert beide Teil-Calls
     # nur im V3-Skill: die 5-Regel gilt fuer jede bewertete Dimension, also in beiden Calls.
     "Score-Anker — wann eine 5 eine 5 ist": BEIDE,
+    # nur im V3-Skill: Die Lob-Regel gilt fuer jede bewertete Dimension — die drei Hook-Ebenen
+    # liegen im Eroeffnungs-Call, die uebrigen dreizehn im Handwerk-Call. Also BEIDE.
+    "Lob und Kritik je Dimension": BEIDE,
     # nur im V3-Skill: Format-Regeln greifen in beide Calls (Sprech-Hook/Reaction in der
     # Eroeffnung, Bildausschnitt/Blick/Pausen im Handwerk) — deshalb BEIDE, nicht eine Seite.
     "Format — formatabhängige Maßstäbe": BEIDE,

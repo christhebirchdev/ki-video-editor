@@ -99,6 +99,19 @@ class QualityMetrics(BaseModel):
 
 # ---------- V2: schlanke Bewertung (Scores + 1-Satz-Begründungen) ----------
 
+# Jede bewertete Dimension hat ZWEI Textseiten: `positiv` (was gut ist) und die schon vorhandene
+# Kritikseite (`probleme`, `kommentar`, `grund`, `maengel`). Vorgabe Chris (2026-09-13): Das
+# Frontend klappt beide untereinander auf, statt einen Hover-Tooltip mit nur einer Seite zu zeigen.
+#
+# Default "" an JEDER Stelle, damit die 89 gespeicherten Altläufe unverändert laden — sie kennen
+# das Feld nicht, und ein abgebrochener Ladevorgang wäre der teuerste aller Fehler.
+#
+# Wie viel auf welcher Seite steht, hängt am Score. Die Prompt-Regel dazu steht im V3-Skill; die
+# Untergrenze setzt der Code (`filtere_positiv` in services/analyst_eval.py), weil eine Regel ohne
+# Schwelle zu Boilerplate wird — dieselbe Lektion wie bei P2 in docs/offene-fixes-analyst.md.
+POSITIV_DOC = "was an dieser Dimension gut ist; leer, wenn der Score es nicht hergibt"
+
+
 class HookEval(BaseModel):
     """Hook getrennt nach Sprech- und Text-Hook (4-Faktoren-Rubrik, 1–5).
 
@@ -108,6 +121,9 @@ class HookEval(BaseModel):
     """
     sprech_hook_score: Optional[int] = 0
     sprech_hook_grund: str = ""
+    # Drei Hook-Ebenen liegen in EINER Klasse, brauchen aber drei getrennte Lob-Felder: Ein
+    # gemeinsames `positiv` würde drei Urteile zu einem verschmelzen. Siehe POSITIV_DOC.
+    sprech_hook_positiv: str = ""
     # Die Frage, die der Hook offen lässt — PFLICHT, in EINEM Satz.
     # Zweck: „erzeugt Neugier" ist eine Behauptung, die über jeden Text aufgestellt werden kann und
     # die das Modell nicht falsifizieren muss. Eine formulierbare offene Frage ist dagegen prüfbar:
@@ -120,6 +136,7 @@ class HookEval(BaseModel):
     text_hook_vorhanden: bool = False
     text_hook_score: Optional[int] = None
     text_hook_grund: Optional[str] = None
+    text_hook_positiv: str = ""        # siehe POSITIV_DOC
     # Wortlaut des Textes, den das Modell als Text-Hook wertet — PFLICHT wenn vorhanden.
     # Zwei Gründe: (1) Ohne Zitat ist eine Fehlklassifikation unsichtbar. Im Lauf 5502bb37 wertete
     # das Modell die Spaltenüberschrift einer Vergleichsgrafik als Texthook mit Score 4; im Output
@@ -151,6 +168,7 @@ class HookEval(BaseModel):
     # Video, in dem die Eröffnung nicht beurteilbar ist, nicht.
     visuell_hook_score: Optional[int] = None
     visuell_hook_grund: str = ""
+    visuell_hook_positiv: str = ""     # siehe POSITIV_DOC
     # True, wenn der Score erst NACH dem Modell-Call im Code geklemmt wurde. Das Modell konnte davon
     # nichts wissen, also muss die Empfehlung dazu erzwungen werden (siehe erzwinge_hook_empfehlungen).
     text_hook_score_geklemmt: bool = False
@@ -210,6 +228,11 @@ class UntertitelEval(BaseModel):
     kommentar: str = ""
     score: Optional[int] = None            # „gibt es sie?" — Dimension untertitel_vorhanden
     gestaltung_score: Optional[int] = None  # „wie sind sie gemacht?" — Dimension untertitel_gestaltung
+    # Zwei Lob-Felder aus demselben Grund, aus dem es zwei Scores gibt: „gibt es sie" und „wie sind
+    # sie gemacht" sind zwei Urteile. Auf der Kritikseite trennen `kommentar` und `maengel` sie
+    # schon heute — ein gemeinsames `positiv` wäre der einzige Ort, an dem sie wieder zusammenfielen.
+    positiv: str = ""                  # zu `score`, siehe POSITIV_DOC
+    gestaltung_positiv: str = ""       # zu `gestaltung_score`
 
     @field_validator("maengel", mode="before")
     @classmethod
@@ -263,10 +286,11 @@ class StrukturEval(BaseModel):
     score: int = 0
     elemente: StrukturElemente = Field(default_factory=StrukturElemente)
     kommentar: str = ""
+    positiv: str = ""                  # siehe POSITIV_DOC
 
 
 class ScoreProbleme(BaseModel):
-    """Score 1–5 + nur stark auffällige Punkte (Frontend: Hover-Detail).
+    """Score 1–5 + nur stark auffällige Punkte; im Frontend die Kritikseite des Aufklappers.
 
     score ist nullable — siehe HookEval: bei sprechqualitaet ohne gesprochenes Wort bedeutet null
     „nicht bewertbar", nicht „schlecht". Das Frontend zeigt dafür „–"."""
@@ -282,6 +306,10 @@ class ScoreProbleme(BaseModel):
     # Zwei Listen statt eines Schwere-Attributs pro Eintrag: `probleme` bleibt `list[str]`, damit
     # Altläufe und das Frontend unverändert weiterlesen.
     hinweise: list[str] = Field(default_factory=list)
+    # Deckt sprechqualitaet, visuelle_aesthetik, audioqualitaet, einblendungen_eval, skript und
+    # (über ProtagonistEval) protagonist_auftreten ab — sechs der sechzehn Dimensionen in EINEM
+    # Feld. Siehe POSITIV_DOC.
+    positiv: str = ""
 
     @field_validator("probleme", "hinweise", mode="before")
     @classmethod
@@ -327,9 +355,11 @@ class ProtagonistEval(ScoreProbleme):
 
 
 class ScoreKommentar(BaseModel):
-    """Score 1–5 + 1-Satz-Kommentar (Frontend: Hover-Detail)."""
+    """Score 1–5 + 1-Satz-Kommentar; im Frontend die Kritikseite des Aufklappers."""
     score: int = 0
     kommentar: str = ""
+    # Deckt schnitt_pacing, spannungsbogen, cta und soundeffekte ab. Siehe POSITIV_DOC.
+    positiv: str = ""
 
 
 class ActionStep(BaseModel):
