@@ -956,7 +956,7 @@ def test_prompt_version_wurde_hochgezaehlt():
     """Betriebsregel: bei jeder inhaltlichen Prompt-Aenderung hochzaehlen, sonst ist Feedback zu
     zwei verschiedenen Prompts nicht mehr auseinanderzuhalten."""
     from services.analyst_eval import PROMPT_VERSION
-    assert PROMPT_VERSION == "2026-09-13g"
+    assert PROMPT_VERSION == "2026-09-13h"
 
 
 def test_v3_verlangt_hoechstens_eine_empfehlung_je_dimension():

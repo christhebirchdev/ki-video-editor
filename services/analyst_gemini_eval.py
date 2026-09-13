@@ -232,7 +232,8 @@ def _user_message(result: AnalystResult, mode: str) -> str:
 
 def _evaluate(video_path: Path, result: AnalystResult, mode: str, run_dir=None) -> AnalystEvaluationV2:
     video_file = gemini_service._upload_video_to_gemini(video_path)
-    system = analyst_eval.build_system_prompt(ziel=getattr(result, "gewaehltes_ziel", ""))
+    system = analyst_eval.build_system_prompt(ziel=getattr(result, "gewaehltes_ziel", ""),
+                                              marke=getattr(result, "marke_text", ""))
     user = _user_message(result, mode)
     cfg = types.GenerateContentConfig(
         system_instruction=system,
@@ -317,7 +318,8 @@ def _evaluate_teil(video_file, result: AnalystResult, teil: str, run_dir,
                    kontext: str = "") -> AnalystEvaluationV2:
     """Ein Teil-Call. Das Video wird als bereits hochgeladene Datei-Referenz übergeben — die Files
     API erlaubt die Wiederverwendung über mehrere Requests, es wird also nicht zweimal geladen."""
-    system = analyst_eval.build_system_prompt(teil=teil, ziel=getattr(result, "gewaehltes_ziel", ""))
+    system = analyst_eval.build_system_prompt(teil=teil, ziel=getattr(result, "gewaehltes_ziel", ""),
+                                              marke=getattr(result, "marke_text", ""))
     user = _TEIL_AUFGABE[teil] + _user_message(result, "hybrid")
     if kontext:
         user += "\n\n" + kontext

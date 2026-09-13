@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-13g"   # Entscheidungen Chris: Kopfraum 20 %, Person-/Aufnahme-Trennung, cta null
+PROMPT_VERSION = "2026-09-13h"   # Marken-/Zielgruppen-Datei: eigener Prompt-Abschnitt + zielgruppen_abgleich
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -1518,6 +1518,35 @@ def deckle_audioqualitaet(parsed: AnalystEvaluationV2,
     return parsed
 
 
+def erzwinge_marken_abhaengige_felder(parsed: AnalystEvaluationV2,
+                                      result: AnalystResult) -> AnalystEvaluationV2:
+    """Ohne hochgeladene Marken-/Zielgruppen-Datei gibt es keine markenabhaengigen Urteile.
+
+    Der Prompt verlangt das bereits („liegen dir keine solchen Daten vor: leer — rate nichts").
+    Die P2-Lektion aus docs/offene-fixes-analyst.md sagt, warum das nicht reicht: Eine
+    Prompt-Pflicht ohne Durchsetzung im Code wird zum Textbaustein. Hier waere der Schaden
+    besonders still — eine 4 fuer das Auftreten sieht genauso aus, egal ob sie an einem Massstab
+    gemessen oder geraten wurde.
+
+    Was BLEIBT: `protagonist_auftreten.beschreibung`. Sie ist ausdruecklich wertfrei (Vorgabe Chris:
+    „Falls keine Info, bitte nur die Energie beschreiben, aber nicht bewerten") und braucht keinen
+    Massstab.
+
+    Nur bei gesetztem Ziel (V3); V2-Laeufe kennen die Felder nicht.
+    """
+    if not _ziel_gesetzt(result):
+        return parsed
+    if (getattr(result, "marke_datei", "") or "").strip():
+        return parsed
+    parsed.zielgruppen_abgleich = ""
+    parsed.zielgruppen_relevanz = ""
+    parsed.protagonist_auftreten.score = None
+    parsed.protagonist_auftreten.probleme = []
+    parsed.protagonist_auftreten.hinweise = []
+    parsed.protagonist_auftreten.positiv = ""
+    return parsed
+
+
 def pruefe_funnel_wirkung(parsed: AnalystEvaluationV2,
                           result: AnalystResult) -> AnalystEvaluationV2:
     """`funnel_wirkung` auf einen der drei ZIELE-Werte festnageln — oder leeren (Stufe 2).
@@ -1649,6 +1678,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = setze_untertitel_scores(parsed, result)
     parsed = deckle_audioqualitaet(parsed, result)
     parsed = pruefe_funnel_wirkung(parsed, result)
+    parsed = erzwinge_marken_abhaengige_felder(parsed, result)
     parsed = filtere_staerken(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     # Direkt neben filtere_staerken und aus demselben Grund an dieser Stelle: Beide lesen die
     # FERTIGEN Scores. Frueher aufgerufen wuerde Lob zu einer Dimension ueberleben, die
@@ -1788,7 +1818,8 @@ STAERKEN_ZEILE_V3 = '  "staerken": [{"text": "<EIN konkreter positiver Aspekt, i
 ZIELGRUPPE_ZEILE_V2 = '  "zielgruppe": "<genau 1 Satz: wer angesprochen wird>",'
 ZIELGRUPPE_BLOCK_V3 = (
     '  "zielgruppe": "<genau 1 Satz: wer angesprochen wird>",\n'
-    '  "zielgruppen_relevanz": "<NUR ausfüllen, wenn dir in der Aufgabe Zielgruppen- oder Markendaten vorliegen: 1-2 Sätze, wie relevant dieses Video für genau diese Zielgruppe ist, belegt am Inhalt des Videos. Liegen dir keine solchen Daten vor: leer — rate nichts>",'
+    '  "zielgruppen_relevanz": "<NUR ausfüllen, wenn dir in der Aufgabe Zielgruppen- oder Markendaten vorliegen: 1-2 Sätze, wie relevant dieses Video für genau diese Zielgruppe ist, belegt am Inhalt des Videos. Liegen dir keine solchen Daten vor: leer — rate nichts>",\n'
+    '  "zielgruppen_abgleich": "<NUR mit Marken-/Zielgruppendaten in der Aufgabe. GENAU EIN Wort, kein Satz: trifft_kern | teilweise | breiteres_publikum | andere_zielgruppe. Ohne solche Daten: leer>",'
 )
 
 # Funnel: die ABSICHT (`funnel`, vom Nutzer) und die WIRKUNG (`funnel_wirkung`, Einschaetzung des
@@ -2012,7 +2043,8 @@ ABSCHNITT_ZUORDNUNG = {
 # Format-Instruktion und der Sprechbeginn gebraucht werden.
 TEIL_FELDER = {
     "eroeffnung": (
-        "zielgruppe", "zielgruppen_relevanz", "format", "protagonist_ab_sek", "funnel", "hook",
+        "zielgruppe", "zielgruppen_relevanz", "zielgruppen_abgleich", "format",
+        "protagonist_ab_sek", "funnel", "hook",
         # Die Funnel-WIRKUNG liegt bei der Eröffnung, weil dort schon `funnel` und die Zielgruppe
         # beurteilt werden — Ansprache, Breite und Tiefe entscheiden über die Stufe.
         "funnel_wirkung", "funnel_wirkung_grund", "funnel_wirkung_empfehlung",
@@ -2105,12 +2137,49 @@ def merge_teilergebnisse(eroeffnung: AnalystEvaluationV2,
     return ergebnis
 
 
-def build_system_prompt(teil: str | None = None, ziel: str = "") -> str:
+# Der GELTUNGSBEREICH ist der Kern dieses Abschnitts, nicht der Kontext selbst (Spec 1.2): Eine
+# hochglanzpolierte Marken-Datei darf handwerkliche Urteile nicht verwaessern („passt ja zur
+# Marke"). Deshalb steht hier ausdruecklich, worauf der Kontext NICHT wirkt — und zwar mit den
+# Feldnamen, weil eine allgemeine Formulierung („nicht auf das Handwerk") im Zweifel gedehnt wird.
+MARKEN_KONTEXT = """--- MARKEN- UND ZIELGRUPPEN-KONTEXT (vom Nutzer hochgeladen) ---
+Der folgende Text beschreibt die Marke, das Angebot und/oder die Zielgruppe. Er ist ein FAKT, keine
+Einschaetzung von dir.
+
+WORAUF ER WIRKT — und nur darauf:
+- `zielgruppe` und `zielgruppen_relevanz`: Wen spricht das Video an, und wie relevant ist es fuer
+  genau die beschriebene Zielgruppe?
+- `zielgruppen_abgleich`: GENAU EINER dieser vier Werte, nichts anderes und kein Satz —
+  `trifft_kern` (das Video spricht den beschriebenen Kern an), `teilweise` (ein Teil der Zielgruppe),
+  `breiteres_publikum` (spricht deutlich mehr Menschen an als beschrieben), `andere_zielgruppe`
+  (spricht erkennbar jemand anderen an).
+- `texthook_varianten`: in der Sprache und mit den Begriffen dieser Zielgruppe, nicht generisch.
+- Sprachlevel: Zu viel Fachjargon fuer eine kalte Zielgruppe oder zu flach fuer eine
+  fortgeschrittene — das faellt in `skript` und in die Sprach-Bewertung.
+- `cta`: Passt die Aufforderung zu dem Angebot, das hier beschrieben ist?
+- Positionierungs-Konflikte: Aussagen im Video, die dieser Positionierung widersprechen — nenn sie
+  in `empfehlungen`.
+- `protagonist_auftreten`: Erst mit diesem Kontext ist der `score` ueberhaupt vergebbar; ohne ihn
+  bleibt er null.
+
+WORAUF ER NICHT WIRKT — hier aendert er GAR NICHTS, auch nicht um einen Punkt:
+`sprech_hook`, `text_hook` und `visuell_hook` (die Mechanik), `schnitt_pacing`, `einblendungen`,
+`soundeffekte`, `untertitel_vorhanden`, `untertitel_gestaltung`, `visuelle_aesthetik`,
+`audioqualitaet`, `sprechqualitaet`. Ein sauber formuliertes Markenprofil macht einen halligen Ton
+nicht besser und einen fehlenden Schnitt nicht richtig. Wenn du dich bei einer dieser Dimensionen
+auf den Kontext berufen willst, ist das der Fehler.
+
+DER KONTEXT:
+{marke}
+--- ENDE MARKEN- UND ZIELGRUPPEN-KONTEXT ---"""
+
+
+def build_system_prompt(teil: str | None = None, ziel: str = "", marke: str = "") -> str:
     """Skill-Body (Logik) + optionale Editing-Referenz + strikter JSON-Vertrag (Pipeline-Modus).
 
     `teil` steuert den V1.2-Split: „eroeffnung" oder „handwerk". `ziel` schaltet auf den V3-Skill
     um; ohne Ziel entsteht exakt der bisherige Prompt — die Versionen laufen so nebeneinander und
-    bleiben vergleichbar.
+    bleiben vergleichbar. `marke` ist der Text der optionalen Marken-/Zielgruppen-Datei; er wirkt
+    NUR mit gesetztem Ziel, damit der V2-Prompt byte-identisch bleibt.
     """
     pfad = SKILL_PATH_V3 if ziel else None
     parts = [_skill_fuer(teil, pfad)]
@@ -2128,6 +2197,8 @@ def build_system_prompt(teil: str | None = None, ziel: str = "") -> str:
             f"welche Funnel-Stufe das Video tatsächlich einzahlt — schreib dort ruhig eine andere "
             f"Stufe hin, wenn das Video das hergibt."
         )
+    if ziel and marke.strip():
+        parts.append(MARKEN_KONTEXT.format(marke=marke.strip()))
     ref = load_reference()
     if ref:
         parts.append(

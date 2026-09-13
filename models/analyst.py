@@ -490,6 +490,12 @@ FORMATE = ("Talking Head", "Reaction", "Sketch", "Tutorial", "Vlog", "Andere")
 # bekommt eine Ausrede, sich nicht festzulegen (Vorgabe Chris, 2026-09-11).
 ZIELE = ("TOFU", "MOFU", "BOFU")
 
+# Zielgruppen-Abgleich (Spec 3.2): Wie gut trifft das Video die Zielgruppe aus der hochgeladenen
+# Marken-Datei? ENUM statt Freitext, gleiches Muster wie BlickEval und DynamikEval — Freitext laedt
+# zum Schmeicheln ein („spricht die Zielgruppe sehr gut an"), ein Enum-Wert nicht. Leer heisst:
+# keine Marken-Datei hinterlegt, also nicht beurteilbar.
+ZIELGRUPPEN_ABGLEICH = ("trifft_kern", "teilweise", "breiteres_publikum", "andere_zielgruppe")
+
 # Score-Gewichte je Ziel. Summe je Spalte = 100, damit der Score zwischen den Zielen dieselbe
 # Skala hat — vergleichbar sind zwei Läufe damit trotzdem nur bei GLEICHEM Ziel, deshalb nennt
 # das Frontend-Label das Ziel mit ("78 . gemessen an: ...").
@@ -598,6 +604,9 @@ class AnalystEvaluationV2(BaseModel):
                                        # null vom Modell → 0.0, siehe _null_ist_sekunde_null unten
     performance_score: int = 0         # 0–100
     zielgruppen_relevanz: str = ""     # nur gefüllt, wenn Zielgruppen-/Markendaten vorliegen
+    # Wert aus ZIELGRUPPEN_ABGLEICH, sonst leer. Der Validator unten wirft alles weg, was nicht in
+    # der Liste steht: Ein erfundener Wert waere im Frontend nicht als Luecke zu erkennen.
+    zielgruppen_abgleich: str = ""
     funnel: str = ""                   # TOFU / MOFU / BOFU / Mischung — die ABSICHT: bei V3 trägt
                                        # der Code hier das gewählte Nutzerziel ein
     # Auf welche Funnel-Stufe das Video TATSÄCHLICH einzahlt — Einschätzung des Modells, bewusst
@@ -696,6 +705,14 @@ class AnalystEvaluationV2(BaseModel):
         """Siehe liste_von_strings: Das Objekt-Muster von `staerken` färbt auf Nachbarfelder ab."""
         return liste_von_strings(v)
 
+    @field_validator("zielgruppen_abgleich", mode="before")
+    @classmethod
+    def _nur_bekannte_werte(cls, v):
+        """Alles ausserhalb von ZIELGRUPPEN_ABGLEICH wird verworfen — auch ein plausibel klingender
+        Satz. Ein erfundener Wert waere im Frontend nicht als Luecke zu erkennen; leer ist es."""
+        wert = (v or "").strip().lower() if isinstance(v, str) else ""
+        return wert if wert in ZIELGRUPPEN_ABGLEICH else ""
+
     @field_validator("staerken", mode="before")
     @classmethod
     def _strings_bleiben_lesbar(cls, v):
@@ -738,3 +755,12 @@ class AnalystResult(BaseModel):
                                         # der Schalter für die V3-Logik, NICHT `engine`:
                                         # analyst_engine._run() setzt `result.engine` erst NACH dem
                                         # Aufruf von nachbearbeiten(), dort stünde sonst der Default.
+    # Dateiname der optionalen Marken-/Zielgruppen-Datei; leer = keine hochgeladen. Wie
+    # `gewaehltes_ziel` ist das der SCHALTER, an dem die Nachbearbeitung haengt
+    # (erzwinge_marken_abhaengige_felder): Ohne Datei gibt es keinen Massstab fuer
+    # `zielgruppen_abgleich`, `zielgruppen_relevanz` und `protagonist_auftreten.score`.
+    marke_datei: str = ""
+    marke_gekuerzt: bool = False       # True, wenn die Datei auf MAX_WOERTER beschnitten wurde
+    # Der extrahierte Text. Er wird mitgespeichert, weil sonst nicht mehr nachvollziehbar waere,
+    # WORAUF sich ein Zielgruppen-Urteil bezogen hat — dieselbe Begruendung wie beim `transcript`.
+    marke_text: str = ""

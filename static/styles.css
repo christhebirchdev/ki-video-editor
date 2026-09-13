@@ -492,6 +492,7 @@
 }
 /* Relevanz fuer die Zielgruppe — steht im selben Kasten, nur abgesetzt. */
 .analyst-zielgruppe-relevanz{margin-top:7px;font-size:13.5px;}
+.analyst-zielgruppe-abgleich{margin-top:7px;font-size:13.5px;font-weight:600;}
 .sc-grid{
   display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;
 }

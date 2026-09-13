@@ -155,6 +155,12 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str, split: bool = Fal
     result.geplante_texthook = meta.get("planned_text_hook", "")
     result.gewaehltes_format = meta.get("format", "")  # leer nur bei Altläufen vor der Pflicht-Auswahl
     result.gewaehltes_ziel = meta.get("ziel", "")
+    # Optionale Marken-/Zielgruppen-Datei (Spec 1.2). Ohne sie bleiben zielgruppen_abgleich,
+    # zielgruppen_relevanz und protagonist_auftreten.score leer — das erzwingt
+    # analyst_eval.erzwinge_marken_abhaengige_felder, nicht der Prompt allein.
+    result.marke_datei = meta.get("marke_datei", "")
+    result.marke_text = meta.get("marke_text", "")
+    result.marke_gekuerzt = bool(meta.get("marke_gekuerzt", False))
     if split:
         evaluate = analyst_gemini_eval.evaluate_split
     else:

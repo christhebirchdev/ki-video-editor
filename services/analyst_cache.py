@@ -58,6 +58,11 @@ def cache_key(meta: dict):
         meta.get("format", ""),
         meta.get("ziel", ""),
         meta.get("planned_text_hook", ""),
+        # Der Hash der Marken-/Zielgruppen-Datei: Derselbe Clip mit anderem Markenkontext ist ein
+        # legitim anderes Ergebnis (andere Texthook-Varianten, anderer Zielgruppen-Abgleich).
+        # Laeufe ohne Datei haben "" und behalten damit ihren bisherigen Key — sonst faellt der
+        # gesamte gespeicherte Cache auf einen Schlag aus.
+        meta.get("marke_hash", ""),
         meta.get("engine", ""),
         meta["prompt_version"],
     )

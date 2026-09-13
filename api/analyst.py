@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from config import settings
 from models.analyst import FORMATE, ZIELE, AnalystResult
-from services import analyst_cache, analyst_chat, analyst_vlm
+from services import analyst_cache, analyst_chat, analyst_marke, analyst_vlm
 from services.analyst_engine import ANALYST_PATH, RUNNING_PHASES, run_analysis, write_status
 
 router = APIRouter()
@@ -64,6 +64,38 @@ def upload_video(file: UploadFile = File(...)):
     }, ensure_ascii=False))
     write_status(run_dir, "uploaded", "Bereit zur Analyse")
     return {"id": run_id, "filename": safe_name}
+
+
+@router.post("/{run_id}/marke")
+def upload_marke(run_id: str, file: UploadFile = File(...)):
+    """Optionale Marken-/Zielgruppen-Datei zu einem Lauf (Spec 1.2).
+
+    Was sie freischaltet: `zielgruppe`/`zielgruppen_relevanz`, `zielgruppen_abgleich`,
+    Texthook-Varianten in der Sprache der Zielgruppe, die Sprachlevel-Pruefung, die CTA-Passung
+    und den Score fuer `protagonist_auftreten`. Worauf sie ausdruecklich NICHT wirkt: alles
+    Handwerkliche (Schnitt, Ton, Untertitel, Bild) — der Geltungsbereich steht im Prompt.
+
+    `def` statt `async def` aus demselben Grund wie bei upload_video: Das Lesen und Parsen
+    (PDF, docx) ist blockierend und gehoert in den Threadpool.
+
+    Der Text landet in meta.json und damit im Cache-Key: Derselbe Clip mit anderem Markenkontext
+    ist ein legitim anderes Ergebnis. Vor dem Start hochladen — ein laufender oder fertiger Lauf
+    liest meta.json nicht neu.
+    """
+    run_dir = _run_dir(run_id)
+    try:
+        text, gekuerzt = analyst_marke.extrahiere(file.file.read(), file.filename or "")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    meta_path = run_dir / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["marke_datei"] = re.sub(r"[^\w.\-äöüÄÖÜß ]", "_", file.filename or "marke.txt")
+    meta["marke_text"] = text
+    meta["marke_gekuerzt"] = gekuerzt
+    meta["marke_hash"] = analyst_marke.hash_von(text)
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False))
+    return {"id": run_id, "datei": meta["marke_datei"], "woerter": len(text.split()),
+            "gekuerzt": gekuerzt, "limit": analyst_marke.MAX_WOERTER}
 
 
 # V1 ist abgeschafft (Entscheidung Chris, 2026-07-31) und deshalb NICHT mehr wählbar.

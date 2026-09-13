@@ -273,6 +273,15 @@ const ZIELE = [
 ];
 const ZIEL_LABEL = Object.fromEntries(ZIELE.map((z) => [z.wert, z.label]));
 
+// Zielgruppen-Abgleich: nur gefüllt, wenn eine Marken-/Zielgruppen-Datei hochgeladen wurde.
+// `trifft_kern` steht bewusst NICHT in dieser Tabelle — Treffer ist der Normalfall und braucht
+// keinen Hinweis. Angezeigt wird nur, was den Nutzer zum Nachdenken bringen soll.
+const ABGLEICH_HINWEIS = {
+  teilweise: "Das Video spricht nur einen Teil deiner Zielgruppe an.",
+  breiteres_publikum: "Das Video spricht deutlich mehr Menschen an als deine Zielgruppe — gut für Reichweite, schwächer für Anfragen.",
+  andere_zielgruppe: "Das Video spricht erkennbar jemand anderen an als deine Zielgruppe.",
+};
+
 const ANALYST_FEATURES = [
   { ico: "🎯", title: "Inhaltsanalyse",    desc: "Themen, Kernaussagen & Story-Struktur erkennen" },
   { ico: "🎙️", title: "Sprach-Qualität",   desc: "Füllwörter, Pausen, Sprechtempo & Verständlichkeit" },
@@ -858,6 +867,11 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   // Admin-Ansicht — Endnutzer sehen weiterhin genau eine Variante (Entscheidung 2026-08-10).
   const [engine, setEngine] = useState(ANALYST_ENGINE);
   const [plannedTextHook, setPlannedTextHook] = useState("");  // Freifeld: geplante Texthook (falls noch nicht im Video)
+  // Optionale Marken-/Zielgruppen-Datei. Sie liegt bis zum Start NUR im Browser: Die Lauf-ID
+  // entsteht erst beim Video-Upload, und ein Zwischenspeicher auf dem Server ohne Lauf waere
+  // Muell, den niemand aufraeumt. Hochgeladen wird sie in startAnalysis, zwischen Upload und Start.
+  const [markeFile, setMarkeFile] = useState(null);
+  const [markeInfo, setMarkeInfo] = useState(null);   // Antwort des Servers: Woerter, gekuerzt
   // Format-Auswahl (Pflicht, genau eines). Muss zu models.analyst.FORMATE passen — die API validiert dagegen.
   const [format, setFormat] = useState("");
   const [phase, setPhase] = useState("idle");   // idle | running | done
@@ -954,6 +968,16 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       fd.append("file", analysisFile.file);
       const up = await api("POST", "/api/analyst/upload", fd);
       setRunId(up.id);
+      // Marken-/Zielgruppen-Datei VOR dem Start: /start liest meta.json und baut daraus den
+      // Cache-Key. Danach hochgeladen wuerde sie im laufenden Lauf nicht mehr gelesen.
+      // Ein Fehler bricht hier bewusst ab: Wer eine Marken-Datei ausgewaehlt hat, will nicht
+      // stillschweigend eine Analyse ohne sie bekommen.
+      if (markeFile) {
+        setProgress("Marken-Datei wird gelesen …");
+        const mfd = new FormData();
+        mfd.append("file", markeFile);
+        setMarkeInfo(await api("POST", `/api/analyst/${up.id}/marke`, mfd));
+      }
       setProgress(ANALYSE_LAEUFT);
       // Body nur im Admin-Modus: er enthält das Passwort für den Force-Rerun. Ohne Body
       // greift serverseitig der Cache — identische Datei liefert dann das alte Ergebnis.
@@ -987,6 +1011,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     setPlannedTextHook("");
     setFormat("");
     setZiel("");   // engine bleibt bewusst stehen (Admin-Versionswahl über mehrere Läufe)
+    setMarkeFile(null);
+    setMarkeInfo(null);
     setRunId("");
     setActivePhase("");
     activePhaseRef.current = "";
@@ -1251,6 +1277,57 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             </div>
           )}
 
+          {/* Optionale Marken-/Zielgruppen-Datei (nur V3). Sie wirkt AUSSCHLIESSLICH auf
+              Zielgruppe, Relevanz, Texthook-Varianten, Sprachlevel, CTA-Passung und das Auftreten
+              des Protagonisten — nicht auf Schnitt, Ton, Untertitel oder Bild. Der Geltungsbereich
+              steht im Prompt; hier steht nur, was der Nutzer davon hat. */}
+          {engine === "v3" && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                Marke / Zielgruppe (optional)
+              </label>
+              {markeFile ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
+                              border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 14 }}>
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis",
+                                 whiteSpace: "nowrap" }}>{markeFile.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => { setMarkeFile(null); setMarkeInfo(null); }}
+                    disabled={phase === "running"}
+                    title="Datei entfernen"
+                    style={{ border: "none", background: "transparent", cursor: "pointer",
+                             fontSize: 16, lineHeight: 1, padding: 2 }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <input
+                  type="file"
+                  accept=".md,.txt,.markdown,.pdf,.docx"
+                  onChange={(e) => setMarkeFile(e.target.files?.[0] || null)}
+                  disabled={phase === "running"}
+                  style={{ width: "100%", fontSize: 14 }}
+                />
+              )}
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Wer ist deine Zielgruppe, wofür steht deine Marke, was bietest du an? Damit werden
+                die Texthook-Vorschläge in deiner Sprache formuliert, das Video gegen deine
+                Zielgruppe geprüft und dein Auftreten bewertbar. Am besten .md oder .txt — PDF und
+                Word gehen auch. Auf Schnitt, Ton und Bild hat die Datei bewusst keinen Einfluss.
+              </div>
+              {/* Nur wenn wirklich gekürzt wurde: Der Nutzer soll wissen, dass das Modell nicht
+                  alles gesehen hat — sonst wundert er sich über ein Urteil, dem die zweite Hälfte
+                  seines Markenhandbuchs fehlt. */}
+              {markeInfo?.gekuerzt && (
+                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Hinweis: Die Datei war länger als {markeInfo.limit} Wörter und wurde gekürzt.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Freifeld: geplante Texthook (falls sie erst nach dem Upload ins Video kommt) */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
@@ -1388,6 +1465,14 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                         IM selben Kasten: es ist dieselbe Aussage, nur eine Ebene tiefer. */}
                     {ev.zielgruppen_relevanz && (
                       <div className="analyst-zielgruppe-relevanz">{ev.zielgruppen_relevanz}</div>
+                    )}
+                    {/* Abgleich mit der hochgeladenen Zielgruppe. `trifft_kern` erzeugt bewusst
+                        keinen Text: Ein „passt" wäre Fülltext, und der Nutzer soll die Zeile als
+                        Warnsignal lesen, nicht als Bestätigung. */}
+                    {ABGLEICH_HINWEIS[ev.zielgruppen_abgleich] && (
+                      <div className="analyst-zielgruppe-abgleich">
+                        ⚠ {ABGLEICH_HINWEIS[ev.zielgruppen_abgleich]}
+                      </div>
                     )}
                   </div>
                   <Feedback field="zielgruppe" />
