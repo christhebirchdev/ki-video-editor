@@ -1816,3 +1816,77 @@ def test_eine_spaetere_score_korrektur_zieht_das_lob_mit():
     nachbearbeiten(ev, result)
     assert ev.untertitel.score == 1
     assert ev.untertitel.positiv == ""
+
+
+# ---------- Frontend: aus dem Hover-Tooltip wird ein Aufklapper ----------
+
+def _appjsx():
+    import pathlib
+    return pathlib.Path("static/app.jsx").read_text(encoding="utf-8")
+
+
+def test_scorechip_ist_ein_aufklapper_ohne_eigenes_javascript():
+    """<details>/<summary> wie die Kategorie-Aufklapper: kein State, tastaturbedienbar."""
+    import re
+    block = re.search(r"function ScoreChip\(.*?\n\}\n", _appjsx(), re.S).group()
+    assert "<details" in block and "<summary" in block
+    assert "Das ist gut" in block
+    assert "Das kannst du besser machen" in block
+    assert "useState" not in block
+
+
+def test_der_hover_tooltip_ist_weg():
+    """Er war die Stelle, die ersetzt wird — bleibt er stehen, steht dieselbe Information zweimal."""
+    quelle = _appjsx()
+    assert "sc-tip" not in quelle
+    assert "sc-info" not in quelle
+    import pathlib
+    css = pathlib.Path("static/styles.css").read_text(encoding="utf-8")
+    assert ".sc-tip" not in css and ".sc-info" not in css
+
+
+def test_kein_fuelltext_wo_nichts_zu_sagen_ist():
+    """„Keine Auffaelligkeiten" war der Platzhalter des Tooltips. Im Aufklapper faellt die
+    Ueberschrift ganz weg, wenn die Seite leer ist."""
+    quelle = _appjsx()
+    assert "Keine Auffälligkeiten" not in quelle
+    assert "problemeDetail" not in quelle
+
+
+def test_die_drei_neuen_dimensionen_haben_einen_chip():
+    """skript, einblendungen und soundeffekte sind im Backend gebaut, im Frontend fehlten sie."""
+    import re
+    block = re.search(r"function kategorieChips\(.*?\n\}\n", _appjsx(), re.S).group()
+    for feld in ("ev.skript", "ev.einblendungen_eval", "ev.soundeffekte"):
+        assert feld in block, feld
+
+
+def test_jeder_chip_bekommt_beide_seiten():
+    """Lob und Kritik werden getrennt uebergeben — sonst kann der Aufklapper sie nicht trennen."""
+    import re
+    block = re.search(r"function kategorieChips\(.*?\n\}\n", _appjsx(), re.S).group()
+    assert block.count("positiv:") >= 16
+    assert block.count("kritik:") >= 16
+    assert "detail:" not in block
+
+
+def test_die_bestehenden_feedback_namen_bleiben():
+    """An ihnen haengt die gesammelte Feedback-Historie."""
+    import re
+    block = re.search(r"function kategorieChips\(.*?\n\}\n", _appjsx(), re.S).group()
+    for feld in ("hook.sprech", "hook.text", "hook.visuell", "spannungsbogen", "struktur",
+                 "untertitel", "cta", "schnitt_pacing", "untertitel_gestaltung",
+                 "sprechqualitaet", "visuelle_aesthetik", "audioqualitaet",
+                 "protagonist_auftreten"):
+        assert f'"{feld}"' in block, feld
+
+
+def test_die_kategorie_zuordnung_kennt_alle_dimensionen():
+    """Spiegel von KATEGORIEN in models/analyst.py — laeuft sie auseinander, landen Staerken zu
+    den drei neuen Dimensionen in der Sammelgruppe ohne Ueberschrift."""
+    import re
+    from models.analyst import KATEGORIEN
+    block = re.search(r"const DIMENSION_ZU_KATEGORIE = \{.*?\n\};", _appjsx(), re.S).group()
+    for dims in KATEGORIEN.values():
+        for d in dims:
+            assert f"{d}:" in block, d

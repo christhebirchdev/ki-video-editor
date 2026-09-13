@@ -137,6 +137,11 @@ Bei 1 und 2 ist der Mangel die Nachricht. „Immerhin ist die Kamera an", „der
 der Nutzer nimmt danach beides nicht mehr ernst. Schreib dann NICHTS in `positiv`. Das System
 verwirft dort ohnehin jedes Lob zu einem Score von 1 oder 2.
 
+Damit aendert sich, was auf die KRITIKSEITE gehoert: Das Lob steht jetzt in `positiv` und NICHT
+mehr im `grund`, `kommentar` oder in `probleme`. Schreib dort nur noch, was fehlt oder stoert —
+sonst steht dieselbe Beobachtung im Aufklapper zweimal, einmal unter „Das ist gut" und einmal
+unter „Das kannst du besser machen". Ein `kommentar`, der nur lobt, ist ab jetzt ein Fehler.
+
 `positiv` ist EIN Satz und benennt etwas Konkretes aus DIESEM Video („die Schnitte sitzen auf den
 Betonungen"), nicht die Dimension allgemein („der Schnitt ist gut"). Ein Satz, der auf jedes
 beliebige Video passt, ist keiner.

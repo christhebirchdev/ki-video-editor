@@ -354,26 +354,65 @@ function RatingDots({ value }) {
   );
 }
 
-// Score-Chip mit Hover-Info (ⓘ): spart Platz, Detail nur bei Bedarf.
-function ScoreChip({ label, score, detail }) {
-  const has = detail && String(detail).trim().length > 0;
+// Score-Chip als Aufklapper (Vorgabe Chris, 2026-09-13). Vorher stand hier ein ⓘ mit einem
+// Hover-Tooltip, der nur EINE Textseite zeigte — und zwar die Kritik. Jetzt klappt der Chip auf und
+// zeigt beide Seiten untereinander: „Das ist gut" und „Das kannst du besser machen".
+//
+// <details>/<summary> wie die Kategorie-Aufklapper darüber: kein eigenes Klapp-JavaScript, kein
+// State, und tastaturbedienbar ohne Zutun. Die dadurch entstehende Verschachtelung (Kategorie-
+// Aufklapper → Chip-Aufklapper) ist unproblematisch — jedes <details> hält seinen eigenen Zustand.
+//
+// Fehlt eine der beiden Seiten, fällt ihre Überschrift weg. Ein leerer Block „Das ist gut" unter
+// einem 1er-Score wäre genau der Fülltext, den filtere_positiv im Backend verhindert.
+// Gibt es zu einer Dimension gar keinen Text (Altlauf, score null), bleibt der Chip ein stummes
+// <div> ohne Pfeil: Ein Aufklapper, der nichts aufzuklappen hat, ist eine Enttäuschung.
+//
+// `beschreibung` ist die dritte, WERTFREIE Seite und nur für `protagonist_auftreten` gedacht: Dort
+// ist sie im Normalfall (keine Daten zur Person, score null) die einzige Information überhaupt.
+// Unter „Das kannst du besser machen" stünde sie falsch, also steht sie ohne Überschrift oben.
+function ScoreChip({ label, score, positiv, kritik, beschreibung }) {
+  const txt = (v) => (v == null ? "" : String(v).trim());
+  const lob = txt(positiv);
+  const mangel = txt(kritik);
+  const neutral = txt(beschreibung);
+  const werte = (
+    <span className="sc-row">
+      {/* score === null heißt "nicht bewertbar" (z.B. Sprech-Hook in einem Video ohne Sprache).
+          Dann gar keine Punkte zeigen — 0 von 5 gefüllten Punkten liest sich wie eine 0-Wertung. */}
+      {score != null && <RatingDots value={score} />}
+      <span className="sc-num">{score != null ? `${score}/5` : "–"}</span>
+    </span>
+  );
+  if (!lob && !mangel && !neutral) {
+    return (
+      <div className="sc-chip">
+        <div className="sc-top"><span className="sc-label">{label}</span>{werte}</div>
+      </div>
+    );
+  }
   return (
-    <div className="sc-chip">
-      <div className="sc-top">
+    <details className="sc-chip sc-klapp">
+      <summary className="sc-top">
         <span className="sc-label">{label}</span>
-        {has && (
-          <span className="sc-info" tabIndex={0} aria-label={detail}>
-            ⓘ<span className="sc-tip">{detail}</span>
-          </span>
+        {werte}
+        <span className="sc-pfeil" aria-hidden="true">▸</span>
+      </summary>
+      <div className="sc-auf">
+        {neutral && <p className="sc-text">{neutral}</p>}
+        {lob && (
+          <>
+            <div className="sc-h sc-h-gut">Das ist gut</div>
+            <p className="sc-text">{lob}</p>
+          </>
+        )}
+        {mangel && (
+          <>
+            <div className="sc-h sc-h-besser">Das kannst du besser machen</div>
+            <p className="sc-text">{mangel}</p>
+          </>
         )}
       </div>
-      <div className="sc-row">
-        {/* score === null heißt "nicht bewertbar" (z.B. Sprech-Hook in einem Video ohne Sprache).
-            Dann gar keine Punkte zeigen — 0 von 5 gefüllten Punkten liest sich wie eine 0-Wertung. */}
-        {score != null && <RatingDots value={score} />}
-        <span className="sc-num">{score != null ? `${score}/5` : "–"}</span>
-      </div>
-    </div>
+    </details>
   );
 }
 
@@ -428,27 +467,22 @@ function scoreEinordnung(score) {
   return { label: "Guter Anfang — die Empfehlungen unten helfen am meisten", color };
 }
 
-// Detail-Text für die Struktur: Kommentar + erkannte Bausteine.
-function strukturDetail(struktur) {
-  if (!struktur) return "";
-  const e = struktur.elemente || {};
+// Welche Storyline-Bausteine erkannt wurden — eine reine Beobachtung, kein Urteil. Sie stand
+// früher mit dem Kommentar in EINEM Tooltip-Text; im Aufklapper gehört sie in die wertfreie
+// Zeile oben, nicht unter „Das kannst du besser machen".
+function bausteineText(struktur) {
+  const e = struktur?.elemente;
+  if (!e) return "";
   const order = [["hook", "Hook"], ["bridge", "Bridge"], ["mid", "Mid"], ["peak", "Peak"], ["cta", "CTA"]];
-  const bausteine = order.map(([k, lbl]) => `${lbl}${e[k] ? "✓" : "✗"}`).join(" · ");
-  return [struktur.kommentar, "Bausteine: " + bausteine].filter(Boolean).join("  —  ");
+  return "Bausteine: " + order.map(([k, lbl]) => `${lbl}${e[k] ? "✓" : "✗"}`).join(" · ");
 }
 
-function problemeDetail(block) {
-  const p = block?.probleme || [];
-  return p.length ? p.join(" · ") : "Keine Auffälligkeiten";
-}
-
-// Auftreten des Protagonisten: Solange keine Daten zur Person/Marke vorliegen, gibt es KEINEN
-// Score — dann trägt allein `beschreibung` die Information. Sie steht deshalb zuerst und immer im
-// Detail; würde hier nur `probleme` ausgewertet (wie bei den anderen Chips), bliebe der Chip in
-// genau dem Normalfall leer, für den die Dimension gebaut wurde: beschreiben statt bewerten.
-function protagonistDetail(block) {
-  const teile = [(block?.beschreibung || "").trim(), ...(block?.probleme || [])].filter(Boolean);
-  return teile.length ? teile.join(" · ") : "Keine Auffälligkeiten";
+// `probleme`/`maengel` als EIN Text für die Kritik-Seite des Aufklappers.
+// Leer bleibt leer. Der frühere Platzhalter-Satz („keine Auffälligkeiten") war eine Notwendigkeit
+// des Tooltips: ohne Text wäre das ⓘ gar nicht erschienen. Der Aufklapper lässt die Überschrift
+// stattdessen ganz weg — ein Test hält den Platzhalter aus der Datei heraus.
+function listeText(eintraege) {
+  return (eintraege || []).map((e) => String(e || "").trim()).filter(Boolean).join(" · ");
 }
 
 /* ===== Stufe 2: Ergebnis in vier Kategorien =====
@@ -466,8 +500,10 @@ const OUTPUT_KATEGORIEN = [
 // für die Stärken: `betrifft` trägt den Namen der Dimension, nicht den der Kategorie.
 const DIMENSION_ZU_KATEGORIE = {
   sprech_hook: "hook", text_hook: "hook", visuell_hook: "hook",
-  spannungsbogen: "mittelteil", struktur: "mittelteil", untertitel_vorhanden: "mittelteil", cta: "mittelteil",
+  spannungsbogen: "mittelteil", struktur: "mittelteil", skript: "mittelteil",
+  untertitel_vorhanden: "mittelteil", cta: "mittelteil",
   schnitt_pacing: "editing", untertitel_gestaltung: "editing",
+  einblendungen: "editing", soundeffekte: "editing",
   sprechqualitaet: "auftreten", visuelle_aesthetik: "auftreten", audioqualitaet: "auftreten",
   protagonist_auftreten: "auftreten",
 };
@@ -476,41 +512,67 @@ const DIMENSION_ZU_KATEGORIE = {
 // Sammel-Aufklapper übernommen, damit die gesammelte Feedback-Historie zusammenpasst.
 // Fehlt ein Wert (Altlauf, oder vom Code als „nicht bewertbar" auf null gesetzt), zeigt
 // ScoreChip von selbst „–" — hier wird deshalb nichts herausgefiltert.
+//
+// Je Chip ZWEI Texte statt eines: `positiv` ist das neue Lob-Feld der Dimension, `kritik` die
+// Seite, die es schon gab (kommentar / probleme / grund / maengel). Reihenfolge innerhalb einer
+// Kategorie wie in KATEGORIEN (models/analyst.py).
 function kategorieChips(ev, key, ziel) {
   const u = ev.untertitel || {};
   if (key === "hook") {
     return [
-      { field: "hook.sprech",  label: "🎤 Sprech-Hook", score: ev.hook?.sprech_hook_score, detail: ev.hook?.sprech_hook_grund },
-      { field: "hook.text",    label: ev.hook?.text_hook_vorhanden ? "📝 Text-Hook" : "📝 Text-Hook (fehlt)", score: ev.hook?.text_hook_score, detail: ev.hook?.text_hook_grund },
-      { field: "hook.visuell", label: "👁 Visuelle Hook", score: ev.hook?.visuell_hook_score, detail: ev.hook?.visuell_hook_grund },
+      { field: "hook.sprech",  label: "🎤 Sprech-Hook", score: ev.hook?.sprech_hook_score,
+        positiv: ev.hook?.sprech_hook_positiv, kritik: ev.hook?.sprech_hook_grund },
+      { field: "hook.text",    label: ev.hook?.text_hook_vorhanden ? "📝 Text-Hook" : "📝 Text-Hook (fehlt)", score: ev.hook?.text_hook_score,
+        positiv: ev.hook?.text_hook_positiv, kritik: ev.hook?.text_hook_grund },
+      { field: "hook.visuell", label: "👁 Visuelle Hook", score: ev.hook?.visuell_hook_score,
+        positiv: ev.hook?.visuell_hook_positiv, kritik: ev.hook?.visuell_hook_grund },
     ];
   }
   if (key === "mittelteil") {
     return [
-      { field: "spannungsbogen", label: "📈 Spannungsbogen", score: ev.spannungsbogen?.score, detail: ev.spannungsbogen?.kommentar },
-      { field: "struktur",       label: "📖 Struktur", score: ev.struktur?.score, detail: strukturDetail(ev.struktur) },
-      { field: "untertitel",     label: "💬 Untertitel vorhanden", score: u.score, detail: u.kommentar },
+      { field: "spannungsbogen", label: "📈 Spannungsbogen", score: ev.spannungsbogen?.score,
+        positiv: ev.spannungsbogen?.positiv, kritik: ev.spannungsbogen?.kommentar },
+      { field: "struktur",       label: "📖 Struktur", score: ev.struktur?.score,
+        beschreibung: bausteineText(ev.struktur),
+        positiv: ev.struktur?.positiv, kritik: ev.struktur?.kommentar },
+      // Stufe 3 im Backend gebaut, Chip seit 2026-09-13: die inhaltliche Substanz.
+      { field: "skript",         label: "✍️ Skript", score: ev.skript?.score,
+        positiv: ev.skript?.positiv, kritik: listeText(ev.skript?.probleme) },
+      { field: "untertitel",     label: "💬 Untertitel vorhanden", score: u.score,
+        positiv: u.positiv, kritik: u.kommentar },
       // Der CTA ist nur beim Ziel BOFU gewichtet (SCORE_GEWICHTE_JE_ZIEL in models/analyst.py).
       // Bei TOFU/MOFU stünde hier ein Score, der auf das Ergebnis gar nicht einzahlt — das
       // verwirrt mehr, als es hilft.
-      ...(ziel === "BOFU" ? [{ field: "cta", label: "🎯 Call to Action", score: ev.cta?.score, detail: ev.cta?.kommentar }] : []),
+      ...(ziel === "BOFU" ? [{ field: "cta", label: "🎯 Call to Action", score: ev.cta?.score,
+        positiv: ev.cta?.positiv, kritik: ev.cta?.kommentar }] : []),
     ];
   }
   if (key === "editing") {
     return [
-      { field: "schnitt_pacing",        label: "✂️ Schnitt & Pacing", score: ev.schnitt_pacing?.score, detail: ev.schnitt_pacing?.kommentar },
+      { field: "schnitt_pacing",        label: "✂️ Schnitt & Pacing", score: ev.schnitt_pacing?.score,
+        positiv: ev.schnitt_pacing?.positiv, kritik: ev.schnitt_pacing?.kommentar },
       { field: "untertitel_gestaltung", label: "🔠 Untertitel-Gestaltung", score: u.gestaltung_score,
-        detail: (u.maengel || []).length ? u.maengel.join(" · ") : "Keine Auffälligkeiten" },
+        positiv: u.gestaltung_positiv, kritik: listeText(u.maengel) },
+      { field: "einblendungen",         label: "🖼️ Einblendungen", score: ev.einblendungen_eval?.score,
+        positiv: ev.einblendungen_eval?.positiv, kritik: listeText(ev.einblendungen_eval?.probleme) },
+      { field: "soundeffekte",          label: "🎵 Soundeffekte", score: ev.soundeffekte?.score,
+        positiv: ev.soundeffekte?.positiv, kritik: ev.soundeffekte?.kommentar },
     ];
   }
   return [
-    { field: "sprechqualitaet",   label: "🎙️ Sprechqualität", score: ev.sprechqualitaet?.score, detail: problemeDetail(ev.sprechqualitaet) },
-    { field: "visuelle_aesthetik", label: "🎨 Bildqualität", score: ev.visuelle_aesthetik?.score, detail: problemeDetail(ev.visuelle_aesthetik) },
-    { field: "audioqualitaet",    label: "🔊 Audioqualität", score: ev.audioqualitaet?.score, detail: problemeDetail(ev.audioqualitaet) },
+    { field: "sprechqualitaet",   label: "🎙️ Sprechqualität", score: ev.sprechqualitaet?.score,
+      positiv: ev.sprechqualitaet?.positiv, kritik: listeText(ev.sprechqualitaet?.probleme) },
+    { field: "visuelle_aesthetik", label: "🎨 Bildqualität", score: ev.visuelle_aesthetik?.score,
+      positiv: ev.visuelle_aesthetik?.positiv, kritik: listeText(ev.visuelle_aesthetik?.probleme) },
+    { field: "audioqualitaet",    label: "🔊 Audioqualität", score: ev.audioqualitaet?.score,
+      positiv: ev.audioqualitaet?.positiv, kritik: listeText(ev.audioqualitaet?.probleme) },
     // score ist null, solange dem Analysten keine Daten zur Person/Marke vorliegen — ScoreChip
-    // zeigt dann „–" statt 0 von 5 Punkten, und das Detail trägt die reine Beschreibung.
+    // zeigt dann „–" statt 0 von 5 Punkten. `beschreibung` ist in genau diesem Normalfall die
+    // einzige Information und steht deshalb wertfrei oben im Aufklapper, nicht unter der Kritik.
     { field: "protagonist_auftreten", label: "🧍 Auftreten", score: ev.protagonist_auftreten?.score,
-      detail: protagonistDetail(ev.protagonist_auftreten) },
+      beschreibung: ev.protagonist_auftreten?.beschreibung,
+      positiv: ev.protagonist_auftreten?.positiv,
+      kritik: listeText(ev.protagonist_auftreten?.probleme) },
   ];
 }
 
@@ -1423,7 +1485,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                   <div className="sc-grid" style={{ marginTop: 10 }}>
                     {kategorieChips(ev, k.key, result.gewaehltes_ziel).map((c) => (
                       <React.Fragment key={c.field}>
-                        <ScoreChip label={c.label} score={c.score} detail={c.detail} />
+                        <ScoreChip {...c} />
                         <Feedback field={c.field} />
                       </React.Fragment>
                     ))}
