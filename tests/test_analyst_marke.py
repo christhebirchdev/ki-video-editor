@@ -249,3 +249,40 @@ def test_marken_feld_haengt_an_v3():
     stelle = quelle.index("Marke / Zielgruppe (optional)")
     davor = quelle[max(0, stelle - 900):stelle]
     assert re.search(r'engine === "v3" && \(', davor)
+
+
+# --- Frontend-Feinschliff (Feedback Chris, 2026-09-13) ------------------------------------------
+
+def test_der_reiter_ausfuehrliches_feedback_ist_weg():
+    """"der reiter: Ausfuehrliches Feedback, kann weg." `top_tipps` wird weiterhin erzeugt, aber
+    nicht mehr angezeigt — die drei Handlungsschritte sagen dasselbe konkreter."""
+    quelle = _appjsx()
+    assert "Ausführliches Feedback" not in quelle
+    assert "ev.top_tipps" not in quelle
+
+
+def test_die_score_kachel_sagt_dass_man_sie_oeffnen_kann():
+    """"Eine Person, die nicht weiss, dass sie draufklicken kann, wird es vielleicht nicht
+    verstehen." Der Hinweis steht IN der Kachel, nicht als Satz darueber — sonst liest ihn nur,
+    wer ohnehin schon liest."""
+    import re
+    quelle = _appjsx()
+    block = re.search(r"function ScoreChip\(.*?\n\}\n", quelle, re.S).group()
+    assert 'className="sc-mehr"' in block
+    css = __import__("pathlib").Path("static/styles.css").read_text(encoding="utf-8")
+    assert ".sc-mehr{" in css
+    assert '.sc-klapp[open]>summary .sc-mehr{display:none;}' in css, "offen braucht es ihn nicht"
+
+
+def test_die_zielgruppe_bekommt_ein_ziel_emoji():
+    assert "🎯" in _appjsx()
+
+
+def test_die_neuen_felder_nutzen_das_design_system():
+    """Ziel-Dropdown, Texthook-Feld und Marken-Upload benutzen jetzt .select/.input/.dropzone
+    statt eigener Inline-Styles — sonst sieht jedes neue Feld anders aus als der Rest."""
+    quelle = _appjsx()
+    assert 'className="select"\n                value={ziel}' in quelle
+    assert 'className="input"\n              type="text"\n              value={plannedTextHook}' in quelle
+    assert 'className="dropzone dropzone-klein"' in quelle
+    assert 'type="file"' in quelle and "hidden" in quelle

@@ -122,6 +122,17 @@
 .fileitem .fi-size{font-size:12px;color:var(--taupe);}
 .fileitem .fi-rm{border:none;background:transparent;color:var(--taupe-soft);padding:4px;border-radius:6px;}
 .fileitem .fi-rm:hover{background:var(--err-bg);color:var(--err-ink);}
+/* Kompakte Dropzone fuer optionale Zusatzdateien (Marke/Zielgruppe). Gleiche Sprache wie der
+   Video-Upload, nur kleiner — es ist ein Nebenfeld und soll das Pflichtfeld nicht ueberstrahlen.
+   Als <label> um ein verstecktes <input type="file">: Das native Feld sieht in jedem Browser
+   anders aus und passt in keinem zum Rest. */
+.dropzone-klein{display:flex;align-items:center;gap:11px;padding:12px 14px;text-align:left;}
+.dropzone-klein .dz-ico{width:34px;height:34px;border-radius:9px;margin:0;flex:0 0 auto;}
+.dropzone-klein .dz-title{font-size:14px;}
+.dropzone-klein .dz-sub{margin-top:2px;}
+.dropzone-klein input{display:none;}
+/* Entfernen-Knopf in der Dateizeile: quadratisch wie .btn-icon, aber auf Zeilenhoehe gestutzt. */
+.fileitem .fi-rm-btn{padding:7px;width:34px;height:34px;flex:0 0 auto;}
 
 /* ===== Pipeline ===== */
 .steps{display:flex;flex-direction:column;gap:12px;}
@@ -493,6 +504,9 @@
 /* Relevanz fuer die Zielgruppe — steht im selben Kasten, nur abgesetzt. */
 .analyst-zielgruppe-relevanz{margin-top:7px;font-size:13.5px;}
 .analyst-zielgruppe-abgleich{margin-top:7px;font-size:13.5px;font-weight:600;}
+/* Dartscheibe vor der Zielgruppen-Zeile: Der Kasten sagt schon in der ersten Sekunde, worum es
+   geht, ohne dass man den Satz gelesen haben muss. */
+.analyst-zielgruppe-ico{margin-right:7px;font-size:15px;line-height:1;}
 .sc-grid{
   display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;
 }
@@ -513,6 +527,14 @@
 .sc-klapp>summary{cursor:pointer;list-style:none;outline:none;}
 .sc-klapp>summary::-webkit-details-marker{display:none;}
 .sc-klapp>summary::marker{content:"";}
+/* Der Klick-Hinweis. Eine Kachel, die aussieht wie eine Anzeige, laedt niemanden zum Tippen ein —
+   also steht dran, dass da etwas drin ist. Nur im geschlossenen Zustand: Ist die Kachel offen,
+   sieht man die Antwort ja schon. Klein und in Taupe, damit er die Zahl nicht ueberstimmt. */
+.sc-mehr{flex:0 0 auto;font-size:10.5px;font-weight:600;letter-spacing:.02em;color:var(--taupe-soft);
+  transition:color .12s;}
+.sc-klapp[open]>summary .sc-mehr{display:none;}
+.sc-klapp>summary:hover .sc-mehr,
+.sc-klapp>summary:focus-visible .sc-mehr{color:var(--gold-deep);}
 .sc-pfeil{flex:0 0 auto;color:var(--taupe);font-size:11px;line-height:1;transition:transform .12s;}
 .sc-klapp[open]>summary .sc-pfeil{transform:rotate(90deg);}
 .sc-klapp>summary:hover .sc-label,
