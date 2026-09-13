@@ -1013,9 +1013,16 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       // Gibt es zu dieser Datei schon eine Analyse? Dann NICHT einfach rechnen, sondern fragen.
       // Anlass: Ein Nutzer hat dasselbe Video zweimal hochgeladen und zwei verschiedene
       // Bewertungen bekommen — er wusste danach nicht, welche Empfehlungen gelten.
+      // Die Rückfrage ist eine Bequemlichkeit, keine Bedingung: Fällt sie aus (Netz, alter
+      // Server ohne diesen Endpunkt), läuft die Analyse normal weiter. Sie hier scheitern zu
+      // lassen würde für einen Komfort-Aufruf den ganzen Start blockieren — und serverseitig
+      // greift der Cache in /start ohnehin weiterhin.
       if (!cacheUmgehen) {
-        const vorher = await api("GET", `/api/analyst/${up.id}/cache-check?${qs}`);
-        if (vorher.treffer) {
+        let vorher = null;
+        try {
+          vorher = await api("GET", `/api/analyst/${up.id}/cache-check?${qs}`);
+        } catch { /* egal — dann eben ohne Rückfrage */ }
+        if (vorher?.treffer) {
           setRueckfrage({ runId: up.id, quelle: vorher.run_id, erstelltAm: vorher.erstellt_am,
                           abweichung: vorher.abweichung || [] });
           return;   // Es geht erst weiter, wenn der Nutzer geantwortet hat.

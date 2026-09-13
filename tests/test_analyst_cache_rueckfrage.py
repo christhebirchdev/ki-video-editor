@@ -202,3 +202,11 @@ def test_bei_noch_laufender_analyse_ist_nein_gesperrt():
     quelle = _appjsx()
     block = quelle.split('className="dlg-knoepfe"')[1][:1200]
     assert 'disabled={rueckfrage.abweichung.includes("laeuft_noch")}' in block
+
+
+def test_ein_fehler_bei_der_rueckfrage_blockiert_den_start_nicht():
+    """Die Rueckfrage ist Komfort, keine Bedingung. Faellt der Endpunkt aus, soll die Analyse
+    trotzdem laufen — serverseitig greift der Cache in /start ohnehin weiter."""
+    quelle = _appjsx()
+    block = quelle.split("/cache-check?")[0][-400:]
+    assert "try {" in block
