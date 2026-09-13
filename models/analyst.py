@@ -491,35 +491,49 @@ ZIELE = ("TOFU", "MOFU", "BOFU")
 # den Abschluss-Teil schon eigenständig misst.
 # HEUTE ohne Wirkung auf den Gesamtscore: Solange keine Branddaten vorliegen, ist der Score None,
 # die Dimension fällt aus der Rechnung und ihr Gewicht verteilt sich proportional auf den Rest.
+# Umverteilung 2026-09-13 fuer `skript`, `einblendungen` und `soundeffekte` (Vorgabe Chris):
+# - `skript` bekommt sein Gewicht aus `struktur` und `spannungsbogen` — dieselbe Kategorie, und die
+#   drei teilen sich den Stoff: Struktur = die Form (Bausteine und ihre Reihenfolge), Spannungsbogen
+#   = der Verlauf, Skript = was inhaltlich gesagt wird. Die Kategoriesumme „Mittelteil" bleibt
+#   deshalb unveraendert. Das Gewicht ist bewusst substanziell: KB 0, Leitsatz 2 — „Ein Video ist nie
+#   besser als sein Skript. Post-Produktion belebt kein totes Skript." Bei MOFU/BOFU traegt der
+#   Inhalt (KB 11: thematische Tiefe, Pitch), bei TOFU eher die Hook — daher 6 / 9 / 7.
+# - `einblendungen` und `soundeffekte` kommen aus `schnitt_pacing`, ihrem bisherigen Wirt.
+#   `schnitt_pacing` allein traegt die drei aber nicht (es lag bei 7/6/5), deshalb waechst die
+#   Kategorie „Editing" um 4 Punkte je Ziel. Die kommen aus „Hook" (je -2, dort ist am meisten Luft:
+#   TOFU lag bei 45) und „Auftreten" (je -2). Begruendung: KB 5 nennt Einblendungen einen „starken,
+#   mehrfach wirkenden Hebel" (Blickschutz, Verstaendlichkeit, Dynamik) — mit 10 von 100 Punkten war
+#   die ganze Kategorie dafuer zu klein. Einblendungen wiegen doppelt so viel wie Soundeffekte, die
+#   KB 5 ausdruecklich als Feinschliff beschreibt.
 SCORE_GEWICHTE_JE_ZIEL = {
     "TOFU": {
-        "sprech_hook": 16, "text_hook": 16, "visuell_hook": 13,
-        "spannungsbogen": 7, "struktur": 7, "untertitel_vorhanden": 8,
-        "schnitt_pacing": 7, "untertitel_gestaltung": 3,
-        "sprechqualitaet": 6, "visuelle_aesthetik": 8, "audioqualitaet": 5,
+        "sprech_hook": 16, "text_hook": 16, "visuell_hook": 11,
+        "spannungsbogen": 5, "struktur": 4, "untertitel_vorhanden": 7, "skript": 6,
+        "schnitt_pacing": 5, "untertitel_gestaltung": 3, "einblendungen": 4, "soundeffekte": 2,
+        "sprechqualitaet": 6, "visuelle_aesthetik": 6, "audioqualitaet": 5,
         "protagonist_auftreten": 4, "cta": 0,
     },
     "MOFU": {
-        "sprech_hook": 15, "text_hook": 15, "visuell_hook": 7,
-        "spannungsbogen": 15, "struktur": 10, "untertitel_vorhanden": 10,
-        "schnitt_pacing": 6, "untertitel_gestaltung": 3,
-        "sprechqualitaet": 7, "visuelle_aesthetik": 3, "audioqualitaet": 3,
-        "protagonist_auftreten": 6, "cta": 0,
+        "sprech_hook": 14, "text_hook": 14, "visuell_hook": 7,
+        "spannungsbogen": 11, "struktur": 7, "untertitel_vorhanden": 8, "skript": 9,
+        "schnitt_pacing": 4, "untertitel_gestaltung": 3, "einblendungen": 4, "soundeffekte": 2,
+        "sprechqualitaet": 6, "visuelle_aesthetik": 3, "audioqualitaet": 3,
+        "protagonist_auftreten": 5, "cta": 0,
     },
     "BOFU": {
-        "sprech_hook": 14, "text_hook": 14, "visuell_hook": 6,
-        "spannungsbogen": 13, "struktur": 9, "untertitel_vorhanden": 9,
-        "schnitt_pacing": 5, "untertitel_gestaltung": 3,
-        "sprechqualitaet": 6, "visuelle_aesthetik": 3, "audioqualitaet": 3,
-        "protagonist_auftreten": 6, "cta": 9,
+        "sprech_hook": 13, "text_hook": 13, "visuell_hook": 6,
+        "spannungsbogen": 10, "struktur": 6, "untertitel_vorhanden": 8, "skript": 7,
+        "schnitt_pacing": 4, "untertitel_gestaltung": 2, "einblendungen": 4, "soundeffekte": 2,
+        "sprechqualitaet": 6, "visuelle_aesthetik": 3, "audioqualitaet": 2,
+        "protagonist_auftreten": 5, "cta": 9,
     },
 }
 
 # Welche Dimension in welchem Output-Block erscheint (Frontend Stufe 3, Lob-Filter Stufe 1).
 KATEGORIEN = {
     "hook": ("sprech_hook", "text_hook", "visuell_hook"),
-    "mittelteil": ("spannungsbogen", "struktur", "untertitel_vorhanden", "cta"),
-    "editing": ("schnitt_pacing", "untertitel_gestaltung"),
+    "mittelteil": ("spannungsbogen", "struktur", "skript", "untertitel_vorhanden", "cta"),
+    "editing": ("schnitt_pacing", "untertitel_gestaltung", "einblendungen", "soundeffekte"),
     "auftreten": ("sprechqualitaet", "visuelle_aesthetik", "audioqualitaet",
                   "protagonist_auftreten"),
 }
@@ -587,6 +601,29 @@ class AnalystEvaluationV2(BaseModel):
     # `StrukturElemente.cta` bleibt als reine Beobachtung bestehen („ist einer da?"); bewertet
     # („ist er konkret, sitzt er richtig?") wird hier.
     cta: ScoreKommentar = Field(default_factory=ScoreKommentar)
+    # --- Stufe 3 (Vorgabe Chris, 2026-09-13): drei Dimensionen, die bisher in anderen Scores
+    # mitliefen und dort unsichtbar blieben. Fuer alle drei gilt die bestehende Regel
+    # „JEDE BEOBACHTUNG NUR EINMAL": Was hier bewertet wird, taucht nicht mehr unter
+    # `schnitt_pacing`, `struktur` oder `spannungsbogen` auf.
+    #
+    # Einblendungen: Grafiken, Symbole, B-Roll, eingeblendete Bilder und Text-Overlays (ausser der
+    # Text-Hook, die hat eine eigene Dimension). KB 5 nennt sie einen „starken, mehrfach wirkenden
+    # Hebel" — sie ueberdecken Wegblicke, machen Gesagtes verstaendlicher und bringen Dynamik.
+    # Das Feld heisst `einblendungen_eval`, weil `einblendungen` bereits die Liste der STELLEN
+    # traegt, an denen eine Einblendung etwas verstaerken wuerde. Dort entstehen die Empfehlungen
+    # (baue_einblendungs_schritt), hier der Score — zwei Fragen, zwei Felder.
+    einblendungen_eval: ScoreProbleme = Field(default_factory=ScoreProbleme)
+    # Soundeffekte: Ton als GESTALTUNGSMITTEL — kurze Effekte (Whoosh, Klick, Pop), Musikeinsatz,
+    # Betonung von Schnitten und Pointen. Streng abzugrenzen von `audioqualitaet`, wo es um die
+    # AUFNAHME geht (Stoergeraeusche, Hall, Verstaendlichkeit, Lautheit). Dieselbe Trennung wie
+    # zwischen einem schlecht aufgenommenen Satz und einem fehlenden Whoosh.
+    soundeffekte: ScoreKommentar = Field(default_factory=ScoreKommentar)
+    # Skript: die inhaltliche Substanz — die Geschichte, der Gedankengang, das was gesagt wird.
+    # Auch NONVERBAL bewertbar: Ein Video ohne Sprache kann eine Geschichte erzaehlen.
+    # KB 0, Leitsatz 2: „Ein Video ist nie besser als sein Skript. Post-Produktion belebt kein
+    # totes Skript." Trotzdem gab es dafuer bis 2026-09-13 keinen eigenen Score — Inhalt wurde
+    # ueber `struktur` (die Form) und `spannungsbogen` (den Verlauf) nur mittelbar erfasst.
+    skript: ScoreProbleme = Field(default_factory=ScoreProbleme)
     untertitel: UntertitelEval = Field(default_factory=UntertitelEval)
     dynamik: DynamikEval = Field(default_factory=DynamikEval)     # steuert, ob Effekte empfohlen werden
     effekt_vorschlaege: list[EffektVorschlag] = Field(default_factory=list)  # Code bündelt zu EINEM Schritt

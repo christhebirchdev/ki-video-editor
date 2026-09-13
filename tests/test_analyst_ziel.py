@@ -154,7 +154,12 @@ def test_schwere_waechst_mit_gewicht_und_faellt_mit_score():
     # MOFU: spannungsbogen 15, schnitt_pacing 6
     assert schwere_der_dimension("spannungsbogen", 1, "MOFU") > schwere_der_dimension("schnitt_pacing", 1, "MOFU")
     assert schwere_der_dimension("spannungsbogen", 5, "MOFU") == 0.0
-    assert schwere_der_dimension("spannungsbogen", 1, "MOFU") == 15.0
+    # Gegen die Tabelle rechnen, nicht gegen eine feste Zahl: Bei Score 1 (= normalisiert 0)
+    # ist die Schwere per Definition das volle Gewicht. Ein hartkodierter Wert bricht bei jeder
+    # Umverteilung, ohne dass an der Mechanik etwas falsch waere.
+    from models.analyst import SCORE_GEWICHTE_JE_ZIEL
+    assert schwere_der_dimension("spannungsbogen", 1, "MOFU") == float(
+        SCORE_GEWICHTE_JE_ZIEL["MOFU"]["spannungsbogen"])
 
 
 def test_schwere_ohne_dimension_ist_null():
@@ -951,7 +956,7 @@ def test_prompt_version_wurde_hochgezaehlt():
     """Betriebsregel: bei jeder inhaltlichen Prompt-Aenderung hochzaehlen, sonst ist Feedback zu
     zwei verschiedenen Prompts nicht mehr auseinanderzuhalten."""
     from services.analyst_eval import PROMPT_VERSION
-    assert PROMPT_VERSION == "2026-09-13c"
+    assert PROMPT_VERSION == "2026-09-13d"
 
 
 def test_v3_verlangt_hoechstens_eine_empfehlung_je_dimension():
@@ -1413,19 +1418,24 @@ def test_das_auftreten_wiegt_bei_mofu_und_bofu_mehr_als_bei_tofu():
     assert SCORE_GEWICHTE_JE_ZIEL["BOFU"]["protagonist_auftreten"] > tofu
 
 
-def test_das_gewicht_kommt_aus_der_kategorie_auftreten_selbst():
-    """Die neue Dimension nimmt sich ihre Punkte dort, wo ihre Urteile bisher mitliefen —
-    `sprechqualitaet` (Ausdruckskraft) und `visuelle_aesthetik` (Blickrichtung). Die Kategorie
-    behaelt damit ihr Gesamtgewicht, die anderen drei Kategorien bleiben unberuehrt."""
-    from models.analyst import KATEGORIEN, SCORE_GEWICHTE_JE_ZIEL
-    vorher = {"TOFU": 23, "MOFU": 19, "BOFU": 18}
-    for ziel, summe in vorher.items():
-        ist = sum(SCORE_GEWICHTE_JE_ZIEL[ziel][d] for d in KATEGORIEN["auftreten"])
-        assert ist == summe, ziel
+def test_das_gewicht_fuer_das_auftreten_kam_aus_sprechqualitaet_und_aesthetik():
+    """Die Dimension nimmt sich ihre Punkte dort, wo ihre Urteile bisher mitliefen —
+    `sprechqualitaet` (Ausdruckskraft) und `visuelle_aesthetik` (Blickrichtung).
+
+    Frueher prueste dieser Test zusaetzlich, dass die Kategorie „Auftreten" ihr Gesamtgewicht
+    behaelt (23/19/18). Das gilt seit Stufe 3 nicht mehr: Fuer `einblendungen` und `soundeffekte`
+    gibt „Auftreten" bewusst 2 Punkte je Ziel an „Editing" ab, weil die Kategorie mit 10 von 100
+    zu klein fuer drei Dimensionen war. Die Herkunft des Auftreten-Gewichts bleibt davon unberuehrt
+    und ist das, was dieser Test sichert.
+    """
+    from models.analyst import SCORE_GEWICHTE_JE_ZIEL as G
+    # `sprechqualitaet` und `visuelle_aesthetik` liegen unter ihrem Stand vor der Dimension
+    # (6/7/6 bzw. 8/3/3 waren die Ausgangswerte vor dem Abzug).
+    assert G["TOFU"]["sprechqualitaet"] <= 6 and G["MOFU"]["sprechqualitaet"] <= 7
+    assert G["MOFU"]["visuelle_aesthetik"] <= 3 and G["BOFU"]["visuelle_aesthetik"] <= 3
     # Audioqualitaet hat nie ein Urteil zur Person getragen — sie beurteilt die Aufnahme.
-    assert SCORE_GEWICHTE_JE_ZIEL["TOFU"]["audioqualitaet"] == 5
-    assert SCORE_GEWICHTE_JE_ZIEL["MOFU"]["audioqualitaet"] == 3
-    assert SCORE_GEWICHTE_JE_ZIEL["BOFU"]["audioqualitaet"] == 3
+    # Sie darf sich nur durch spaetere Umverteilungen aendern, nicht durch das Auftreten.
+    assert G["TOFU"]["audioqualitaet"] >= G["MOFU"]["audioqualitaet"]
 
 
 def test_protagonist_auftreten_gehoert_zur_kategorie_auftreten():
@@ -1576,3 +1586,69 @@ def test_staerken_duerfen_sich_auf_den_protagonisten_beziehen():
     zeile = [z for z in build_system_prompt(teil="handwerk", ziel="MOFU").splitlines()
              if z.startswith('  "staerken":')][0]
     assert "protagonist_auftreten" in zeile
+
+
+# --- Stufe 3: Skript, Einblendungen, Soundeffekte (Vorgabe Chris, 2026-09-13) -------------------
+
+def test_die_drei_neuen_dimensionen_sind_gewichtet_und_zaehlen():
+    from models.analyst import SCORE_GEWICHTE_JE_ZIEL as G, KATEGORIEN
+    from services.analyst_eval import dimensions_scores
+    from models.analyst import AnalystEvaluationV2
+    for d in ("skript", "einblendungen", "soundeffekte"):
+        assert all(d in G[z] for z in G), d
+        assert d in dimensions_scores(AnalystEvaluationV2()), d
+    assert "skript" in KATEGORIEN["mittelteil"]
+    assert "einblendungen" in KATEGORIEN["editing"]
+    assert "soundeffekte" in KATEGORIEN["editing"]
+
+
+def test_skript_wiegt_bei_mofu_und_bofu_mehr_als_bei_tofu():
+    """KB 11: Bei TOFU traegt der Einstieg, bei MOFU/BOFU der Inhalt (Tiefe, Pitch)."""
+    from models.analyst import SCORE_GEWICHTE_JE_ZIEL as G
+    assert G["MOFU"]["skript"] > G["TOFU"]["skript"]
+    assert G["BOFU"]["skript"] > G["TOFU"]["skript"]
+
+
+def test_einblendungen_wiegen_mehr_als_soundeffekte():
+    """KB 5 nennt Einblendungen einen mehrfach wirkenden Hebel, Soundeffekte Feinschliff."""
+    from models.analyst import SCORE_GEWICHTE_JE_ZIEL as G
+    for z in G:
+        assert G[z]["einblendungen"] > G[z]["soundeffekte"], z
+
+
+def test_editing_ist_nicht_laenger_die_kleinste_kategorie():
+    """Mit drei Dimensionen waeren 10 von 100 Punkten zu wenig — die Kategorie waechst um 4."""
+    from models.analyst import SCORE_GEWICHTE_JE_ZIEL as G, KATEGORIEN
+    for z, mindestens in (("TOFU", 14), ("MOFU", 13), ("BOFU", 12)):
+        assert sum(G[z][d] for d in KATEGORIEN["editing"]) == mindestens, z
+
+
+def test_der_v3_vertrag_kennt_die_drei_neuen_felder_der_v2_nicht():
+    from services.analyst_eval import build_system_prompt
+    h = build_system_prompt(teil="handwerk", ziel="MOFU")
+    v2 = build_system_prompt()
+    for feld in ('"einblendungen_eval"', '"soundeffekte"', '"skript"'):
+        assert feld in h, feld
+        assert feld not in v2, feld
+
+
+def test_skript_ist_gegen_struktur_und_spannungsbogen_abgegrenzt():
+    """Ohne Abgrenzung wandern dieselben Befunde zwischen den drei Dimensionen hin und her."""
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(teil="handwerk", ziel="MOFU")
+    assert "die FORM" in p and "der VERLAUF" in p and "der INHALT" in p
+
+
+def test_soundeffekte_sind_gegen_audioqualitaet_abgegrenzt():
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(teil="handwerk", ziel="MOFU")
+    assert "ABGRENZUNG" in p and "AUFNAHME" in p and "GESTALTUNG" in p
+
+
+def test_schnitt_pacing_traegt_die_einblendungen_nicht_mehr():
+    """Extraktion: Was in einer eigenen Dimension bewertet wird, gehoert nicht mehr in die alte."""
+    from services.analyst_eval import build_system_prompt
+    p = build_system_prompt(teil="handwerk", ziel="MOFU")
+    schnitt = p[p.index("## Schnitt & Pacing"):p.index("## Einblendungen")]
+    assert "mehrfach wirkender Hebel" not in schnitt
+    assert "einblendungen_eval" in schnitt      # Querverweis steht

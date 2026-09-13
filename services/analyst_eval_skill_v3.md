@@ -385,6 +385,53 @@ oder wiederholt sich der Inhalt, kostet das Watchtime. Benenne die konkrete Pass
 könnte, im Struktur-Kommentar UND als Empfehlung mit der Sekunde — nicht als pauschales
 „straffe das Skript".
 
+## Skript (1–5) — die inhaltliche Substanz
+Das Skript ist die GESCHICHTE: der Gedankengang, das was gesagt wird, der Inhalt. KB-Leitsatz:
+**Ein Video ist nie besser als sein Skript. Post-Produktion belebt kein totes Skript.**
+
+**Auch NONVERBAL bewertbar.** Ein Video ohne gesprochenes Wort erzählt seine Geschichte über Bild,
+Schnitt und Texteinblendungen — auch das ist ein Skript und wird hier bewertet. Fehlt jede
+erkennbare Geschichte und reihen sich nur Bilder aneinander, ist das ein Mangel, kein Freispruch.
+
+**ABGRENZUNG — die drei im Mittelteil teilen sich den Stoff, jede Beobachtung gehört in GENAU eine:**
+- `struktur` = die FORM. Welche Bausteine sind da, in welcher Reihenfolge (Hook → Bridge → Mid →
+  Peak → CTA), greifen sie ineinander?
+  *Beispiel: „Nach der Hook kommt sofort die Pointe, der Mittelteil fehlt ganz."*
+- `spannungsbogen` = der VERLAUF über die Zeit. Hält die Spannung, wo kippt sie, endet das Video
+  zeitnah danach?
+  *Beispiel: „Ab Sekunde 18 passiert nichts Neues mehr, das Video läuft noch 9 Sekunden weiter."*
+- `skript` = der INHALT. Trägt der Gedanke? Ist die Aussage konkret oder beliebig? Nimmt der
+  Zuschauer etwas mit?
+  *Beispiel: „Die These bleibt eine Behauptung — es kommt kein Beispiel, keine Zahl, kein Beleg."*
+
+Ein Video kann eine saubere Struktur haben und trotzdem inhaltlich leer sein. Genau dafür gibt es
+diese Dimension.
+
+**Worauf du achtest:**
+- **Trägt der Gedanke?** Gibt es eine Aussage, oder wird um ein Thema herumgeredet?
+- **Konkret oder beliebig?** Beispiele, Zahlen, Belege, eigene Erfahrung — oder nur Adjektive.
+- **Nimmt der Zuschauer etwas mit?** Er soll danach etwas wissen, fühlen oder anders sehen.
+  Reine Selbstdarstellung ohne Nutzen ist schwach.
+- **Einfache Sprache** (siehe Abschnitt Sprache & Verständlichkeit) — unverständlich formulierter
+  Inhalt zählt hier, nicht nur dort.
+- **Passung zum VIDEOZIEL** (siehe Abschnitt Funnel): Ein TOFU-Video braucht ein breit
+  anschlussfähiges, emotional greifbares Thema; ein MOFU-Video thematische Tiefe und eine
+  erkennbare Expertise; ein BOFU-Video ein konkretes Angebot und den Grund, jetzt zu handeln.
+  Derselbe Inhalt kann für ein Ziel stark und für ein anderes schwach sein.
+- **Passung zum FORMAT** (siehe Format-Abschnitt): Ein Tutorial braucht einen nachvollziehbaren
+  Ablauf, eine Reaction eine eigene Einordnung statt bloßer Wiedergabe.
+
+ANKER für `skript.score`:
+- **5** — eine klare Aussage, konkret belegt, der Zuschauer nimmt etwas mit, und der Inhalt passt
+  zum Ziel.
+- **4** — trägt, an einer Stelle bleibt es allgemein oder ein Beleg fehlt.
+- **3** — der Gedanke ist erkennbar, bleibt aber austauschbar: richtig, aber schon hundertmal gehört.
+- **2** — es wird um das Thema herumgeredet, die Aussage bleibt eine Behauptung, oder der Inhalt
+  passt nicht zum gewählten Ziel.
+- **1** — kein erkennbarer Gedanke; nach dem Video weiß der Zuschauer nichts, was er vorher nicht
+  wusste.
+Sagt das Video klar etwas und löst es ein, ist das eine 5 — es braucht keine überraschende Wendung.
+
 ## Sprache & Verständlichkeit
 Das Skript muss in EINFACHER Sprache verständlich sein. Es muss für die dümmste Person innerhalb
 der Zielgruppe verständlich sein.
@@ -479,13 +526,11 @@ sitzt.
 Visuelle Abwechslung wirkt POSITIV auf Watchtime: Kamera-/Perspektivwechsel (Subjekt bleibt
 zentriert), B-Roll oder Settingwechsel erzeugen Unterhaltungswert — höher bewerten als statische,
 monotone Einstellung, solange das Subjekt klar erkennbar bleibt.
-B-ROLL & EINBLENDUNGEN sind ein starker, mehrfach wirkender Hebel — empfiehl sie aktiv als top_tipp, wo sie passen:
-(1) sie überdecken die Stellen, an denen der Sprecher wegschaut — den Blick selbst beurteilst du
-aber ausschließlich in `blickkontakt`, und den Schritt dazu baut das System; (2) sie verstärken das Gesagte visuell → das Video wird leichter verständlich, die Botschaft
-kommt an, der Zuschauer nimmt mehr mit (mehr Wert); (3) sie bringen Dynamik ins Bild → höhere Chance, dass
-Zuschauer dranbleiben (bessere Retention). Fehlen sie in einem statischen Video, ist das eine konkrete Chance.
+B-ROLL UND EINBLENDUNGEN bewertest du NICHT hier, sondern in `einblendungen_eval` — eigener
+Abschnitt weiter unten. SOUNDEFFEKTE ebenso in `soundeffekte`. Hier zählt allein der
+Schnittrhythmus: wie oft geschnitten wird, ob die Schnitte sitzen, ob das Tempo zum Format passt.
+Es gilt JEDE BEOBACHTUNG NUR EINMAL — was du dort nennst, nennst du hier nicht noch einmal.
 
-Referenz P5: SFX subtil, unterstützend, mehrkanalig — nicht überladen.
 Referenz P7: Emotion an Schlüsselmomenten durch Schnitt verstärken (Zoom, Farbe, Sound), dosiert.
 Referenz P10: So viele Reize wie nötig, keine Reizüberflutung.
 Referenz P8: Länge kürzen, ohne Inhalt zu kürzen.
@@ -503,6 +548,57 @@ Kommt das Video ohne Hänger und ohne Hetze durch, ist das eine 5 — die Abwese
 genügt, es braucht keine aufwendigen Übergänge und kein hohes Schnitttempo.
 
 UNTERTITEL gehören NICHT hierher — sie haben einen eigenen Abschnitt und ein eigenes Feld.
+
+## Einblendungen (1–5)
+Grafiken, Symbole, B-Roll, eingeblendete Bilder und Text-Overlays — ALLES AUSSER der Text-Hook, die
+hat eine eigene Dimension. Bewertet wird, ob sie da sind, wo sie helfen, und ob sie das Gesagte
+verstärken statt abzulenken.
+
+Warum das eine eigene Dimension ist: Einblendungen wirken DREIFACH. (1) Sie überdecken die Stellen,
+an denen der Sprecher wegschaut — den Blick selbst beurteilst du aber ausschließlich in
+`blickkontakt`. (2) Sie verstärken das Gesagte visuell, das Video wird leichter verständlich und
+der Zuschauer nimmt mehr mit. (3) Sie bringen Dynamik ins Bild und erhöhen die Chance, dass
+Zuschauer dranbleiben.
+
+Prüf auch die Lage: Eine Einblendung, die in die SAFE ZONE ragt, ist teilweise unsichtbar.
+
+ANKER für `einblendungen_eval.score`:
+- **5** — an den Stellen, an denen es zählt, liegt etwas: Begriffe werden bebildert, Zahlen
+  erscheinen, B-Roll trägt die Aussage. Nichts lenkt ab, alles liegt in der Safe Zone.
+- **4** — tragen, eine Stelle bleibt ungenutzt oder eine Einblendung steht zu kurz.
+- **3** — vereinzelte Einblendungen, aber die inhaltlich starken Momente bleiben unbebildert.
+- **2** — fast nichts, obwohl das Video es brauchen würde (statisch, viel erklärter Inhalt), ODER
+  Einblendungen lenken ab, überdecken das Gesicht oder liegen außerhalb der Safe Zone.
+- **1** — gar keine Einblendung in einem Video, das ohne sie nicht funktioniert.
+Liegt überall etwas, wo es hilft, ist das eine 5 — es braucht keine aufwendige Animation.
+
+Ein Video, das seine Aussage ohne Einblendungen trägt (starke Mimik, klarer Schnitt, kurzes
+Format), ist hier NICHT automatisch schwach. Entscheidend ist, ob dem Zuschauer etwas fehlt.
+
+## Soundeffekte (1–5)
+Ton als GESTALTUNGSMITTEL: kurze Effekte (Whoosh, Klick, Pop), Musikeinsatz, Betonung von Schnitten
+und Pointen durch Ton.
+
+ABGRENZUNG, streng: In `audioqualitaet` geht es um die AUFNAHME — Störgeräusche, Hall,
+Verständlichkeit, Lautheit. Hier geht es um die GESTALTUNG. Ein halliger Raum ist
+`audioqualitaet`. Ein fehlender Whoosh am Schnitt ist `soundeffekte`. Musik, die zu laut über der
+Stimme liegt, ist `audioqualitaet` (sie stört das Verstehen); Musik, die zum Thema nicht passt oder
+an der Pointe nichts tut, ist `soundeffekte`.
+
+Referenz P5: SFX subtil, unterstützend, mehrkanalig — nicht überladen.
+
+ANKER für `soundeffekte.score`:
+- **5** — Ton arbeitet mit: Schnitte und Pointen sind hörbar gesetzt, Musik trägt die Stimmung,
+  nichts überlagert die Stimme.
+- **4** — trägt, eine Pointe bleibt tonlos oder ein Effekt sitzt daneben.
+- **3** — Musik läuft mit, aber der Ton gestaltet nichts; oder einzelne Effekte ohne System.
+- **2** — Effekte wirken beliebig oder überladen, ODER ein schnittintensives Video bleibt komplett
+  ohne Sound-Gestaltung.
+- **1** — der Ton arbeitet gegen das Video: schrille Effekte, Musik überdeckt die Pointe.
+Trägt der Ton, ohne dass etwas auffällt, ist das eine 5.
+
+Ein ruhiges Talking Head ohne jeden Effekt ist nicht automatisch schwach — bewerte gegen das, was
+das Format braucht (siehe Format-Abschnitt).
 
 ## Sprechpausen — nach FUNKTION beurteilen, nicht nach Länge
 Die Sprachstatistik listet jede Pause MIT Position (z.B. „3.1s @ 14.2–17.3s"). Gemeldet werden nur

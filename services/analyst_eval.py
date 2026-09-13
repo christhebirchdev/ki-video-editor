@@ -27,7 +27,7 @@ from services import analyst_prompt_log
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
 # Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-13c"   # V3: Auftreten des Protagonisten als eigene Dimension
+PROMPT_VERSION = "2026-09-13d"   # V3 Stufe 3: Skript, Einblendungen und Soundeffekte als eigene Dimensionen
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -198,6 +198,10 @@ def dimensions_scores(parsed: AnalystEvaluationV2) -> dict:
         "untertitel_gestaltung": parsed.untertitel.gestaltung_score,
         "audioqualitaet": parsed.audioqualitaet.score,
         "cta": parsed.cta.score,
+        # Stufe 3: bisher in schnitt_pacing / struktur mitgelaufen, jetzt eigenstaendig.
+        "einblendungen": parsed.einblendungen_eval.score,
+        "soundeffekte": parsed.soundeffekte.score,
+        "skript": parsed.skript.score,
         # Auftreten der Person: bleibt None, solange keine Daten zur Person/Marke vorliegen
         # (siehe ProtagonistEval). berechne_performance_score ueberspringt die Dimension dann
         # und verteilt ihr Gewicht proportional — der Gesamtscore verschiebt sich dadurch nicht.
@@ -1737,6 +1741,24 @@ AUFTRETEN_BLOCK_V3 = (
     '"hinweise": ["<NUR mit solchen Angaben: leichte Auffälligkeiten ohne Score-Wirkung. Sonst []>"]},'
 )
 
+# Stufe 3 (Vorgabe Chris, 2026-09-13): Einblendungen, Soundeffekte und Skript bekommen eigene
+# Scores. Alle drei liefen bisher in anderen Dimensionen mit — Einblendungen und Effekte unter
+# `schnitt_pacing`, der Inhalt unter `struktur`/`spannungsbogen`. Sie haengen am selben Anker,
+# damit die Trennung schon beim Lesen des Vertrags sichtbar ist.
+SCHNITT_ZEILE_V2 = '  "schnitt_pacing": {"score": <int 1-5>, "kommentar": "<1-2 Sätze, format-bewusst>"},'
+EDITING_BLOCK_V3 = (
+    '  "schnitt_pacing": {"score": <int 1-5: NUR Schnittrhythmus und Tempo — wie oft wird geschnitten, sitzen die Schnitte, passt das Tempo zum Format? Einblendungen und Soundeffekte gehoeren NICHT hierher, die haben eigene Felder>, "kommentar": "<1-2 Sätze, format-bewusst>"},\n'
+    '  "einblendungen_eval": {"score": <int 1-5: Grafiken, Symbole, B-Roll, eingeblendete Bilder und Text-Overlays (NICHT die Text-Hook). Sind sie da, wo sie helfen? Verstärken sie das Gesagte oder lenken sie ab? Liegen sie in der Safe Zone? Ein statisches Video ganz ohne Einblendungen ist hier schwach, auch wenn der Schnitt sauber ist>, "probleme": ["<nur DEUTLICHE Mängel, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},\n'
+    '  "soundeffekte": {"score": <int 1-5: Ton als GESTALTUNGSMITTEL — kurze Effekte (Whoosh, Klick, Pop), Musikeinsatz, Betonung von Schnitten und Pointen. NICHT die Aufnahmequalität, die steht in audioqualitaet. Ganz ohne Sound-Gestaltung in einem schnittintensiven Video: höchstens 3>, "kommentar": "<1 Satz>"},'
+)
+
+# Skript sitzt im Mittelteil und haengt deshalb an der struktur-Zeile.
+STRUKTUR_ZEILE_V2 = '  "struktur": {\n    "score": <int 1-5>,\n    "elemente": {"hook": <bool>, "bridge": <bool>, "mid": <bool>, "peak": <bool>, "cta": <bool>},\n    "kommentar": "<1-2 Sätze>"'
+MITTELTEIL_BLOCK_V3 = (
+    STRUKTUR_ZEILE_V2 + '\n'
+    '  "skript": {"score": <int 1-5: die inhaltliche SUBSTANZ — trägt der Gedanke? Ist die Aussage konkret oder beliebig? Nimmt der Zuschauer etwas mit? Ist die Sprache einfach genug (siehe Abschnitt Sprache)? Passt der Inhalt zum Videoziel und zum Format? Auch bei einem Video OHNE gesprochenes Wort bewertbar: dann zählt die Geschichte, die Bild und Schnitt erzählen. NICHT die Form (das ist struktur) und nicht der Verlauf (das ist spannungsbogen)>, "probleme": ["<nur DEUTLICHE Mängel, je 1-2 Sätze, sonst []>"], "hinweise": ["<leichte Auffälligkeiten ohne Score-Wirkung, sonst []>"]},'
+)
+
 # Anker -> Ersatz. Reihenfolge egal, die Anker ueberschneiden sich nicht.
 V3_VERTRAG_ERSETZUNGEN = (
     (STAERKEN_ZEILE_V2, STAERKEN_ZEILE_V3),
@@ -1744,6 +1766,8 @@ V3_VERTRAG_ERSETZUNGEN = (
     (FUNNEL_ZEILE_V2, FUNNEL_BLOCK_V3),
     (UNTERTITEL_ZEILE_V2, HANDWERK_BLOCK_V3),
     (ENERGIE_ZEILE_V2, AUFTRETEN_BLOCK_V3),
+    (SCHNITT_ZEILE_V2, EDITING_BLOCK_V3),
+    (STRUKTUR_ZEILE_V2, MITTELTEIL_BLOCK_V3),
 )
 
 for _anker, _ in V3_VERTRAG_ERSETZUNGEN:
@@ -1823,6 +1847,11 @@ ABSCHNITT_ZUORDNUNG = {
     "Funnel — genaue Definitionen (zuerst bestimmen, steuert den Score)": "eroeffnung",
     # Call 2 — das ganze Video
     "Struktur (1–5)": "handwerk",
+    # Stufe 3: Skript sitzt im Mittelteil, Einblendungen und Soundeffekte im Editing — alle drei
+    # gehoeren damit in denselben Teil-Call wie die Dimensionen, aus denen sie herausgeloest wurden.
+    "Skript (1–5) — die inhaltliche Substanz": "handwerk",
+    "Einblendungen (1–5)": "handwerk",
+    "Soundeffekte (1–5)": "handwerk",
     "Sprache & Verständlichkeit": "handwerk",
     "Sprechqualität (1–5)": "handwerk",
     "Schnitt & Pacing (1–5) — format-abhängig, konservativ": "handwerk",
@@ -1854,6 +1883,7 @@ TEIL_FELDER = {
     "handwerk": (
         "struktur", "sprechqualitaet", "schnitt_pacing", "spannungsbogen", "visuelle_aesthetik",
         "untertitel", "audioqualitaet", "cta",
+        "einblendungen_eval", "soundeffekte", "skript",
         "dynamik", "effekt_vorschlaege", "blickkontakt", "energie", "protagonist_auftreten",
         "staerken", "top_tipps", "pausen_urteile", "einblendungen", "empfehlungen",
     ),
