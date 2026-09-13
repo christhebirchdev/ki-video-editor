@@ -149,3 +149,78 @@ def test_der_soundeffekt_kommentar_verlangt_den_befund_an_den_schnitten():
     zeile = [l for l in v3_schema().splitlines() if l.strip().startswith('"soundeffekte"')][0]
     assert "SCHNITTSTELLEN" in zeile
     assert "SCHNITTSTELLEN" not in OUTPUT_SCHEMA, "V2-Vertrag bleibt unberuehrt"
+
+
+# --- 6) `null` darf NIE einen bezahlten Lauf abbrechen -------------------------------------------
+
+def test_jedes_score_feld_vertraegt_null():
+    """Abbruch eines bezahlten Laufs, gemeldet von Chris:
+
+        1 validation error for AnalystEvaluationV2
+        cta.score  Input should be a valid integer [input_value=None]
+
+    Ursache: Der V3-Vertrag erlaubt seit der CTA-Entscheidung `null`, `ScoreKommentar.score` war
+    aber `int`. Dieselbe Fehlerklasse wie bei `top_tipps` — das Modell haelt sich an den Vertrag,
+    das Modell-Schema nicht. `null` heisst ueberall in diesem Schema „nicht bewertbar" und ist
+    damit fuer JEDE Dimension ein zulaessiger Wert; eine Dimension, die es nicht anbietet, bekommt
+    ihn nie, aber ein Tippfehler im Vertrag darf keinen Lauf kosten.
+    """
+    from models.analyst import AnalystEvaluationV2
+
+    e = AnalystEvaluationV2(**{
+        "hook": {"sprech_hook_score": None, "text_hook_score": None, "visuell_hook_score": None},
+        "struktur": {"score": None},
+        "spannungsbogen": {"score": None},
+        "skript": {"score": None},
+        "untertitel": {"score": None, "gestaltung_score": None},
+        "cta": {"score": None},
+        "schnitt_pacing": {"score": None},
+        "einblendungen_eval": {"score": None},
+        "soundeffekte": {"score": None},
+        "sprechqualitaet": {"score": None},
+        "visuelle_aesthetik": {"score": None},
+        "audioqualitaet": {"score": None},
+        "protagonist_auftreten": {"score": None},
+    })
+    assert e.cta.score is None
+
+
+def test_die_nachbearbeitung_ueberlebt_lauter_nullen():
+    """Nicht nur parsen — der ganze Weg bis zum Performance-Score."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import nachbearbeiten
+
+    e = AnalystEvaluationV2(**{k: {"score": None} for k in (
+        "struktur", "spannungsbogen", "skript", "cta", "schnitt_pacing",
+        "einblendungen_eval", "soundeffekte", "sprechqualitaet", "visuelle_aesthetik",
+        "audioqualitaet", "protagonist_auftreten")})
+    out = nachbearbeiten(e, _result())
+    assert isinstance(out.performance_score, int)
+
+
+# --- 7) Ein einzelnes kaputtes Feld darf nie die ganze Analyse kosten ----------------------------
+
+def test_ein_ungueltiges_feld_wird_verworfen_statt_den_lauf_abzubrechen():
+    """Zweimal ist jetzt ein BEZAHLTER Lauf an der Schema-Strenge gestorben: einmal an `top_tipps`
+    als Objektliste, einmal an `cta.score: null`. Beide Male war die Analyse fertig und das Geld
+    ausgegeben — und das Ergebnis trotzdem weg, wegen EINEM Feld.
+
+    Also parst der Code ab jetzt nachsichtig: Was nicht ins Schema passt, faellt auf seinen
+    Default zurueck, der Rest ueberlebt. Ein fehlendes Feld ist immer besser als kein Ergebnis."""
+    from services.analyst_eval import parse_evaluation
+
+    e, verworfen = parse_evaluation({
+        "performance_score": 77,
+        "cta": {"score": "fuenf", "kommentar": "Da ist einer."},
+        "top_tipps": ["Mach das Ende konkreter."],
+    })
+    assert e.performance_score == 77, "der gute Teil ueberlebt"
+    assert e.top_tipps == ["Mach das Ende konkreter."]
+    assert "cta" in " ".join(verworfen)
+
+
+def test_sauberer_output_wird_unveraendert_geparst():
+    from services.analyst_eval import parse_evaluation
+    e, verworfen = parse_evaluation({"performance_score": 80, "cta": {"score": 4}})
+    assert verworfen == []
+    assert e.cta.score == 4

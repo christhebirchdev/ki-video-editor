@@ -296,7 +296,8 @@ class StrukturElemente(BaseModel):
 
 
 class StrukturEval(BaseModel):
-    score: int = 0
+    # Nullable wie ueberall in diesem Schema: `null` heisst „nicht bewertbar". Siehe ScoreKommentar.
+    score: Optional[int] = 0
     elemente: StrukturElemente = Field(default_factory=StrukturElemente)
     kommentar: str = ""
     positiv: str = ""                  # siehe POSITIV_DOC
@@ -369,8 +370,17 @@ class ProtagonistEval(ScoreProbleme):
 
 
 class ScoreKommentar(BaseModel):
-    """Score 1–5 + 1-Satz-Kommentar; im Frontend die Kritikseite des Aufklappers."""
-    score: int = 0
+    """Score 1–5 + 1-Satz-Kommentar; im Frontend die Kritikseite des Aufklappers.
+
+    `score` ist nullable, und zwar fuer ALLE Dimensionen dieser Klasse — nicht nur fuer die, deren
+    Vertragszeile `null` heute ausdruecklich anbietet. Anlass: Seit der CTA-Entscheidung
+    („braucht das Format keinen CTA, ist der Score null") stand `null` im Vertrag, hier aber `int`
+    — ein bezahlter Lauf brach mit `cta.score Input should be a valid integer` ab. Dieselbe
+    Fehlerklasse wie bei `top_tipps`: Das Modell haelt sich an den Vertrag, und das Schema muss
+    mindestens so tolerant sein wie der Vertrag verspricht. `null` heisst hier ueberall „nicht
+    bewertbar"; berechne_performance_score ueberspringt solche Dimensionen und verteilt ihr Gewicht.
+    """
+    score: Optional[int] = 0
     kommentar: str = ""
     # Deckt schnitt_pacing, spannungsbogen, cta und soundeffekte ab. Siehe POSITIV_DOC.
     positiv: str = ""

@@ -11,11 +11,13 @@ Der Schema-Block lebt bewusst HIER (nicht in der .md): Im interaktiven Cowork-
 Gebrauch will man Fließtext, in der Pipeline striktes JSON — derselbe Skill-Body,
 zwei Modi.
 """
+import copy
 import json
 import re
 from pathlib import Path
 
 import anthropic
+from pydantic import ValidationError
 
 from config import settings
 from models.analyst import (ActionStep, AnalystEvaluationV2, AnalystResult, Empfehlung,
@@ -26,8 +28,7 @@ from services import analyst_prompt_log
 # Feedback gestempelt: Feedback zu einer alten Prompt-Version ist für spätere Auswertungen sonst
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
-# Feedback vom Abend nicht vom Feedback des Vormittags zu unterscheiden.
-PROMPT_VERSION = "2026-09-13k"   # Lautheit wird nicht mehr bewertet; Suchauftrag fuer Toneffekte
+PROMPT_VERSION = "2026-09-13l"   # cta.score darf null sein; nachsichtiges Parsen
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -2262,6 +2263,60 @@ def build_system_prompt(teil: str | None = None, ziel: str = "", marke: str = ""
     return "\n\n".join(parts)
 
 
+MAX_VERWORFENE_FELDER = 12   # danach ist die Antwort kaputt, nicht nur ein Feld daneben
+
+
+def parse_evaluation(daten: dict) -> tuple[AnalystEvaluationV2, list[str]]:
+    """Die Modell-Antwort nachsichtig parsen: ungueltige Felder fallen auf ihren Default zurueck.
+
+    Warum es das gibt: Zweimal ist ein BEZAHLTER Lauf an einem einzigen Feld gestorben — `top_tipps`
+    kam als Objektliste statt als Strings, und `cta.score` kam als `null`, waehrend das Schema noch
+    `int` verlangte. Beide Male war die Analyse fertig, das Geld ausgegeben, und das Ergebnis
+    trotzdem weg. Ein fehlendes Feld ist immer besser als kein Ergebnis.
+
+    Der strikte Pfad bleibt der Normalfall: Passt alles, wird nichts angefasst und die Liste ist
+    leer. Erst bei einem Fehler wird GENAU der gemeldete Pfad entfernt und neu geparst — nicht
+    geraten, nicht repariert, nicht aufgefuellt. Die Liste der verworfenen Pfade gehoert ins
+    Protokoll: Sie zeigt, wo Vertrag und Schema auseinanderlaufen, und genau das soll auffallen.
+    """
+    daten = copy.deepcopy(daten)
+    verworfen: list[str] = []
+    for _ in range(MAX_VERWORFENE_FELDER):
+        try:
+            return AnalystEvaluationV2(**daten), verworfen
+        except ValidationError as fehler:
+            pfade = [f["loc"] for f in fehler.errors() if f.get("loc")]
+            if not pfade:
+                raise
+            for pfad in pfade:
+                if _entferne(daten, pfad):
+                    verworfen.append(".".join(str(p) for p in pfad))
+            if not verworfen:
+                raise
+    return AnalystEvaluationV2(), verworfen
+
+
+def _entferne(daten, pfad) -> bool:
+    """Einen Wert an `pfad` loeschen, damit der Default greift. True, wenn etwas entfernt wurde."""
+    ziel = daten
+    for schluessel in pfad[:-1]:
+        try:
+            ziel = ziel[schluessel]
+        except (KeyError, IndexError, TypeError):
+            return False
+    letzter = pfad[-1]
+    try:
+        if isinstance(ziel, dict) and letzter in ziel:
+            del ziel[letzter]
+            return True
+        if isinstance(ziel, list) and isinstance(letzter, int) and 0 <= letzter < len(ziel):
+            del ziel[letzter]
+            return True
+    except TypeError:
+        return False
+    return False
+
+
 def _extract_json(text: str) -> dict:
     """Holt das erste vollständige JSON-Objekt aus der Antwort.
 
@@ -2360,7 +2415,10 @@ def evaluate(result: AnalystResult, run_dir=None) -> AnalystEvaluationV2:
         messages=[{"role": "user", "content": user}],
     )
     raw = msg.content[0].text
-    parsed = nachbearbeiten(AnalystEvaluationV2(**_extract_json(raw)), result)
+    roh, verworfen = parse_evaluation(_extract_json(raw))
+    if verworfen:
+        print(f"[analyst] Felder verworfen (Vertrag/Schema laufen auseinander): {verworfen}")
+    parsed = nachbearbeiten(roh, result)
     analyst_prompt_log.log_call(
         run_dir, call="eval_v1", recipient="Claude", model=settings.claude_model,
         system_prompt=system, user_message=user, output_raw=raw, output_parsed=parsed,

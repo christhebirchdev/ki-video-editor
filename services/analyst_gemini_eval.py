@@ -260,7 +260,10 @@ def _evaluate(video_path: Path, result: AnalystResult, mode: str, run_dir=None) 
         temperature=0.0,
     )
     raw = (_generate([_video_part(video_file), user], cfg, f"analyst_eval_{mode}").text or "")
-    parsed = analyst_eval.nachbearbeiten(AnalystEvaluationV2(**analyst_eval._extract_json(raw)), result)
+    roh, verworfen = analyst_eval.parse_evaluation(analyst_eval._extract_json(raw))
+    if verworfen:
+        print(f"[analyst] Felder verworfen (Vertrag/Schema laufen auseinander): {verworfen}")
+    parsed = analyst_eval.nachbearbeiten(roh, result)
     analyst_prompt_log.log_call(
         run_dir, call=f"eval_{mode}", recipient="Gemini",
         # Das Modell, das TATSÄCHLICH geantwortet hat — nicht „ggf. Fallback". Sonst lässt sich ein
@@ -349,7 +352,9 @@ def _evaluate_teil(video_file, result: AnalystResult, teil: str, run_dir,
         system_instruction=system, response_mime_type="application/json", temperature=0.0,
     )
     raw = (_generate([_video_part(video_file), user], cfg, f"analyst_eval_split_{teil}").text or "")
-    parsed = AnalystEvaluationV2(**analyst_eval._extract_json(raw))
+    parsed, verworfen = analyst_eval.parse_evaluation(analyst_eval._extract_json(raw))
+    if verworfen:
+        print(f"[analyst] Felder verworfen in Teil {teil}: {verworfen}")
     analyst_prompt_log.log_call(
         run_dir, call=f"eval_split_{teil}", recipient="Gemini",
         model=analyst_vlm.letztes_modell() or gemini_service.GEMINI_MODEL,
