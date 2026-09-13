@@ -1661,6 +1661,26 @@ def test_schnitt_pacing_traegt_die_einblendungen_nicht_mehr():
 # `positiv`. Die Kritikseite (`probleme`, `kommentar`, `grund`, `maengel`) bleibt, wie sie ist.
 
 
+def test_jede_bewertete_dimension_hat_ein_positiv_feld():
+    """Sechzehn Dimensionen, sechzehn Lob-Felder — `positiv_felder` und `dimensions_scores`
+    muessen dieselben Namen kennen. Laeuft das auseinander, faellt eine Dimension still aus dem
+    Aufklapper und aus dem Filter heraus."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import dimensions_scores, positiv_felder
+    ev = AnalystEvaluationV2()
+    assert set(positiv_felder(ev)) == set(dimensions_scores(ev))
+    assert len(positiv_felder(ev)) == 16
+
+
+def test_positiv_ist_ueberall_leer_vorbelegt():
+    """Default "" — sonst laedt keiner der gespeicherten Altlaeufe mehr."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import positiv_felder
+    ev = AnalystEvaluationV2()
+    for name, (obj, attr) in positiv_felder(ev).items():
+        assert getattr(obj, attr) == "", name
+
+
 def test_die_drei_hook_ebenen_haben_eigene_lob_felder():
     """Sie liegen in EINER Klasse — ein gemeinsames `positiv` wuerde drei Urteile zu einem
     verschmelzen."""
@@ -1715,6 +1735,84 @@ def test_v3_skill_bindet_die_menge_an_lob_an_den_score():
     assert "positiv" in v3
 
 
-def _appjsx():
-    import pathlib
-    return pathlib.Path("static/app.jsx").read_text(encoding="utf-8")
+def test_lob_wird_bei_score_1_und_2_verworfen():
+    """Code-Schwelle statt Prompt-Bitte: Bei 1 oder 2 gibt es nichts ehrlich zu loben. Ohne diese
+    Schwelle wird die Regel zu Boilerplate (P2 in docs/offene-fixes-analyst.md)."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import filtere_positiv
+    ev = AnalystEvaluationV2()
+    ev.schnitt_pacing.score = 2
+    ev.schnitt_pacing.positiv = "Die Schnitte sitzen sauber."
+    ev.hook.sprech_hook_score = 1
+    ev.hook.sprech_hook_positiv = "Immerhin ist die Kamera an."
+    filtere_positiv(ev, ziel="MOFU")
+    assert ev.schnitt_pacing.positiv == ""
+    assert ev.hook.sprech_hook_positiv == ""
+
+
+def test_lob_bleibt_ab_score_3_stehen():
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import filtere_positiv
+    ev = AnalystEvaluationV2()
+    ev.spannungsbogen.score = 3
+    ev.spannungsbogen.positiv = "Der Einstieg zieht."
+    ev.visuelle_aesthetik.score = 5
+    ev.visuelle_aesthetik.positiv = "Licht und Bildaufbau sitzen."
+    filtere_positiv(ev, ziel="MOFU")
+    assert ev.spannungsbogen.positiv == "Der Einstieg zieht."
+    assert ev.visuelle_aesthetik.positiv == "Licht und Bildaufbau sitzen."
+
+
+def test_nicht_bewertbare_dimension_behaelt_ihr_lob():
+    """score None heisst „nicht bewertbar", nicht „schlecht" — ein Lob dazu ist nicht gedeckelt."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import filtere_positiv
+    ev = AnalystEvaluationV2()
+    ev.protagonist_auftreten.score = None
+    ev.protagonist_auftreten.positiv = "Ruhige, klare Praesenz."
+    filtere_positiv(ev, ziel="MOFU")
+    assert ev.protagonist_auftreten.positiv == "Ruhige, klare Praesenz."
+
+
+def test_ohne_ziel_wird_kein_lob_verworfen():
+    """v2 und Altlaeufe: Ein gespeichertes Ergebnis darf beim erneuten Anzeigen nicht weniger
+    enthalten als beim ersten Mal — dieselbe Regel wie bei filtere_staerken."""
+    from models.analyst import AnalystEvaluationV2
+    from services.analyst_eval import filtere_positiv
+    ev = AnalystEvaluationV2()
+    ev.cta.score = 1
+    ev.cta.positiv = "Der Abschluss ist freundlich."
+    filtere_positiv(ev, ziel="")
+    assert ev.cta.positiv == "Der Abschluss ist freundlich."
+
+
+def test_nachbearbeiten_wendet_den_lob_filter_an():
+    """Ende zu Ende — der Filter muss NACH den Score-Deckelungen laufen, sonst ueberlebt Lob zu
+    einer Dimension, die danach abgesenkt wird."""
+    from models.analyst import AnalystEvaluationV2, AnalystResult
+    from services.analyst_eval import nachbearbeiten
+    ev = AnalystEvaluationV2()
+    ev.soundeffekte.score = 2
+    ev.soundeffekte.positiv = "Die Musik passt zum Thema."
+    result = AnalystResult(id="t", filename="t.mp4", duration_sec=30.0, scene_count=0,
+                           scenes=[], gewaehltes_ziel="MOFU", gewaehltes_format="Talking Head")
+    nachbearbeiten(ev, result)
+    assert ev.soundeffekte.positiv == ""
+
+
+def test_eine_spaetere_score_korrektur_zieht_das_lob_mit():
+    """setze_untertitel_scores setzt den Score erst kurz vor Schluss auf 1 — das Modell konnte
+    davon nichts wissen und hat sein Lob schon geschrieben. Genau dafuer steht filtere_positiv
+    HINTER allen Score-Korrekturen und nicht davor."""
+    from models.analyst import AnalystEvaluationV2, AnalystResult
+    from services.analyst_eval import nachbearbeiten
+    ev = AnalystEvaluationV2()
+    ev.untertitel.vorhanden = False
+    ev.untertitel.score = 4
+    ev.untertitel.positiv = "Die Untertitel sitzen sauber unter dem Gesicht."
+    result = AnalystResult(id="t", filename="t.mp4", duration_sec=30.0, scene_count=0, scenes=[],
+                           transcript="Hier wird durchgehend gesprochen, aber ohne Untertitel.",
+                           gewaehltes_ziel="MOFU", gewaehltes_format="Talking Head")
+    nachbearbeiten(ev, result)
+    assert ev.untertitel.score == 1
+    assert ev.untertitel.positiv == ""

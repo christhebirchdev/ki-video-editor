@@ -209,6 +209,39 @@ def dimensions_scores(parsed: AnalystEvaluationV2) -> dict:
     }
 
 
+def positiv_felder(parsed: AnalystEvaluationV2) -> dict:
+    """Lob-Feld je Dimensionsname, als (Objekt, Attributname) — das Gegenstueck zu
+    dimensions_scores() fuer die POSITIVE Seite.
+
+    Warum (Objekt, Attribut) statt der Werte selbst: `filtere_positiv` muss schreiben koennen, und
+    ein zurueckgegebener String liesse sich nicht zurueckschreiben. Warum ueberhaupt eine eigene
+    Funktion: Drei Dimensionen liegen in HookEval und zwei in UntertitelEval — die Zuordnung
+    Dimension → Feld ist also nicht mechanisch aus dem Feldnamen ableitbar. Stuende sie im Filter,
+    stuende sie beim naechsten Leser (Frontend, Bericht) ein zweites Mal daneben.
+
+    Die Namen sind exakt die aus dimensions_scores(); ein Test haelt beide Mengen zusammen.
+    """
+    return {
+        "sprech_hook": (parsed.hook, "sprech_hook_positiv"),
+        "text_hook": (parsed.hook, "text_hook_positiv"),
+        "visuell_hook": (parsed.hook, "visuell_hook_positiv"),
+        "sprechqualitaet": (parsed.sprechqualitaet, "positiv"),
+        "visuelle_aesthetik": (parsed.visuelle_aesthetik, "positiv"),
+        "spannungsbogen": (parsed.spannungsbogen, "positiv"),
+        "struktur": (parsed.struktur, "positiv"),
+        "schnitt_pacing": (parsed.schnitt_pacing, "positiv"),
+        # Zwei Dimensionen, eine Klasse — deshalb zwei Felder, siehe UntertitelEval.
+        "untertitel_vorhanden": (parsed.untertitel, "positiv"),
+        "untertitel_gestaltung": (parsed.untertitel, "gestaltung_positiv"),
+        "audioqualitaet": (parsed.audioqualitaet, "positiv"),
+        "cta": (parsed.cta, "positiv"),
+        "einblendungen": (parsed.einblendungen_eval, "positiv"),
+        "soundeffekte": (parsed.soundeffekte, "positiv"),
+        "skript": (parsed.skript, "positiv"),
+        "protagonist_auftreten": (parsed.protagonist_auftreten, "positiv"),
+    }
+
+
 # Ein kritischer Mangel erzwingt einen Platz in den Top 3 (Vorgabe Chris, 2026-09-11).
 # Deterministisch definiert, weil eine Prompt-Regel dafür wieder nur eine Bitte wäre — dieselbe
 # Lektion wie bei P2 in docs/offene-fixes-analyst.md: eine Pflicht ohne Schwelle wird zu Boilerplate.
@@ -276,6 +309,36 @@ def filtere_staerken(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEval
         gezaehlt[k] = gezaehlt.get(k, 0) + 1
         behalten.append(s)
     parsed.staerken = behalten
+    return parsed
+
+
+# Ab diesem Score gibt es ueberhaupt etwas Positives zu sagen. 1 und 2 heisst: Der Mangel ist die
+# Nachricht — ein Lob daneben relativiert sie und ist fast immer Fuellmaterial („immerhin ist die
+# Kamera an").
+POSITIV_SCHWELLE = 3
+
+
+def filtere_positiv(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEvaluationV2:
+    """Lob je Dimension nur, wenn der eigene Score es hergibt (V3).
+
+    Die Prompt-Regel steht im V3-Skill („bei 1 oder 2 bleibt positiv leer"). Sie allein reicht
+    nicht: Eine Pflicht ohne Schwelle wird zu Boilerplate — genau der Befund P2 in
+    docs/offene-fixes-analyst.md, und derselbe Grund, aus dem `filtere_staerken` existiert. Also
+    verwirft der Code, was das Modell trotzdem liefert.
+
+    score None bleibt unangetastet: Das heisst „nicht bewertbar", nicht „schlecht" (siehe
+    HookEval) — ein Lob dazu ist von keiner Schwelle gedeckelt.
+
+    Ohne `ziel` (v2, Altlaeufe) passiert nichts. Sonst enthielte ein gespeichertes Ergebnis beim
+    erneuten Anzeigen weniger als beim ersten Mal — dieselbe Regel wie bei filtere_staerken.
+    """
+    if not ziel:
+        return parsed
+    scores = dimensions_scores(parsed)
+    for name, (obj, attr) in positiv_felder(parsed).items():
+        score = scores.get(name)
+        if score is not None and score < POSITIV_SCHWELLE:
+            setattr(obj, attr, "")
     return parsed
 
 
@@ -1587,6 +1650,10 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = deckle_audioqualitaet(parsed, result)
     parsed = pruefe_funnel_wirkung(parsed, result)
     parsed = filtere_staerken(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
+    # Direkt neben filtere_staerken und aus demselben Grund an dieser Stelle: Beide lesen die
+    # FERTIGEN Scores. Frueher aufgerufen wuerde Lob zu einer Dimension ueberleben, die
+    # deckle_score_auf_probleme oder deckle_audioqualitaet danach absenkt.
+    parsed = filtere_positiv(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     parsed = berechne_performance_score(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     return verteile_empfehlungen(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
 
