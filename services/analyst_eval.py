@@ -28,7 +28,7 @@ from services import analyst_prompt_log
 # Feedback gestempelt: Feedback zu einer alten Prompt-Version ist für spätere Auswertungen sonst
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
-PROMPT_VERSION = "2026-09-13l"   # cta.score darf null sein; nachsichtiges Parsen
+PROMPT_VERSION = "2026-09-14a"   # geplante Texthook zaehlt; Vorschlaege fuer Sprech- und visuelle Hook
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -578,6 +578,49 @@ def bereinige_fremd_texthook(parsed: AnalystEvaluationV2, result: AnalystResult)
 
 # Wie viele Wörter am Transkript-Anfang als „Eröffnung" gelten. 15 Wörter sind bei ~140 WPM
 # gut 6 Sekunden — der Bereich, in dem eine Hook wirkt.
+# Die Mängel an einer Texthook, die man nur am fertigen Bild beurteilen kann. Steht die Texthook
+# erst im Freifeld, existiert sie im Video noch gar nicht — dann ist keiner davon prüfbar.
+# `wortlaut`, `laenge` und `redundanz` bleiben: Die hängen am Text selbst und nicht am Bild.
+TEXTHOOK_GESTALTUNG = ("position", "groesse", "farbe", "lesbarkeit", "dauer", "statisch")
+
+
+def erzwinge_geplante_texthook(parsed: AnalystEvaluationV2,
+                               result: AnalystResult) -> AnalystEvaluationV2:
+    """Steht im Freifeld eine Texthook, IST sie die Texthook — auch wenn sie im Video fehlt.
+
+    Anlass (Vorgabe Chris, 2026-09-14): Viele bauen die Texthook erst kurz vor dem Upload ein und
+    testen mehrere Varianten über Test-Reels. Genau dafür gibt es das Freifeld. Trotzdem empfahl
+    der Analyst weiterhin, eine Texthook einzublenden — das Modell SIEHT sie im Video nicht und
+    meldet deshalb `vorhanden=false`, obwohl der Prompt das Gegenteil verlangt. Eine Prompt-Bitte
+    gegen den Augenschein durchzusetzen funktioniert nicht (dieselbe P2-Lektion wie anderswo); der
+    Nutzer weiß es dagegen sicher, er hat sie eingetragen.
+
+    Drei Korrekturen:
+    - `vorhanden` auf True und, falls das Modell keinen Wortlaut nennt, den eingetragenen Text als
+      Wortlaut — sonst steht im Ergebnis eine Texthook ohne Text.
+    - Score 0 (fehlt komplett) wird zu `null` (nicht bewertbar). 0 wäre faktisch falsch und
+      schlüge mit voller Gewichtung auf den Gesamtscore durch; bei `null` verteilt
+      berechne_performance_score das Gewicht auf die übrigen Dimensionen. Eine echte Bewertung
+      des WORTLAUTS (1–5) bleibt unangetastet — genau die ist ja gewollt.
+    - Gestaltungs-Mängel fallen weg: Die Gestaltung ist an einer Texthook, die noch gar nicht im
+      Video steht, nicht beurteilbar und darf deshalb auch nicht ins Scoring einfließen.
+
+    Gilt für ALLE Engines, nicht nur V3: Das Freifeld steht jedem Nutzer offen, und der Fehler
+    trifft die Läufe, die heute in Produktion laufen.
+    """
+    geplant = (getattr(result, "geplante_texthook", "") or "").strip()
+    if not geplant:
+        return parsed
+    parsed.hook.text_hook_vorhanden = True
+    if not (parsed.hook.text_hook_wortlaut or "").strip():
+        parsed.hook.text_hook_wortlaut = geplant
+    if parsed.hook.text_hook_score == 0:
+        parsed.hook.text_hook_score = None
+    parsed.texthook_maengel = [m for m in parsed.texthook_maengel
+                               if m not in TEXTHOOK_GESTALTUNG]
+    return parsed
+
+
 REDUNDANZ_FENSTER_WOERTER = 15
 
 # Deckel bei gemessener Redundanz. Die Texthook zahlt mehr: Sie hat den knapperen Platz und muss
@@ -1044,7 +1087,33 @@ _TEXTHOOK_THEMA = re.compile(
 )
 
 
-def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+# Wie viele Vorschlaege hoechstens in einer Empfehlung landen. Drei sind genau die Menge, die man
+# über die Testreel-Funktion gegeneinander testen kann; ab vier liest sie niemand mehr.
+MAX_HOOK_VORSCHLAEGE = 3
+
+VISUELLHOOK_EMPFEHLUNG = (
+    "Lass in den ersten zwei Sekunden optisch etwas passieren: ein langsamer Push-In, ein harter "
+    "Schnitt auf eine zweite Einstellung, eine Bewegung auf die Kamera zu oder ein Objekt, das ins "
+    "Bild kommt. Ein Standbild gibt dem Daumen keinen Grund zu stoppen."
+)
+
+
+def _mit_vorschlaegen(satz: str, vorschlaege: list[str], einleitung: str) -> str:
+    """Haengt konkrete Vorschlaege an eine Empfehlung — oder laesst sie, wie sie ist.
+
+    Vorgabe Chris (2026-09-14): Wird eine Hook stark bemaengelt, soll ein direkter Vorschlag
+    danebenstehen. Ein Satz zum Abschreiben ist etwas anderes als die Aufforderung, sich einen
+    auszudenken. Liefert das Modell nichts, bleibt der allgemeine Satz stehen — ein erfundener
+    Vorschlag waere schlimmer als keiner.
+    """
+    sauber = [v.strip() for v in (vorschlaege or []) if (v or "").strip()][:MAX_HOOK_VORSCHLAEGE]
+    if not sauber:
+        return satz
+    return satz + " " + einleitung + " " + " | ".join(f"\u201e{v}\u201c" for v in sauber)
+
+
+def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2,
+                               result: AnalystResult | None = None) -> AnalystEvaluationV2:
     """Wird eine Hook unten kritisiert, MUSS oben eine Handlung dazu stehen.
 
     Der häufigste Leerlauf im Output: Score und Begründung benennen die Schwäche, aber unter den
@@ -1068,7 +1137,21 @@ def erzwinge_hook_empfehlungen(parsed: AnalystEvaluationV2) -> AnalystEvaluation
             and fehlt("sprechhook", "sprech-hook", "erster satz", "ersten satz"):
         parsed.empfehlungen.insert(0, Empfehlung(
             zeitpunkt_sek=0.0, gruppe="sprechhook", betrifft="sprech_hook", erzwungen=True,
-            anweisung=SPRECHHOOK_EMPFEHLUNG))
+            anweisung=_mit_vorschlaegen(
+                SPRECHHOOK_EMPFEHLUNG, parsed.sprechhook_varianten,
+                "Zum Abschreiben oder über die Testreel-Funktion gegeneinander testen:")))
+
+    # Visuelle Hook: dieselbe Regel wie beim Sprech-Hook, und aus demselben Grund neu (Vorgabe
+    # Chris, 2026-09-14): Ist sie schwach oder fehlt sie, gehoert ein konkret umsetzbarer Vorschlag
+    # daneben, nicht nur die Feststellung. 1..3 wie oben: 0 ist der Modell-Default, kein Urteil.
+    vh = parsed.hook.visuell_hook_score
+    if _ziel_gesetzt(result) and vh is not None and 1 <= vh <= HOOK_SCHWACH_SCORE \
+            and fehlt("visuelle hook", "visuell-hook", "push-in", "optisch"):
+        parsed.empfehlungen.insert(0, Empfehlung(
+            zeitpunkt_sek=0.0, gruppe="visuellhook", betrifft="visuell_hook", erzwungen=True,
+            anweisung=_mit_vorschlaegen(
+                VISUELLHOOK_EMPFEHLUNG, parsed.visuellhook_vorschlaege,
+                "Konkret für dieses Video:")))
 
     # Texthook-Empfehlung NUR bei schwacher Text-Hook. Der Prompt bittet darum, `texthook_varianten`
     # bei Score 4/5 leer zu lassen — das Modell hält sich nicht daran und liefert sie trotzdem
@@ -1680,6 +1763,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     """
     parsed = erzwinge_nutzer_format(parsed, result)
     parsed = bereinige_fremd_texthook(parsed, result)
+    parsed = erzwinge_geplante_texthook(parsed, result)
     # Nach der Fremd-Texthook: Ist der Score dort schon auf 0, gibt es hier nichts mehr zu deckeln.
     parsed = bereinige_redundante_texthook(parsed, result)
     parsed = neutralisiere_stumme_scores(parsed, result)
@@ -1697,7 +1781,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = deckle_score_auf_probleme(parsed)
     # VOR erzwinge_hook_empfehlungen: Der gedeckelte Hook-Score muss die Empfehlung auslösen.
     parsed = deckle_hooks_ohne_haken(parsed)
-    parsed = erzwinge_hook_empfehlungen(parsed)
+    parsed = erzwinge_hook_empfehlungen(parsed, result)
     parsed = erzwinge_anlauf_schnitt(parsed, result)
     # Blick hat keinen Score und wird deshalb von erzwinge_empfehlungen_bei_schwachen_scores nicht
     # erfasst — der Schritt entsteht hier. Angehängt, damit Hooks und Anlauf vorn bleiben.
@@ -1857,6 +1941,19 @@ def _positiv(name: str = "positiv") -> str:
 # dort nicht erfuellbar, das System setzte seinen schwaecheren Standardsatz ein, und die Sortierung
 # nach Schwere konnte die Empfehlung keiner Dimension zuordnen. V2 bleibt bei sieben Namen, weil
 # V2 die anderen Dimensionen gar nicht kennt.
+# Konkrete Vorschlaege fuer Sprech- und visuelle Hook (Vorgabe Chris, 2026-09-14). Bewusst
+# NEBEN `texthook_varianten` und mit derselben Disziplin: nur bei schwachem Score, sonst leer.
+# Warum ueberhaupt eigene Felder und nicht einfach „schreib das in die Empfehlung": Der Code baut
+# die Hook-Empfehlungen selbst (erzwinge_hook_empfehlungen) und muss die Vorschlaege deshalb
+# EINZELN vorliegen haben, um sie anzuhaengen — in einem Fliesstext findet er sie nicht wieder.
+TEXTHOOK_VARIANTEN_ZEILE_V2 = '  "texthook_varianten": ["<bis zu 3 Vorschläge für eine bessere Text-Hook, je HÖCHSTENS 9 Wörter, je andere Mechanik; LEER LASSEN, wenn text_hook_score 4 oder 5 ist>"],'
+HOOK_VORSCHLAEGE_BLOCK_V3 = (
+    '  "texthook_varianten": ["<bis zu 3 Vorschläge für eine Text-Hook, je HÖCHSTENS 9 Wörter, je andere Mechanik. PFLICHT, wenn gar keine Text-Hook da ist (score 0) oder sie schwach ist (score 1-3) — dann ist der Vorschlag das Wertvollste, was du liefern kannst. LEER LASSEN, wenn text_hook_score 4 oder 5 ist>"],\n'
+
+    '  "sprechhook_varianten": ["<NUR wenn sprech_hook_score 3 oder schlechter ist (oder niemand spricht und einer fehlt): bis zu 3 FERTIGE erste Sätze zum Abschreiben, je eine andere Mechanik aus dem Hook-Abschnitt, je höchstens 15 Wörter, auf DIESES Video bezogen — kein Ratschlag, sondern der Satz selbst. Sonst leer>"],\n'
+    '  "visuellhook_vorschlaege": ["<NUR wenn visuell_hook_score 3 oder schlechter ist: bis zu 3 konkret umsetzbare Bild-Ideen für die ersten 2 Sekunden, je höchstens 15 Wörter — was der Nutzer TUT (Push-In, Objekt ins Bild halten, harter Schnitt auf eine zweite Einstellung, Settingwechsel), nicht was er erreichen soll. Sonst leer>"],'
+)
+
 EMPFEHLUNGEN_BETRIFFT_V2 = '"betrifft": "<welche Bewertungsdimension diese Handlung behebt, aus: sprech_hook | text_hook | sprechqualitaet | visuelle_aesthetik | spannungsbogen | struktur | schnitt_pacing. Gehört sie zu keiner: leer>"'
 EMPFEHLUNGEN_BETRIFFT_V3 = '"betrifft": "<welche Bewertungsdimension diese Handlung behebt, aus: sprech_hook | text_hook | visuell_hook | spannungsbogen | struktur | skript | untertitel_vorhanden | cta | schnitt_pacing | untertitel_gestaltung | einblendungen | soundeffekte | sprechqualitaet | visuelle_aesthetik | audioqualitaet | protagonist_auftreten. Gehört sie zu keiner: leer>"'
 
@@ -1972,6 +2069,7 @@ AESTHETIK_ZEILE_V3 = AESTHETIK_ZEILE_V2[:-2] + ', ' + _positiv() + '},'
 # Anker -> Ersatz. Reihenfolge egal, die Anker ueberschneiden sich nicht.
 V3_VERTRAG_ERSETZUNGEN = (
     (STAERKEN_ZEILE_V2, STAERKEN_ZEILE_V3),
+    (TEXTHOOK_VARIANTEN_ZEILE_V2, HOOK_VORSCHLAEGE_BLOCK_V3),
     (EMPFEHLUNGEN_BETRIFFT_V2, EMPFEHLUNGEN_BETRIFFT_V3),
     (ZIELGRUPPE_ZEILE_V2, ZIELGRUPPE_BLOCK_V3),
     (FUNNEL_ZEILE_V2, FUNNEL_BLOCK_V3),
@@ -2100,7 +2198,8 @@ TEIL_FELDER = {
         # Die Funnel-WIRKUNG liegt bei der Eröffnung, weil dort schon `funnel` und die Zielgruppe
         # beurteilt werden — Ansprache, Breite und Tiefe entscheiden über die Stufe.
         "funnel_wirkung", "funnel_wirkung_grund", "funnel_wirkung_empfehlung",
-        "texthook_varianten", "texthook_maengel", "empfehlungen",
+        "texthook_varianten", "sprechhook_varianten", "visuellhook_vorschlaege",
+        "texthook_maengel", "empfehlungen",
     ),
     "handwerk": (
         "struktur", "sprechqualitaet", "schnitt_pacing", "spannungsbogen", "visuelle_aesthetik",

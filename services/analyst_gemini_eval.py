@@ -129,6 +129,11 @@ def _texthook_instruction(result: AnalystResult) -> str:
             "vielleicht noch NICHT zu sehen. Behandle sie TROTZDEM als die vorhandene Texthook: setze "
             "text_hook_vorhanden=true und bewerte GENAU DIESEN eingetragenen Text als Texthook (Länge, Neugier, "
             "Zielgruppe). Geh NICHT davon aus, dass keine Texthook existiert.\n"
+            "NUR DER WORTLAUT ZÄHLT. Die GESTALTUNG kannst du hier nicht beurteilen — Position, Größe, Farbe, "
+            "Lesbarkeit und Standdauer entstehen erst, wenn der Text ins Video kommt. Also: KEIN Abzug dafür, "
+            "keine dieser Angaben in texthook_maengel (das System entfernt sie ohnehin), und KEINE Empfehlung "
+            "zur Platzierung oder zum Aussehen. Empfiehl vor allem NICHT, eine Texthook einzublenden — es gibt "
+            "eine, sie steht oben.\n"
         )
     return (
         "Es wurde KEINE geplante Texthook eingetragen → die Texthook soll bereits IM VIDEO sichtbar sein. Ist "

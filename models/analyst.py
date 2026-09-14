@@ -706,6 +706,13 @@ class AnalystEvaluationV2(BaseModel):
     # TEXTHOOK_MANGEL_ARTEN). Der Code baut die Empfehlung genau daraus — nennt das Modell nur
     # „lesbarkeit", steht in der Empfehlung auch nur die Schriftart.
     texthook_maengel: list[str] = Field(default_factory=list)
+    # Konkrete Vorschlaege fuer die beiden anderen Hook-Ebenen (Vorgabe Chris, 2026-09-14):
+    # „wenn eine Texthook oder eine Sprechhook stark bemaengelt wird, soll dort auch ein direkter
+    # Vorschlag kommen." Ein Satz zum Abschreiben schlaegt jede Aufforderung, an sich zu arbeiten —
+    # dieselbe Begruendung, aus der `texthook_varianten` existiert.
+    # Nur bei schwachem Score gefuellt; der Code wirft sie sonst weg (siehe HOOK_SCHWACH_SCORE).
+    sprechhook_varianten: list[str] = Field(default_factory=list)     # fertige erste Saetze
+    visuellhook_vorschlaege: list[str] = Field(default_factory=list)  # umsetzbare Bild-Ideen
     einblendungen: list[Einblendung] = Field(default_factory=list)  # Code bündelt zu EINEM Schritt
     # Die beiden folgenden Listen berechnet der Code aus `empfehlungen` — das Modell füllt sie nicht:
     action_steps: list[ActionStep] = Field(default_factory=list)  # die 3 frühesten Handlungsempfehlungen
@@ -724,7 +731,8 @@ class AnalystEvaluationV2(BaseModel):
         Whisper und durch Gemini gelaufen, bezahlt und verworfen."""
         return 0.0 if v is None else v
 
-    @field_validator("top_tipps", "texthook_varianten", "texthook_maengel", mode="before")
+    @field_validator("top_tipps", "texthook_varianten", "texthook_maengel",
+                     "sprechhook_varianten", "visuellhook_vorschlaege", mode="before")
     @classmethod
     def _objekte_zu_strings(cls, v):
         """Siehe liste_von_strings: Das Objekt-Muster von `staerken` färbt auf Nachbarfelder ab."""
