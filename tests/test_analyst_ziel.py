@@ -926,11 +926,22 @@ def test_v3_verlangt_hoechstens_eine_empfehlung_je_dimension():
 def test_v3_verlangt_umgekehrt_zu_jeder_schwachen_dimension_eine_empfehlung():
     """Untergrenze zur selben Regel: Ohne eigene Empfehlung setzt der Code einen generischen
     Standardsatz ein, der das Video nicht kennt. Die Obergrenze allein wuerde das Modell sonst
-    dazu verleiten, lieber gar nichts zu schreiben."""
-    from services.analyst_eval import SKILL_PATH_V3, load_skill_body
+    dazu verleiten, lieber gar nichts zu schreiben.
+
+    Der Standardsatz existiert aber nur fuer die fuenf Dimensionen in `_DIMENSIONEN` — der Skill
+    hat ihn frueher fuer alle sechzehn versprochen. Deshalb pruefen wir jetzt beide Haelften:
+    die Pflicht fuer die fuenf und die Warnung fuer die sechs ungedeckten.
+    """
+    from services.analyst_eval import _DIMENSIONEN, SKILL_PATH_V3, load_skill_body
     v3 = " ".join(load_skill_body(SKILL_PATH_V3).split())
-    assert "Score 3 oder schlechter gehört eine eigene Empfehlung" in v3
+    assert "Score 3 oder schlechter → eine eigene Empfehlung" in v3
     assert "Standardsatz" in v3
+    for attribut, _, _ in _DIMENSIONEN:
+        assert f"`{attribut}`" in v3
+    # Die sechs ohne Erzwingung und ohne Verbot muessen namentlich gewarnt sein.
+    for name in ("skript", "cta", "untertitel_gestaltung", "soundeffekte", "audioqualitaet",
+                 "protagonist_auftreten"):
+        assert f"`{name}`" in v3
 # --- Objekt-Muster-Spillover (erster echter V3-Lauf, 2026-09-12) -------------------------------
 
 def test_top_tipps_als_objekte_brechen_den_lauf_nicht():

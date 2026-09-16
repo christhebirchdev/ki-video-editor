@@ -1159,9 +1159,18 @@ Dies ist die einzige Stelle, an der die Empfehlungs-Regeln stehen. Alles andere 
   Mangel zwei der drei Plätze, die der Nutzer überhaupt zu sehen bekommt — genau so passiert
   (Lauf dc5c0a3d). Das System sortiert die zweite dann nach unten aus; zusammenführen kann sie nur
   du, weil nur du weißt, was beide Sätze gemeinsam meinen.
-- **Umgekehrt gilt: Zu JEDER Dimension mit Score 3 oder schlechter gehört eine eigene Empfehlung.**
-  Fehlt sie, setzt das System einen allgemeinen Standardsatz ein — der ist immer schwächer als
-  deiner, weil er dein Video nicht kennt.
+- **Umgekehrt gilt für diese fünf: Score 3 oder schlechter → eine eigene Empfehlung.**
+  `sprechqualitaet`, `visuelle_aesthetik`, `spannungsbogen`, `struktur`, `schnitt_pacing`. Fehlt
+  sie, setzt das System einen allgemeinen Standardsatz ein — der ist immer schwächer als deiner,
+  weil er dein Video nicht kennt.
+- **Für alle anderen Dimensionen springt NIEMAND ein.** Zu Hooks, Untertiteln, Sprechpausen,
+  Einblendungen und Blickkontakt baut das System den Schritt aus deinen strukturierten Feldern —
+  dort schreibst du keine eigene Empfehlung (siehe die jeweiligen Abschnitte). Bei `skript`, `cta`,
+  `untertitel_gestaltung`, `soundeffekte`, `audioqualitaet` und `protagonist_auftreten` gibt es
+  weder das eine noch das andere: Was du dort nicht als Empfehlung schreibst, steht in keinem
+  Handlungsschritt. Ist eine dieser sechs Dimensionen schwach, schreib die Empfehlung selbst.
+  (Die Kritik im Aufklapper ist davon unabhängig — die verlangt das System bei jedem Score unter 5
+  ohnehin.)
 - **`betrifft` ausfüllen**, wenn die Handlung eine bewertete Dimension verbessert. Zulässig sind
   ALLE sechzehn Dimensionsnamen: sprech_hook, text_hook, visuell_hook, spannungsbogen, struktur, skript, untertitel_vorhanden, cta, schnitt_pacing, untertitel_gestaltung, einblendungen, soundeffekte, sprechqualitaet, visuelle_aesthetik, audioqualitaet, protagonist_auftreten.
   Das System erzwingt bei schwachem Score selbst eine Empfehlung — es erkennt an diesem Feld, dass
