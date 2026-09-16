@@ -51,7 +51,9 @@ def _metrics_txt(result: AnalystResult) -> str:
     # Eine Stelle für die Entscheidung „sind Bildwerte echte Messungen?" — v2 zieht keine Frames,
     # dort stehen Schärfe/Helligkeit/Kontrast auf 0.0. Die als Fakt zu senden hat im Lauf c12db030
     # die Bildkritik komplett unterdrückt (siehe analyst_eval.bildwerte_belastbar).
-    return analyst_eval.metrics_txt(result.quality_metrics)
+    # v3 am gewaehlten Ziel, nicht an `result.engine`: die wird erst nach nachbearbeiten() gesetzt.
+    return analyst_eval.metrics_txt(result.quality_metrics,
+                                    v3=analyst_eval._ziel_gesetzt(result))
 
 
 def _format_instruction(result: AnalystResult) -> str:

@@ -1881,3 +1881,51 @@ def test_v3_leitsatz_erlaubt_kein_zu_leise():
 def test_v3_untertitel_qualitaet_nicht_unter_schnitt():
     """A1: Untertitel haben zwei eigene Dimensionen mit eigenem Gewicht."""
     assert "Ihre QUALITÄT bewertest du\nunter Schnitt & Pacing" not in _v3_skill()
+
+
+# --- N1/N3: Lautheit im Messwert-Block, Kopfraum im Rueckfalltext ---------------------------
+
+class _QM:
+    lufs_integrated = -35.8
+    loudness_range = 6.0
+    true_peak_db = -0.5
+    schaerfe_avg = 120.0
+    schaerfe_min = 60.0
+    helligkeit_avg = 110.0
+    kontrast_avg = 40.0
+
+
+def test_v3_messwerte_nennen_keine_lautheit():
+    """N1: Der Skill verbietet jedes Lautstaerke-Urteil, der Messwert-Block lieferte trotzdem die
+    LUFS-Zahl UND die Schwelle, ab der es „wirklich zu leise" ist. Genau der Lauf, der zu der
+    Festlegung fuehrte, hatte -35,8 LUFS und klang gut."""
+    from services.analyst_eval import metrics_txt
+    v3 = metrics_txt(_QM(), v3=True)
+    assert "-35.8" not in v3 and "LUFS" not in v3
+    assert "wird NICHT bewertet" in v3
+    assert "Schärfe avg" in v3          # Bildwerte bleiben
+
+
+def test_v2_messwerte_unveraendert():
+    """V2 ist die eingefrorene Vergleichsbasis — dort steht die Lautheit weiter drin."""
+    from services.analyst_eval import metrics_txt
+    assert "-35.8 LUFS" in metrics_txt(_QM())
+
+
+def test_v3_rueckfalltext_nennt_20_prozent_kopfraum():
+    """N3: Der Rueckfalltext sagte dem Nutzer woertlich „etwa 10–15 % Luft" — gegen die
+    20-%-Festlegung im Skill. Er erscheint, sobald die Aesthetik schwach ist und das Modell
+    selbst nichts benannt hat."""
+    from models.analyst import AnalystEvaluationV2, ScoreProbleme
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = AnalystEvaluationV2(visuelle_aesthetik=ScoreProbleme(score=3))
+    anweisung = erzwinge_empfehlungen_bei_schwachen_scores(
+        ev, _result(gewaehltes_ziel="MOFU")).empfehlungen[0].anweisung
+    assert "20 %" in anweisung and "10–15 %" not in anweisung
+
+
+def test_v2_rueckfalltext_unveraendert():
+    from models.analyst import AnalystEvaluationV2, ScoreProbleme
+    from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
+    ev = AnalystEvaluationV2(visuelle_aesthetik=ScoreProbleme(score=3))
+    assert "10–15 %" in erzwinge_empfehlungen_bei_schwachen_scores(ev).empfehlungen[0].anweisung

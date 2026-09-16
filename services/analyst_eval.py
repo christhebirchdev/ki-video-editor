@@ -61,6 +61,20 @@ _BILD_GUIDE = (
 
 METRICS_GUIDE = _BILD_GUIDE + _AUDIO_GUIDE
 
+# V3: Der Skill sagt seit der Lautheits-Entfernung „die LAUTSTÄRKE wird NICHT bewertet — von
+# niemandem". _AUDIO_GUIDE sagte im selben Prompt weiter, ab wann der Ton „wirklich zu leise" ist,
+# und die LUFS-Zahl stand als Messwert daneben. Eine Zahl, die niemand bewerten soll, gehört nicht
+# in den Prompt — sonst lädt sie genau das Urteil ein, das der Skill verbietet.
+# V2 behält den alten Block unverändert: eingefrorene Vergleichsbasis.
+_AUDIO_GUIDE_V3 = (
+    "Lautheit: wird NICHT bewertet. Instagram, TikTok und YouTube normalisieren sie beim Abspielen, "
+    "der Pegel der Datei sagt über das Hörerlebnis nichts. Kein „zu leise\", kein „zu laut\", kein "
+    "Abzug, keine Empfehlung dazu. Übersteuerung, Verzerrung, Rauschen und Hall beurteilst du nach "
+    "dem, was du HÖRST."
+)
+
+METRICS_GUIDE_V3 = _BILD_GUIDE + _AUDIO_GUIDE_V3
+
 # Wird ausgegeben, wenn es KEINE Bildmesswerte gibt. Ohne diesen Satz stand im Prompt
 # „Schärfe avg 0.0, Helligkeit avg 0.0, Kontrast avg 0.0" als FAKT, direkt gefolgt von der
 # Anweisung, den Messwerten mehr zu glauben als dem eigenen Seheindruck (Lauf c12db030).
@@ -88,22 +102,29 @@ def bildwerte_belastbar(qm) -> bool:
     )
 
 
-def metrics_txt(qm) -> str:
-    """Messwert-Block für den Prompt — Bildzeile nur, wenn wirklich gemessen wurde."""
+def metrics_txt(qm, v3: bool = False) -> str:
+    """Messwert-Block für den Prompt — Bildzeile nur, wenn wirklich gemessen wurde.
+
+    `v3=True` lässt die Lautheitszahlen weg: Sie werden nicht bewertet (siehe _AUDIO_GUIDE_V3).
+    """
     if qm is None:
         return "Keine Messwerte verfügbar."
-    audio = (
-        f"Lautheit {qm.lufs_integrated} LUFS, Loudness Range {qm.loudness_range} LU, "
-        f"True Peak {qm.true_peak_db} dBFS"
-        if qm.lufs_integrated is not None else "kein Audio messbar"
-    )
+    if v3:
+        audio = "Lautheit gemessen, aber ohne Bedeutung für die Bewertung"
+    else:
+        audio = (
+            f"Lautheit {qm.lufs_integrated} LUFS, Loudness Range {qm.loudness_range} LU, "
+            f"True Peak {qm.true_peak_db} dBFS"
+            if qm.lufs_integrated is not None else "kein Audio messbar"
+        )
+    guide = _AUDIO_GUIDE_V3 if v3 else _AUDIO_GUIDE
     if bildwerte_belastbar(qm):
         return (
             f"Bild: Schärfe avg {qm.schaerfe_avg} (min {qm.schaerfe_min}), "
             f"Helligkeit avg {qm.helligkeit_avg}, Kontrast avg {qm.kontrast_avg}. "
-            f"Audio: {audio}.\n{METRICS_GUIDE}"
+            f"Audio: {audio}.\n{_BILD_GUIDE}{guide}"
         )
-    return f"Audio: {audio}.\n{_AUDIO_GUIDE}\n{KEINE_BILDWERTE_HINWEIS}"
+    return f"Audio: {audio}.\n{guide}\n{KEINE_BILDWERTE_HINWEIS}"
 
 
 TOP_ACTION_STEPS = 3
@@ -1264,6 +1285,17 @@ _DIMENSIONEN = (
 )
 
 
+# V3 nennt 20 % Kopfraum (Festlegung Chris) — der Rueckfalltext oben sagt 10–15 % und landet
+# woertlich im Output. Nur dieser eine Satz wird ersetzt; V2 behaelt seinen Wortlaut, weil es die
+# eingefrorene Vergleichsbasis ist.
+_RUECKFALL_V3 = {
+    "visuelle_aesthetik":
+        "Bring das Bild in Ordnung: Lass etwa 20 % Luft über dem Kopf, setz die Augen ungefähr auf "
+        "die obere Drittellinie des Bildes, und achte auf einen ruhigen Hintergrund und eine "
+        "scharfe, gut belichtete Aufnahme.",
+}
+
+
 _FUELLWOERTER = {
     "dein", "deine", "deinem", "deinen", "der", "die", "das", "den", "dem", "ein", "eine", "einen",
     "einem", "eines", "und", "oder", "aber", "auch", "sehr", "etwas", "wirkt", "wirkst", "ist",
@@ -1337,7 +1369,8 @@ def deckle_score_auf_probleme(parsed: AnalystEvaluationV2) -> AnalystEvaluationV
     return parsed
 
 
-def erzwinge_empfehlungen_bei_schwachen_scores(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+def erzwinge_empfehlungen_bei_schwachen_scores(parsed: AnalystEvaluationV2,
+                                              result=None) -> AnalystEvaluationV2:
     """Score 3 oder schlechter in einer Dimension MUSS eine Handlungsempfehlung erzeugen.
 
     Vorgabe Chris (Lauf 3c9a8d95): „überall wo der score eine 3 oder schlechter ist, sollte eine
@@ -1361,8 +1394,11 @@ def erzwinge_empfehlungen_bei_schwachen_scores(parsed: AnalystEvaluationV2) -> A
     Was das Modell selbst zu einer Dimension geschrieben hat, wird übernommen — erfunden wird
     nichts. Fehlt eine Begründung, greift der allgemeine Rückfalltext.
     """
+    v3 = _ziel_gesetzt(result) if result is not None else False
     schwach = []
     for attribut, gruppe, rueckfall in _DIMENSIONEN:
+        if v3:
+            rueckfall = _RUECKFALL_V3.get(attribut, rueckfall)
         block = getattr(parsed, attribut, None)
         if block is None:
             continue
@@ -1793,7 +1829,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     # NACH den Hook- und Anlauf-Schritten: Alle liegen auf Sekunde 0, die Einfügereihenfolge
     # entscheidet damit über die Reihenfolge im Output. Hook- und Anlauf-Schritte werden vorne
     # eingefügt, diese hier angehängt — Hooks behalten Vorrang (Vorgabe Chris).
-    parsed = erzwinge_empfehlungen_bei_schwachen_scores(parsed)
+    parsed = erzwinge_empfehlungen_bei_schwachen_scores(parsed, result)
     # Nach allen Score-Deckelungen: Der Lob-Filter liest die FERTIGEN Scores. Stünde er davor,
     # würde Lob zu einer Dimension überleben, die deckle_score_auf_probleme danach absenkt.
     # Stufe 2: Diese drei setzen bzw. deckeln Scores. Sie stehen VOR filtere_staerken und
@@ -2488,7 +2524,7 @@ def build_user_message(result: AnalystResult) -> str:
     # Dieselbe Entscheidung wie im V2-Pfad: genullte Bildwerte sind keine Messung (siehe
     # bildwerte_belastbar). V1 zieht zwar Frames, aber ein abgebrochener Frame-Pass hinterlässt
     # dieselben Nullen — die Unterscheidung gehört hier genauso hin.
-    messwerte = metrics_txt(result.quality_metrics)
+    messwerte = metrics_txt(result.quality_metrics, v3=_ziel_gesetzt(result))
 
     return (
         f"Video: {result.filename}, Länge {result.duration_sec:.1f}s, {result.scene_count} Szenen.\n\n"
