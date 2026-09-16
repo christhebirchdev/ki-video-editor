@@ -299,3 +299,27 @@ Erinnerungen zur Abgrenzung Sprech-/Audioqualität.
 
 **Nicht ohne Entscheidung:** `top_tipps` aus dem Vertrag nehmen (wird erzeugt, seit dem 2026-09-13
 nirgends angezeigt) — das ändert das Schema, nicht nur den Text.
+
+## Korrektur am eigenen Bericht (2026-09-16, nach der Umsetzung)
+
+Die Zahl „~11.500 Zeichen Ballast, ~13 %" aus Abschnitt D hält der Nachmessung nicht stand. Ein
+n-Gramm-Lauf über die fertige Datei findet an wortgleicher Wiederholung nur noch:
+
+- die „Abwesenheit von Mängeln genügt"-Formel (14×, bewusst, bleibt),
+- den Testreel-Tipp (2×, zwei Beispieltexte für zwei Score-0-Fälle),
+- die 16 Dimensionsnamen (2×, einmal für `betrifft` in `empfehlungen`, einmal in `staerken`).
+
+Die drei Funnel-Stellen sind KEINE Dopplung: Z. 19–24 sagt, worauf es je Stufe bei der Bewertung
+ankommt, der CTA-Abschnitt sagt, welches Bedürfnis je Stufe entstehen soll, und der Funnel-Abschnitt
+gibt die Merkmale zur Einordnung. Drei Zwecke, kein Konflikt.
+
+Tatsächlich entfernt wurden **2.212 Zeichen** Herkunftsbelege — alle Lauf-IDs, Datumsangaben,
+Nutzerzitate und „Anlass …"-Sätze. Der Rest der ursprünglichen Schätzung war Paraphrase, die ich
+als Dopplung gezählt hatte. Das ist ein Fehler im ersten Bericht, kein Grund, jetzt Text zu
+streichen, nur um auf die Zahl zu kommen.
+
+**Offen geblieben:** `top_tipps` wird an fünf Stellen des Skills als Ablageort verlangt
+(Legitimations-Hook als Chance, mehrere CTAs, komplexe Sprache, visuelle Ästhetik) — das Feld wird
+seit dem 2026-09-13 nirgends mehr angezeigt. Diese Befunde landen also in einem Feld, das niemand
+liest. Entweder die fünf Stellen auf `empfehlungen` umleiten oder `top_tipps` ganz aus dem Vertrag
+nehmen; beides braucht eine Entscheidung.
