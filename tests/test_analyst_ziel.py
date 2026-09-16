@@ -1962,3 +1962,14 @@ def test_erlaubtes_lob_nennt_ein_gueltiges_betrifft():
                    'darf das als Stärke auftauchen'):
         folgt = v3.split(stelle)[1][:220]
         assert any(f'"betrifft": "{n}"' in folgt for n in namen), stelle
+
+
+def test_bildgeometrie_hat_eine_toleranz():
+    """A7: Kopfraum 20 % + Gesicht = ein Drittel der Bildhoehe ergab ein Kinn bei 53 % — unter der
+    Bildmitte, obwohl der Skill "auf der Mitte oder knapp darueber" verlangte. Festlegung Chris:
+    Die Augenlinie ist das Mass, mit Toleranz."""
+    v3 = _v3_skill()
+    assert "Augen liegen ungefähr auf der oberen Drittellinie" in v3
+    assert "10 Prozentpunkte" in v3
+    assert "Kinn liegt auf der vertikalen Bildmitte" not in v3
+    assert "Brustbild bis Taille" not in v3

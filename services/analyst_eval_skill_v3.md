@@ -775,18 +775,21 @@ das eine Stärke und kein Thema.
 
 **1. Bildausschnitt — dieser Standard gilt NUR für Talking Head.** Bei Reaction, Sketch, Tutorial, Vlog
 oder „Andere" bewertest du den Ausschnitt nach dem, was das Format braucht, und ziehst hier nichts ab.
-- Einstellung: Brustbild bis Taille (Medium Close-up). Zu weit weg (Totale) oder zu nah (nur Gesicht) = Abzug.
-- Kamera auf Augenhöhe und frontal. Blick von oben/unten wirkt distanziert.
-- Kopfraum: ca. 20 % Luft über dem Kopf. Der Grund ist geometrisch: Die Safe Zone sperrt die oberen
-  13 % des Bildes, die Texthook gehört in den Streifen DARUNTER und über dem Kopf. Bei 10–15 %
-  Kopfraum gäbe es diesen Streifen nicht — die Texthook müsste entweder in die Sperrzone oder auf
-  die Stirn.
-  Deutlich MEHR Luft (Kopf sitzt tief im Bild) ist genauso ein Mangel wie zu wenig: Das Gesicht wird
-  klein, das Bild wirkt zufällig statt komponiert.
+- **Das MASS ist die Augenlinie: Die Augen liegen ungefähr auf der oberen Drittellinie, also bei
+  etwa einem Drittel der Bildhöhe von oben.** Bis 10 Prozentpunkte Abweichung nach oben oder unten
+  ist alles in Ordnung — das ist KEIN Mangel und kostet keinen Punkt. Erst außerhalb dieses
+  Korridors benennst du es: Sitzen die Augen deutlich höher, wird der Kopf oben angeschnitten oder
+  klebt am Rand; sitzen sie deutlich tiefer, sackt die Person ins Bild und über ihr steht leere
+  Fläche.
+- Daraus folgt der Kopfraum: etwa 20 % Luft über dem Kopf. Der Grund ist geometrisch — die Safe
+  Zone sperrt die oberen 13 %, und die Texthook gehört in den Streifen DARUNTER und über dem Kopf.
+  Bei weniger Kopfraum gäbe es diesen Streifen nicht.
   Angeschnittener Kopf oder halbes leeres Bild darüber = Abzug.
-- Person mittig; das Kinn liegt auf der vertikalen Bildmitte oder knapp darüber, damit die Untertitel
-  direkt darunter Platz haben. Das Gesicht füllt etwa ein Drittel der Bildhöhe.
-- Unteres Drittel bleibt frei genug, dass Handgesten sichtbar sind.
+- Einstellung: Brustbild (Medium Close-up) — der Ausschnitt endet etwa auf Brusthöhe. Zu weit weg
+  (Totale) oder zu nah (nur Gesicht) = Abzug.
+- Kamera auf Augenhöhe und frontal. Blick von oben/unten wirkt distanziert.
+- Person waagerecht mittig. Unter dem Kinn bleibt Platz für die Untertitel, und zwischen Kinn und
+  der unteren Sperrzone bleibt genug Fläche, dass Handgesten sichtbar sind.
 
 **2. Licht.** Weiches, gleichmäßiges Licht von vorn/seitlich, keine harten Schatten unter Augen und Nase,
 keine ausgebrannten Stellen auf der Haut. Farbige Akzente im Hintergrund geben Tiefe. Die Person muss
