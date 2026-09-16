@@ -12,9 +12,15 @@ import hashlib
 import io
 import re
 
-# 2.000 Woerter entsprechen grob 3.000 Tokens. Darueber verdraengt ein Marken-Manual im Prompt die
-# Videodaten — und genau die sind das, was diese Analyse von einer Textanalyse unterscheidet.
-MAX_WOERTER = 2000
+# Obergrenze fuer den GESAMTEN Kontext, ueber alle hochgeladenen Dateien hinweg. Darueber
+# verdraengt er im Prompt die Videodaten — und genau die sind das, was diese Analyse von einer
+# Textanalyse unterscheidet.
+#
+# 2026-09-16 von 2.000 auf 3.000 angehoben: Seit der Nutzer Zielgruppen- UND Strategiedatei aus dem
+# Content-Hub hochlaedt, sind es zwei Dokumente statt einem. Bei 2.000 Woertern waere die Kuerzung
+# der Normalfall gewesen, und abgeschnitten wird am Ende — also ausgerechnet die Strategie.
+# Preis: rund 2.900 Zeichen mehr pro Call, zweimal je Analyse.
+MAX_WOERTER = 3000
 
 ENDUNGEN = (".md", ".txt", ".markdown", ".pdf", ".docx")
 
@@ -53,7 +59,7 @@ def _kuerze(text: str) -> tuple[str, bool]:
     return " ".join(woerter[:MAX_WOERTER]), True
 
 
-def extrahiere(daten: bytes, dateiname: str) -> tuple[str, bool]:
+def extrahiere(daten: bytes, dateiname: str, kuerzen: bool = True) -> tuple[str, bool]:
     """Text + „wurde gekuerzt" aus einer hochgeladenen Datei.
 
     Wirft ValueError bei unbekannter Endung und bei Dateien ohne lesbaren Text. Beides ist ein
@@ -65,22 +71,56 @@ def extrahiere(daten: bytes, dateiname: str) -> tuple[str, bool]:
     endung = "." + name.rsplit(".", 1)[-1] if "." in name else ""
     if endung not in ENDUNGEN:
         raise ValueError(
-            f"Dateityp {endung or '(ohne Endung)'} wird nicht unterstützt. "
-            f"Erlaubt: {', '.join(ENDUNGEN)} — am besten .md oder .txt."
+            f"{dateiname or 'Die Datei'}: Dateityp {endung or '(ohne Endung)'} wird nicht "
+            f"unterstützt. Erlaubt: {', '.join(ENDUNGEN)}."
         )
-    if endung == ".pdf":
-        text = _aus_pdf(daten)
-    elif endung == ".docx":
-        text = _aus_docx(daten)
-    else:
-        text = daten.decode("utf-8", errors="replace")
+    # Jeder Parser kann an einer beschaedigten Datei mit seiner EIGENEN Ausnahme aussteigen
+    # (pypdf wirft PdfStreamError, python-docx PackageNotFoundError). Ungefangen wird daraus ein
+    # 500er, und der Nutzer sieht nur "Interner Fehler" statt zu erfahren, dass sein Export kaputt
+    # ist. Seit die Dateien als PDF aus dem Content-Hub kommen, ist das kein Randfall mehr.
+    try:
+        if endung == ".pdf":
+            text = _aus_pdf(daten)
+        elif endung == ".docx":
+            text = _aus_docx(daten)
+        else:
+            text = daten.decode("utf-8", errors="replace")
+    except ValueError:
+        raise
+    except Exception as fehler:
+        raise ValueError(
+            f"{dateiname or 'Die Datei'} lässt sich nicht lesen ({type(fehler).__name__}). "
+            "Exportier sie neu aus dem Content-Hub oder kopier den Inhalt in eine .txt-Datei."
+        ) from fehler
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     if not text:
         raise ValueError(
-            "In der Datei steht kein lesbarer Text. Bei einem gescannten PDF fehlt die Textebene — "
-            "kopier den Inhalt in eine .md- oder .txt-Datei."
+            f"In {dateiname or 'der Datei'} steht kein lesbarer Text. Bei einem gescannten PDF "
+            "fehlt die Textebene — exportier sie neu oder kopier den Inhalt in eine .txt-Datei."
         )
-    return _kuerze(text)
+    return _kuerze(text) if kuerzen else (text, False)
+
+
+def extrahiere_mehrere(dateien) -> tuple[str, bool, list[str]]:
+    """Mehrere Uploads zu EINEM Kontext — Text, „wurde gekuerzt" und die Dateinamen.
+
+    `dateien` ist eine Folge von (bytes, dateiname). Erwartet werden die Zielgruppen- und die
+    Strategiedatei aus dem Content-Hub (Vorgabe Chris, 2026-09-16); mehr oder weniger geht auch.
+
+    Jede Datei bekommt eine UEBERSCHRIFT mit ihrem Namen. Das ist kein Schmuck: Ohne sie steht im
+    Prompt ein Block, in dem Zielgruppen-Beschreibung und Strategie ineinanderlaufen, und das
+    Modell kann nicht mehr sagen, worauf es sich beruft.
+
+    Gekuerzt wird am Ende der SUMME, nicht je Datei — sonst faellt aus beiden Dokumenten die
+    Haelfte weg statt aus dem laengeren.
+    """
+    teile, namen = [], []
+    for daten, name in dateien:
+        text, _ = extrahiere(daten, name, kuerzen=False)
+        teile.append(f"--- {name} ---\n{text}")
+        namen.append(name)
+    gesamt, gekuerzt = _kuerze("\n\n".join(teile))
+    return gesamt, gekuerzt, namen
 
 
 def hash_von(text: str) -> str:

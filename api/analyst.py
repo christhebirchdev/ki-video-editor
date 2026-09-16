@@ -67,8 +67,13 @@ def upload_video(file: UploadFile = File(...)):
 
 
 @router.post("/{run_id}/marke")
-def upload_marke(run_id: str, file: UploadFile = File(...)):
-    """Optionale Marken-/Zielgruppen-Datei zu einem Lauf (Spec 1.2).
+def upload_marke(run_id: str, files: list[UploadFile] = File(...)):
+    """Optionale Zielgruppen- und Strategiedatei zu einem Lauf (Spec 1.2).
+
+    MEHRERE Dateien, seit der Nutzer die beiden Dokumente aus dem Content-Hub hochlaedt (Vorgabe
+    Chris, 2026-09-16): Die Zielgruppen-Datei sagt, WER angesprochen wird, die Strategiedatei,
+    WORAUF das Konto hinarbeitet. Nur eine von beiden nehmen zu koennen hiesse, die Haelfte des
+    Kontexts wegzuwerfen.
 
     Was sie freischaltet: `zielgruppe`/`zielgruppen_relevanz`, `zielgruppen_abgleich`,
     Texthook-Varianten in der Sprache der Zielgruppe, die Sprachlevel-Pruefung, die CTA-Passung
@@ -83,18 +88,23 @@ def upload_marke(run_id: str, file: UploadFile = File(...)):
     liest meta.json nicht neu.
     """
     run_dir = _run_dir(run_id)
+    eingaben = [(f.file.read(), re.sub(r"[^\w.\-äöüÄÖÜß ]", "_", f.filename or "datei.txt"))
+                for f in files]
     try:
-        text, gekuerzt = analyst_marke.extrahiere(file.file.read(), file.filename or "")
+        text, gekuerzt, namen = analyst_marke.extrahiere_mehrere(eingaben)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     meta_path = run_dir / "meta.json"
     meta = json.loads(meta_path.read_text())
-    meta["marke_datei"] = re.sub(r"[^\w.\-äöüÄÖÜß ]", "_", file.filename or "marke.txt")
+    # Ein Feld mit allen Namen statt einer Liste: `marke_datei` ist der SCHALTER, an dem die
+    # Nachbearbeitung haengt (erzwinge_marken_abhaengige_felder) und den das Frontend anzeigt.
+    # Eine Liste daraus zu machen haette jede dieser Stellen mitgeaendert, ohne etwas zu gewinnen.
+    meta["marke_datei"] = ", ".join(namen)
     meta["marke_text"] = text
     meta["marke_gekuerzt"] = gekuerzt
     meta["marke_hash"] = analyst_marke.hash_von(text)
     meta_path.write_text(json.dumps(meta, ensure_ascii=False))
-    return {"id": run_id, "datei": meta["marke_datei"], "woerter": len(text.split()),
+    return {"id": run_id, "dateien": namen, "woerter": len(text.split()),
             "gekuerzt": gekuerzt, "limit": analyst_marke.MAX_WOERTER}
 
 

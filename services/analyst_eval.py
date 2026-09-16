@@ -28,7 +28,7 @@ from services import analyst_prompt_log
 # Feedback gestempelt: Feedback zu einer alten Prompt-Version ist für spätere Auswertungen sonst
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
-PROMPT_VERSION = "2026-09-14a"   # geplante Texthook zaehlt; Vorschlaege fuer Sprech- und visuelle Hook
+PROMPT_VERSION = "2026-09-16a"   # Zielgruppen- und Strategiedatei statt einer Markendatei
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei
@@ -2292,9 +2292,11 @@ def merge_teilergebnisse(eroeffnung: AnalystEvaluationV2,
 # hochglanzpolierte Marken-Datei darf handwerkliche Urteile nicht verwaessern („passt ja zur
 # Marke"). Deshalb steht hier ausdruecklich, worauf der Kontext NICHT wirkt — und zwar mit den
 # Feldnamen, weil eine allgemeine Formulierung („nicht auf das Handwerk") im Zweifel gedehnt wird.
-MARKEN_KONTEXT = """--- MARKEN- UND ZIELGRUPPEN-KONTEXT (vom Nutzer hochgeladen) ---
-Der folgende Text beschreibt die Marke, das Angebot und/oder die Zielgruppe. Er ist ein FAKT, keine
-Einschaetzung von dir.
+MARKEN_KONTEXT = """--- ZIELGRUPPE UND STRATEGIE (vom Nutzer hochgeladen) ---
+Der folgende Text stammt aus den Unterlagen des Nutzers — in der Regel seiner Zielgruppen-Datei und
+seiner Strategiedatei. Jedes Dokument steht unter seiner eigenen Ueberschrift (--- dateiname ---);
+beziehst du dich auf etwas daraus, weisst du damit, aus welchem der beiden es kommt. Der Inhalt ist
+ein FAKT, keine Einschaetzung von dir.
 
 WORAUF ER WIRKT — und nur darauf:
 - `zielgruppe` und `zielgruppen_relevanz`: Wen spricht das Video an, und wie relevant ist es fuer
@@ -2319,9 +2321,9 @@ WORAUF ER NICHT WIRKT — hier aendert er GAR NICHTS, auch nicht um einen Punkt:
 nicht besser und einen fehlenden Schnitt nicht richtig. Wenn du dich bei einer dieser Dimensionen
 auf den Kontext berufen willst, ist das der Fehler.
 
-DER KONTEXT:
+DIE UNTERLAGEN:
 {marke}
---- ENDE MARKEN- UND ZIELGRUPPEN-KONTEXT ---"""
+--- ENDE ZIELGRUPPE UND STRATEGIE ---"""
 
 
 def build_system_prompt(teil: str | None = None, ziel: str = "", marke: str = "") -> str:

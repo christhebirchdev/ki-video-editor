@@ -896,7 +896,10 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   // Optionale Marken-/Zielgruppen-Datei. Sie liegt bis zum Start NUR im Browser: Die Lauf-ID
   // entsteht erst beim Video-Upload, und ein Zwischenspeicher auf dem Server ohne Lauf waere
   // Muell, den niemand aufraeumt. Hochgeladen wird sie in startAnalysis, zwischen Upload und Start.
-  const [markeFile, setMarkeFile] = useState(null);
+  // Eine LISTE, seit die Zielgruppen- und die Strategiedatei aus dem Content-Hub zusammen
+  // hochgeladen werden (Vorgabe Chris, 2026-09-16). Beide gehoeren in denselben Lauf: Die eine
+  // sagt, WER angesprochen wird, die andere, WORAUF das Konto hinarbeitet.
+  const [markeFiles, setMarkeFiles] = useState([]);
   const [markeInfo, setMarkeInfo] = useState(null);   // Antwort des Servers: Woerter, gekuerzt
   // Rueckfrage vor dem Start, wenn es zu dieser Datei schon eine Analyse gibt.
   // `{ runId, quelle, erstelltAm, abweichung }` — null heisst: keine Frage offen.
@@ -1001,10 +1004,11 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       // Cache-Key. Danach hochgeladen wuerde sie im laufenden Lauf nicht mehr gelesen.
       // Ein Fehler bricht hier bewusst ab: Wer eine Marken-Datei ausgewaehlt hat, will nicht
       // stillschweigend eine Analyse ohne sie bekommen.
-      if (markeFile) {
-        setProgress("Marken-Datei wird gelesen …");
+      if (markeFiles.length) {
+        setProgress(markeFiles.length > 1 ? "Deine Dateien werden gelesen …"
+                                          : "Deine Datei wird gelesen …");
         const mfd = new FormData();
-        mfd.append("file", markeFile);
+        markeFiles.forEach((f) => mfd.append("files", f));
         setMarkeInfo(await api("POST", `/api/analyst/${up.id}/marke`, mfd));
       }
       setProgress(ANALYSE_LAEUFT);
@@ -1095,7 +1099,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     setPlannedTextHook("");
     setFormat("");
     setZiel("");   // engine bleibt bewusst stehen (Admin-Versionswahl über mehrere Läufe)
-    setMarkeFile(null);
+    setMarkeFiles([]);
     setMarkeInfo(null);
     setRueckfrage(null);
     setRunId("");
@@ -1368,54 +1372,68 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
           {engine === "v3" && (
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-                Marke / Zielgruppe (optional)
+                Zielgruppe &amp; Strategie (optional)
               </label>
-              {markeFile ? (
-                /* Dieselbe Zeile wie in der Dateiliste des Video-Uploads (.fileitem) — der
-                   Nutzer soll nicht zwei verschiedene Sprachen fuer dieselbe Sache lernen. */
-                <div className="fileitem">
+              {/* Eine Zeile je Datei — dieselbe .fileitem wie im Video-Upload, damit der Nutzer
+                  nicht zwei Sprachen fuer dieselbe Sache lernen muss. */}
+              {markeFiles.map((f, i) => (
+                <div className="fileitem" key={f.name + i} style={{ marginBottom: 6 }}>
                   <span className="fi-ico"><Ico.datei width="16" height="16" /></span>
-                  <span className="fi-name" title={markeFile.name}>{markeFile.name}</span>
+                  <span className="fi-name" title={f.name}>{f.name}</span>
                   <button
                     type="button"
                     className="btn btn-ghost btn-icon fi-rm-btn"
-                    onClick={() => { setMarkeFile(null); setMarkeInfo(null); }}
+                    onClick={() => { setMarkeFiles(markeFiles.filter((_, j) => j !== i)); setMarkeInfo(null); }}
                     disabled={phase === "running"}
                     title="Datei entfernen"
-                    aria-label="Marken-Datei entfernen"
+                    aria-label={`${f.name} entfernen`}
                   >
                     <Ico.x width="14" height="14" />
                   </button>
                 </div>
-              ) : (
-                /* Das native <input type="file"> sieht in jedem Browser anders aus und passt in
-                   keinem zum Rest. Es liegt deshalb unsichtbar hinter einem Label, das wie die
-                   Video-Dropzone aussieht — nur kleiner, weil es ein optionales Feld ist. */
-                <label className="dropzone dropzone-klein">
-                  <input
-                    type="file"
-                    accept=".md,.txt,.markdown,.pdf,.docx"
-                    onChange={(e) => setMarkeFile(e.target.files?.[0] || null)}
-                    disabled={phase === "running"}
-                    hidden
-                  />
-                  <span className="dz-ico"><Ico.upload width="18" height="18" /></span>
-                  <span className="dz-title">Datei auswählen</span>
-                  <span className="dz-sub">.md, .txt, .pdf oder .docx</span>
-                </label>
-              )}
+              ))}
+              {/* Das native <input type="file"> sieht in jedem Browser anders aus und passt in
+                  keinem zum Rest. Es liegt deshalb unsichtbar hinter einem Label, das wie die
+                  Video-Dropzone aussieht — nur kleiner, weil es ein optionales Feld ist.
+                  Bleibt sichtbar, auch wenn schon eine Datei liegt: Es sollen ja zwei werden.
+                  `value=""` beim Klick, damit dieselbe Datei nach dem Entfernen erneut waehlbar
+                  ist — sonst feuert `onChange` nicht, weil sich der Wert nicht aendert. */}
+              <label className="dropzone dropzone-klein">
+                <input
+                  type="file"
+                  accept=".pdf,.md,.txt,.markdown,.docx"
+                  multiple
+                  onClick={(e) => { e.currentTarget.value = ""; }}
+                  onChange={(e) => {
+                    const neue = Array.from(e.target.files || []);
+                    if (!neue.length) return;
+                    const namen = new Set(markeFiles.map((f) => f.name));
+                    setMarkeFiles([...markeFiles, ...neue.filter((f) => !namen.has(f.name))]);
+                    setMarkeInfo(null);
+                  }}
+                  disabled={phase === "running"}
+                  hidden
+                />
+                <span className="dz-ico"><Ico.upload width="18" height="18" /></span>
+                <span className="dz-title">
+                  {markeFiles.length ? "Weitere Datei hinzufügen" : "Dateien auswählen"}
+                </span>
+                <span className="dz-sub">PDF aus dem Content-Hub · auch .md, .txt oder .docx</span>
+              </label>
               <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                Wer ist deine Zielgruppe, wofür steht deine Marke, was bietest du an? Damit werden
-                die Texthook-Vorschläge in deiner Sprache formuliert, das Video gegen deine
-                Zielgruppe geprüft und dein Auftreten bewertbar. Am besten .md oder .txt — PDF und
-                Word gehen auch. Auf Schnitt, Ton und Bild hat die Datei bewusst keinen Einfluss.
+                Lad hier deine <b>Zielgruppen-Datei</b> und deine <b>Strategiedatei</b> aus dem
+                Content-Hub hoch — als PDF. Damit werden die Texthook-Vorschläge in der Sprache
+                deiner Zielgruppe formuliert, das Video gegen genau diese Zielgruppe geprüft und
+                dein Auftreten bewertbar. Auf Schnitt, Ton und Bild haben die Dateien bewusst
+                keinen Einfluss.
               </div>
               {/* Nur wenn wirklich gekürzt wurde: Der Nutzer soll wissen, dass das Modell nicht
                   alles gesehen hat — sonst wundert er sich über ein Urteil, dem die zweite Hälfte
-                  seines Markenhandbuchs fehlt. */}
+                  seiner Strategie fehlt. */}
               {markeInfo?.gekuerzt && (
                 <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                  Hinweis: Die Datei war länger als {markeInfo.limit} Wörter und wurde gekürzt.
+                  Hinweis: Zusammen waren es mehr als {markeInfo.limit} Wörter — der Rest wurde
+                  abgeschnitten. Kürz die Dateien oder lad nur die wichtigere hoch.
                 </div>
               )}
             </div>

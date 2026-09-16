@@ -46,7 +46,8 @@ def test_leere_datei_wird_abgelehnt():
 # --- Kuerzung ---------------------------------------------------------------------------------
 
 def test_lange_datei_wird_auf_das_wortlimit_gekuerzt():
-    text, gekuerzt = analyst_marke.extrahiere(("wort " * 3000).encode(), "marke.md")
+    text, gekuerzt = analyst_marke.extrahiere(
+        ("wort " * (analyst_marke.MAX_WOERTER + 500)).encode(), "marke.md")
     assert gekuerzt is True
     assert len(text.split()) == analyst_marke.MAX_WOERTER
 
@@ -76,7 +77,7 @@ def test_geltungsbereich_steht_im_prompt():
     from services.analyst_eval import build_system_prompt
     p = build_system_prompt(ziel="TOFU", marke="Zielgruppe: Coaches.")
     for dimension in ("schnitt_pacing", "audioqualitaet", "visuelle_aesthetik"):
-        assert dimension in p.split("MARKEN- UND ZIELGRUPPEN-KONTEXT")[1][:2000], dimension
+        assert dimension in p.split("ZIELGRUPPE UND STRATEGIE")[1][:2000], dimension
 
 
 # --- Cache ------------------------------------------------------------------------------------
@@ -194,9 +195,11 @@ def test_upload_schreibt_text_und_hash_in_meta(client):
     c, tmp = client
     d = _lauf(tmp)
     r = c.post("/api/analyst/abc12345/marke",
-               files={"file": ("profil.md", b"Zielgruppe: Coaches im DACH-Raum.", "text/markdown")})
+               files=[("files", ("profil.md", b"Zielgruppe: Coaches im DACH-Raum.", "text/markdown"))])
     assert r.status_code == 200, r.text
-    assert r.json()["woerter"] == 4
+    # >= statt ==: Seit mehrere Dateien moeglich sind, bekommt jede eine Ueberschrift mit
+    # ihrem Namen, und die zaehlt mit. Die Zahl dient der Kuerzungs-Schwelle, nicht der Statistik.
+    assert r.json()["woerter"] >= 4
     meta = json.loads((d / "meta.json").read_text())
     assert meta["marke_datei"] == "profil.md"
     assert "Coaches" in meta["marke_text"]
@@ -207,9 +210,10 @@ def test_upload_lehnt_unbekannten_typ_mit_klartext_ab(client):
     c, tmp = client
     _lauf(tmp)
     r = c.post("/api/analyst/abc12345/marke",
-               files={"file": ("marke.pages", b"x", "application/octet-stream")})
+               files=[("files", ("marke.pages", b"x", "application/octet-stream"))])
     assert r.status_code == 422
     assert ".md" in r.json()["detail"], "die Fehlermeldung nennt, was stattdessen geht"
+    assert "marke.pages" in r.json()["detail"], "und WELCHE Datei nicht geht"
 
 
 # --- Frontend ----------------------------------------------------------------------------------
@@ -246,7 +250,7 @@ def test_marken_feld_haengt_an_v3():
     genau die Erwartung wecken, die der Lauf nicht einloest."""
     import re
     quelle = _appjsx()
-    stelle = quelle.index("Marke / Zielgruppe (optional)")
+    stelle = quelle.index("Zielgruppe &amp; Strategie (optional)")
     davor = quelle[max(0, stelle - 900):stelle]
     assert re.search(r'engine === "v3" && \(', davor)
 
