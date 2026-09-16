@@ -1853,3 +1853,31 @@ def test_betrifft_enum_kennt_alle_dimensionen():
         for zeile in zeilen:
             assert name in zeile, f"{name} fehlt in: {zeile[:60]}"
     assert "protagonist_auftreten" not in OUTPUT_SCHEMA, "V2-Vertrag bleibt unberuehrt"
+
+
+# --- Pruefbericht docs/analyst_skill_v3_pruefung.md: korrigierte Widersprueche ---------------
+
+def _v3_skill() -> str:
+    from services.analyst_eval import SKILL_PATH_V3
+    return SKILL_PATH_V3.read_text()
+
+
+def test_v3_behauptet_keine_gewichtsreihenfolge():
+    """C1: Der Skill nannte Ton- und Bildqualitaet als die staerksten Dimensionen.
+
+    Tatsaechlich sind sie bei MOFU und BOFU die schwaechsten (audioqualitaet 3 bzw. 2). Wer dem
+    Modell sagt, was schwer wiegt, laedt es ein, die Strenge daran auszurichten — deshalb steht
+    die Reihenfolge gar nicht mehr drin.
+    """
+    assert "sowie Ton- und Bildqualität" not in _v3_skill()
+
+
+def test_v3_leitsatz_erlaubt_kein_zu_leise():
+    """C2: Der Leitsatz erlaubte den Abzug, den der Fachabschnitt verbietet."""
+    kopf = _v3_skill().split("## Score-Anker")[0]
+    assert "zu leise" not in kopf
+
+
+def test_v3_untertitel_qualitaet_nicht_unter_schnitt():
+    """A1: Untertitel haben zwei eigene Dimensionen mit eigenem Gewicht."""
+    assert "Ihre QUALITÄT bewertest du\nunter Schnitt & Pacing" not in _v3_skill()

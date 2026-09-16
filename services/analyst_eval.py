@@ -2164,6 +2164,10 @@ ABSCHNITT_ZUORDNUNG = {
     "Legitimation & Hook-Start (Referenz S2/P3)": "eroeffnung",
     "Zielgruppe": "eroeffnung",
     "Funnel — genaue Definitionen (zuerst bestimmen, steuert den Score)": "eroeffnung",
+    # V3 fuehrt dieselbe Ueberschrift ohne die falsche Behauptung: Der Funnel steuert die
+    # GEWICHTE je Dimension, nicht den Score direkt. Beide Schreibweisen bleiben stehen,
+    # damit der V2-Prompt Byte fuer Byte gleich bleibt.
+    "Funnel — genaue Definitionen (zuerst bestimmen, steuert die Gewichtung)": "eroeffnung",
     # Call 2 — das ganze Video
     "Struktur (1–5)": "handwerk",
     # Stufe 3: Skript sitzt im Mittelteil, Einblendungen und Soundeffekte im Editing — alle drei

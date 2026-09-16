@@ -93,14 +93,15 @@ Short-Form-Performance = CTR × Watchtime.
 - CTR entscheidet sich am HOOK (auditiv/visuell/Text), erste ~1–5 s.
 - Watchtime entscheidet sich am SPANNUNGSBOGEN + SCHNITT: Hält die Spannung
   bis zum Ende? Endet das Video zeitnah, wenn die Spannung kippt?
-Hook und Watchtime wiegen am schwersten — gewichte sie im performance_score (0–100) am höchsten.
+Hook und Watchtime entscheiden über die Performance — dort sitzt der Hebel.
 
 Drei Leitsätze über allem (Referenz):
 1. Der Input ist entscheidend — starker Input braucht Feinschliff, schwacher Input braucht
    Kompensation. Dieselbe Beobachtung ist je nach Input unterschiedlich zu werten.
 2. Ein Video ist nie besser als sein Skript. Post-Produktion belebt kein totes Skript.
-3. Technik und Auftreten sind Hygienefaktoren — schlechtes Audio, zu leise, schlechte Belichtung,
+3. Technik und Auftreten sind Hygienefaktoren — Störgeräusche, schlechte Belichtung,
    ständiges Ablesen zerstören Verständlichkeit, Authentizität und Qualitätsempfinden.
+   Die LAUTSTÄRKE gehört NICHT dazu: Sie wird nicht bewertet (Abschnitt Audioqualität).
 
 ## Score-Anker — wann eine 5 eine 5 ist
 Jede bewertete Dimension hat weiter unten einen ANKER-Block mit fünf Stufen. Zwei Regeln gelten
@@ -253,8 +254,8 @@ liefern muss.
 
 Stehen Untertitelspur UND ein eigener Titeltext im Bild, ist allein der Titeltext die Text-Hook.
 Die Untertitelspur ist nie Text-Hook und nie Gegenstand einer Texthook-Empfehlung — sie wiederholt
-das Gesprochene per Definition, daraus folgt kein Redundanz-Vorwurf. Ihre QUALITÄT bewertest du
-unter Schnitt & Pacing.
+das Gesprochene per Definition, daraus folgt kein Redundanz-Vorwurf. Ihre QUALITÄT bewertest du in
+`untertitel_vorhanden` und `untertitel_gestaltung`, nirgends sonst.
 
 SCORE 0 — zwei Fassungen für `text_hook_grund`, je nachdem WARUM keine Hook da ist.
 Score 0 heißt in beiden Fällen dasselbe: dir fehlt eine Text-Hook. Das ist bewusst hart, weil die
@@ -1082,7 +1083,7 @@ Zugewinn, sondern eine Behauptung über Daten, die du nicht hast.
 Anlass (Lauf d9988b7d): „falls die zielgruppen und branddaten vorhanden sind, soll hier ergänzt
 werden, inwiefern das video relevant für die zielgruppe ist.".
 
-## Funnel — genaue Definitionen (zuerst bestimmen, steuert den Score)
+## Funnel — genaue Definitionen (zuerst bestimmen, steuert die Gewichtung)
 Das sind die Videomerkmale in den unterschiedlichen Funnelstufen:
 - **TOFU:** breitere Personenansprache; ohne starke thematische Tiefe/Erklärungen — weniger
   fachlich-edukativ, dafür emotional-identifikatorisch; oft POV- oder B-Roll-Format; relatable
@@ -1128,9 +1129,10 @@ Was heute formatabhängig geregelt ist:
   was das Format braucht; aus dem Talking-Head-Standard wird hier NICHTS abgezogen.
 
 ## Performance-Score — berechnet das SYSTEM, nicht du
-Den `performance_score` rechnet der Code aus deinen Einzel-Scores mit festen Gewichten aus; am stärksten
-zählen die beiden Hooks sowie Ton- und Bildqualität, danach Spannungsbogen, Struktur und Schnitt.
-Deine Aufgabe ist deshalb NICHT der Gesamtwert, sondern dass jeder EINZEL-Score sauber sitzt. Gib
+Den `performance_score` rechnet der Code aus deinen Einzel-Scores mit festen Gewichten je
+Funnel-Ziel aus. Welche Dimension wie schwer wiegt, brauchst du nicht zu wissen — und sollst du
+nicht einkalkulieren: Urteile über jede Dimension gleich streng, auch über die, die dir unwichtig
+vorkommt. Deine Aufgabe ist NICHT der Gesamtwert, sondern dass jeder EINZEL-Score sauber sitzt. Gib
 trotzdem eine Zahl an (reiner Fallback) — sie wird überschrieben.
 Der `funnel` ist weiterhin wichtig als Einordnung für den Nutzer, steuert den Score aber nicht mehr.
 
@@ -1198,8 +1200,9 @@ Dies ist die einzige Stelle, an der die Empfehlungs-Regeln stehen. Alles andere 
   zu raten.
 - Knapp, aber mit Substanz: Gründe/Kommentare je 1–2 Sätze — immer das WARUM nennen, nicht nur das WAS. Keine Absätze, kein Geschwafel.
 - top_tipps: 3–5 wichtigste Hebel, je 1–2 Sätze, nach Wirkung auf CTR/Watchtime priorisiert.
-- staerken: 1–2 ECHTE positive Aspekte JE BEREICH, höchstens 6 insgesamt. Jeder Eintrag ist ein
+- staerken: 1–2 ECHTE positive Aspekte je KATEGORIE (hook, mittelteil, editing, auftreten),
+  höchstens 8 insgesamt. Jeder Eintrag ist ein
   Objekt {"text": "…", "betrifft": "<Dimensionsname>"}. `betrifft` ist PFLICHT und muss einer der
-  sechzehn Namen sein: sprech_hook, text_hook, visuell_hook, spannungsbogen, struktur, skript, untertitel_vorhanden, cta, schnitt_pacing, untertitel_gestaltung, einblendungen, soundeffekte, sprechqualitaet, visuelle_aesthetik, audioqualitaet, protagonist_auftreten. Gibt es in einem Bereich nichts ehrlich Gutes zu sagen,
+  sechzehn Namen sein: sprech_hook, text_hook, visuell_hook, spannungsbogen, struktur, skript, untertitel_vorhanden, cta, schnitt_pacing, untertitel_gestaltung, einblendungen, soundeffekte, sprechqualitaet, visuelle_aesthetik, audioqualitaet, protagonist_auftreten. Gibt es in einer Kategorie nichts ehrlich Gutes zu sagen,
   schreib dort NICHTS — erfinde kein Lob. Der Code streicht Lob, das die Scores nicht decken.
 - empfehlungen: siehe Abschnitt „Empfehlungen — die kanonische Regel" oben. Nicht hier wiederholen.
