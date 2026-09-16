@@ -292,9 +292,17 @@ const ANALYST_FEATURES = [
 
 // Bewertungs-Engines zum Vergleich. Gleiches Ergebnis-Layout, gleicher Bewertungsprompt —
 // nur WER/WIE bewertet ändert sich.
-// Nur eine produktive Engine (v2_split, intern „V1.2"). Frontend nennt keine Version, damit
-// nichts über den Hintergrund preisgibt. Backend-Param bleibt `v2_split` — Server-Vertrag stabil.
-const ANALYST_ENGINE = "v2_split";
+// Die produktive Engine. Seit 2026-09-16 V3 (Vorgabe Chris): Damit sind Videoziel,
+// Zielgruppen-/Strategie-Upload, die vier Ergebniskategorien, die Funnel-Einschätzung und die
+// Hook-Vorschläge für JEDEN Kunden sichtbar — vorher hingen sie alle an `engine === "v3"` und
+// waren damit auf die Admin-Ansicht beschränkt.
+// Das Frontend nennt die Version bewusst nirgends: Der Kunde soll nicht mit „V2 vs. V3"
+// konfrontiert werden. Der Backend-Parameter bleibt `v3` — Server-Vertrag stabil.
+// V2 (`v2_split`) bleibt erreichbar, aber nur über den Umschalter in der Admin-Ansicht: Ohne die
+// Möglichkeit, denselben Clip gegen die alte Fassung laufen zu lassen, gäbe es keine Grundlage
+// mehr für die Aussage, dass V3 besser ist.
+const ANALYST_ENGINE = "v3";
+const ANALYST_ENGINE_ALT = "v2_split";
 
 // Stufen für die Fortschrittsbalken. est = geschätzte Dauer in Sekunden aus echten Läufen. Die
 // Labels sind bewusst neutral — sie sollen nicht verraten, welches Werkzeug im Hintergrund läuft
@@ -889,8 +897,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   // Alter Kommentar: V1.1 = ein Call, V1.2 = zwei Calls (Eröffnung / Handwerk). Läuft bewusst
   // nebeneinander, damit sich vergleichen lässt, ob der Split die Bewertung verbessert.
   const [ziel, setZiel] = useState("");
-  // Solange V3 nicht freigegeben ist, bleibt ANALYST_ENGINE der Default. Umschalten nur in der
-  // Admin-Ansicht — Endnutzer sehen weiterhin genau eine Variante (Entscheidung 2026-08-10).
+  // Umschalten nur in der Admin-Ansicht — Endnutzer sehen genau eine Variante
+  // (Entscheidung 2026-08-10), seit 2026-09-16 ist das V3.
   const [engine, setEngine] = useState(ANALYST_ENGINE);
   const [plannedTextHook, setPlannedTextHook] = useState("");  // Freifeld: geplante Texthook (falls noch nicht im Video)
   // Optionale Marken-/Zielgruppen-Datei. Sie liegt bis zum Start NUR im Browser: Die Lauf-ID
@@ -963,6 +971,13 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   }
 
   const canStart = !!analysisFile && !!format && (engine !== "v3" || !!ziel);
+  // Dieselben drei Bedingungen wie oben, nur in Worten — damit der Hinweis unter dem Knopf nicht
+  // auseinanderlaufen kann, wenn eine Bedingung dazukommt.
+  const fehlendeEingaben = [
+    !analysisFile && "eine Videodatei",
+    !format && "das Format",
+    engine === "v3" && !ziel && "das Ziel des Videos",
+  ].filter(Boolean);
 
   async function pollUntilDone(runId) {
     while (!cancelledRef.current) {
@@ -1465,8 +1480,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
               Version
               <select value={engine} onChange={(e) => setEngine(e.target.value)}
                       disabled={phase === "running"}>
-                <option value={ANALYST_ENGINE}>V2 (aktuell)</option>
-                <option value="v3">V3 (Zielsteuerung)</option>
+                <option value="v3">V3 (aktuell)</option>
+                <option value={ANALYST_ENGINE_ALT}>V2 (Vergleich)</option>
               </select>
             </label>
           )}
@@ -1510,9 +1525,12 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
               ⏳ In Warteschlange — Platz {queueInfo.ahead + 1} von {queueInfo.total}. Deine Analyse startet automatisch, sobald sie an der Reihe ist.
             </div>
           )}
+          {/* Benennt, was wirklich fehlt. Vorher stand hier immer „Bitte wähle zuerst eine
+              Videodatei aus" — seit das Videoziel Pflicht ist und der Knopf auch ohne Ziel
+              gesperrt bleibt, hätte der Nutzer am falschen Ende gesucht. */}
           {!canStart && (
             <div className="muted" style={{ fontSize: 13 }}>
-              Bitte wähle zuerst eine Videodatei aus.
+              Zum Starten fehlt noch: {fehlendeEingaben.join(", ")}.
             </div>
           )}
         </div>
