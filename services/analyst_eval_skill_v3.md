@@ -561,12 +561,18 @@ ANKER für `sprechqualitaet.score` — entlang der Leitfrage, nutze die ganze Sk
 - **4** — gut verständlich, eine Kleinigkeit fällt auf: ein paar Füllwörter oder eine kurze
   undeutliche Stelle.
 - **3** — man versteht alles, muss sich aber stellenweise konzentrieren: deutlich zu schnell oder
-  zu langsam, hörbar viele Füllwörter, oder durchgehend monoton vorgetragen.
+  zu langsam, oder hörbar viele Füllwörter.
 - **2** — mehrere Stellen muss man zweimal hören; Nuscheln, Verhaspler oder Füllwörter prägen den
   Eindruck.
 - **1** — man müsste zurückspulen, um zu verstehen, was gesagt wurde.
 Verstehst du beim ersten Hören jedes Wort und fällt dir nichts auf, ist das eine 5 — die
 Abwesenheit von Mängeln genügt, es braucht keine ausgebildete Sprecherstimme.
+
+**Monotonie gehört NICHT hierher.** Eine flache, gleichförmige Betonung ist eine Frage des
+Auftretens: Sie zählt in `protagonist_auftreten` und in `energie.urteil`, nicht hier. Sonst kostet
+derselbe Befund dreimal Punkte. Die eine Ausnahme: Liegen dir keine Angaben zur Person oder Marke
+vor, bleibt `protagonist_auftreten` null — dann ist die Monotonie hier eine Stufe wert, weil sie
+sonst nirgends ankommt.
 
 ## Videos ohne gesprochenes Wort
 Spricht im Video niemand (nur Musik, Geräusche und/oder Text), ist das eine FORMATENTSCHEIDUNG
@@ -720,7 +726,9 @@ Urteil in `pausen_urteile` ein — EIN Eintrag pro gemessener Pause, mit ihrer `
   (Referenz P4: Denkpausen und Skript-Blicke sind Retention-Killer.)
 - **Anlauf** vor dem ersten Wort — Atmen, Einrichten, „ähm" → `"raus"`.
 - **Dramaturgische Pause** — steht nach einer starken Aussage, vor einer Pointe, oder lässt eine Frage
-  wirken → `"lassen"`. Wenn sie gut sitzt, darf sie in `staerken`.
+  wirken → `"lassen"`. Wenn sie gut sitzt, darf sie in `staerken` — mit
+  `"betrifft": "sprechqualitaet"`. „pausen" ist kein zulässiger Wert, und Lob ohne gültiges
+  `betrifft` wirft das System weg.
 - **Übergangspause** — Szenen-, Format- oder Sprecherwechsel; z.B. das Ende eines eingeblendeten
   Fremdvideos in einer Reaction, bevor der Protagonist einsteigt → `"lassen"`, außer sie bricht den
   Rhythmus spürbar.
@@ -991,7 +999,7 @@ Abwechslung) oder wenn das Video sonst kaum Schwächen hat (letzter Feinschliff)
 `energie.urteil`: `traegt` | `flach` | `uebertrieben`. Gemeint ist die PASSUNG zum Inhalt, nicht
 Lautstärke: Ein ernstes Thema ruhig vorgetragen ist `traegt`. `flach` heißt, die Stimme lässt den
 Zuschauer kalt, obwohl der Inhalt mehr hergäbe. Bewerte das nicht zusätzlich in `sprechqualitaet` —
-dort geht es um Tempo, Deutlichkeit und Füllwörter.
+dort geht es um Tempo, Deutlichkeit und Füllwörter. Den Score dazu trägt `protagonist_auftreten`.
 Referenz T5: Reine Ich-Perspektive ohne Nutzen ist schwach — Mehrwert heißt, der Zuschauer lernt
 oder nimmt etwas mit.
 
@@ -1008,7 +1016,9 @@ unsicher; echt und ungestellt ist positiv.
 
 Der Blick fließt in KEINEN Score ein. Bei `abgelesen` baut das System selbst den Handlungsschritt;
 schreib dafür KEINE eigene Empfehlung, außer du kannst konkrete Sekunden nennen. Liegt der Blick in
-der Linse, darf das als Stärke auftauchen.
+der Linse, darf das als Stärke auftauchen — mit `"betrifft": "protagonist_auftreten"`.
+„blickkontakt" ist kein zulässiger Wert, und Lob ohne gültiges `betrifft` wirft das System weg.
+Dasselbe gilt für Lob zur Energie.
 Format-Ausnahmen stehen in der Aufgabe (bei einer Reaction ist der Blick auf den eingeblendeten
 Clip funktional und damit `in_der_linse`).
 
@@ -1058,7 +1068,7 @@ vorliegen; sonst null:
 - **3** — sachlich in Ordnung, aber austauschbar: nichts stört, es entsteht aber auch keine
   Präsenz, oder das Auftreten passt nur teilweise zu dem, wofür die Person steht.
 - **2** — mehrere deutliche Schwächen: sichtbar abgelesen, monotone Betonung, die Emotion des
-  Inhalts kommt nicht an.
+  Inhalts kommt nicht an. Monotonie wird HIER bewertet, nicht in `sprechqualitaet`.
 - **1** — das Auftreten schadet dem Video: durchgehend abgelesen, keine erkennbare Beteiligung an
   dem, was gesagt wird.
 Passt das Auftreten zur Person und fällt dir nichts auf, ist das eine 5 — die Abwesenheit von

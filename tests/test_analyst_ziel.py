@@ -1940,3 +1940,25 @@ def test_v2_rueckfalltext_unveraendert():
     from services.analyst_eval import erzwinge_empfehlungen_bei_schwachen_scores
     ev = AnalystEvaluationV2(visuelle_aesthetik=ScoreProbleme(score=3))
     assert "10–15 %" in erzwinge_empfehlungen_bei_schwachen_scores(ev).empfehlungen[0].anweisung
+
+
+def test_monotonie_zaehlt_nur_beim_auftreten():
+    """A5: Monotone Betonung kostete dreimal Punkte — sprechqualitaet Anker 3, energie=flach und
+    protagonist_auftreten Anker 2 — gegen die eigene Regel JEDE BEOBACHTUNG NUR EINMAL.
+    Festlegung Chris: das Auftreten fuehrt."""
+    v3 = _v3_skill()
+    anker = v3.split("ANKER für `sprechqualitaet.score`")[1].split("##")[0]
+    assert "monoton" not in anker.split("**Monotonie gehört NICHT hierher.**")[0]
+    assert "Monotonie wird HIER bewertet" in v3
+
+
+def test_erlaubtes_lob_nennt_ein_gueltiges_betrifft():
+    """A4: Der Skill erlaubt Lob zu Blick und Pausen, aber `blickkontakt` und `pausen` sind keine
+    Dimensionsnamen — filtere_staerken wirft jede Staerke ohne gueltiges `betrifft` weg."""
+    from models.analyst import KATEGORIEN
+    v3 = _v3_skill()
+    namen = {d for dims in KATEGORIEN.values() for d in dims}
+    for stelle in ('Wenn sie gut sitzt, darf sie in `staerken`',
+                   'darf das als Stärke auftauchen'):
+        folgt = v3.split(stelle)[1][:220]
+        assert any(f'"betrifft": "{n}"' in folgt for n in namen), stelle
