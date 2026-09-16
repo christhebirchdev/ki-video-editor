@@ -28,7 +28,7 @@ from services import analyst_prompt_log
 # Feedback gestempelt: Feedback zu einer alten Prompt-Version ist für spätere Auswertungen sonst
 # irreführend ("wurde längst gefixt"). Bei inhaltlichen Prompt-Änderungen hochzählen.
 # Suffix, wenn sich der Prompt am selben Tag ein zweites Mal inhaltlich ändert — sonst wäre das
-PROMPT_VERSION = "2026-09-16a"   # Zielgruppen- und Strategiedatei statt einer Markendatei
+PROMPT_VERSION = "2026-09-16b"   # Pruefbericht V3-Skill: Widersprueche und falsche Systemangaben
 
 SKILL_PATH = Path(__file__).with_name("analyst_eval_skill.md")
 # V3-Skill: vollstaendige Kopie des V2-Skills mit Zielabschnitt und betrifft-Pflicht bei

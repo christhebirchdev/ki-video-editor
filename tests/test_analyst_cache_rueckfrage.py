@@ -20,8 +20,18 @@ def client(tmp_path, monkeypatch):
     return TestClient(app), tmp_path
 
 
-def _lauf(tmp_path, run_id, *, sha="abc", phase="done", pv="2026-09-16a",
+def _pv():
+    """Die aktuelle Prompt-Version. Als Literal brach jeder Test hier beim naechsten Bump."""
+    from services.analyst_eval import PROMPT_VERSION
+    return PROMPT_VERSION
+
+
+def _lauf(tmp_path, run_id, *, sha="abc", phase="done", pv=None,
           format="Andere", ziel="", ergebnis=True, created="2026-09-13T10:00:00", **extra):
+    # Aktuelle Version als Default: Sonst meldet jeder Lauf nach einem PROMPT_VERSION-Bump
+    # eine Abweichung, und der Test bricht aus einem Grund, den er gar nicht pruefen will.
+    from services.analyst_eval import PROMPT_VERSION
+    pv = pv or PROMPT_VERSION
     d = tmp_path / run_id
     (d / "raw").mkdir(parents=True, exist_ok=True)
     (d / "meta.json").write_text(json.dumps({
@@ -44,7 +54,7 @@ def test_exakt_gleiche_eingaben_werden_gefunden():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
         _lauf(tmp, "alt11111")
-        neu = {"sha256": "abc", "prompt_version": "2026-09-16a", "format": "Andere",
+        neu = {"sha256": "abc", "prompt_version": _pv(), "format": "Andere",
                "ziel": "", "engine": "v2_split"}
         pfad, abweichung = finde_vorherige_analyse(tmp, neu, ausser="neu22222")
         assert pfad is not None and pfad.name == "alt11111"
@@ -61,7 +71,7 @@ def test_neue_prompt_version_findet_den_lauf_trotzdem_und_sagt_warum():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
         _lauf(tmp, "alt11111", pv="2026-09-01a")
-        neu = {"sha256": "abc", "prompt_version": "2026-09-16a", "format": "Andere",
+        neu = {"sha256": "abc", "prompt_version": _pv(), "format": "Andere",
                "ziel": "", "engine": "v2_split"}
         pfad, abweichung = finde_vorherige_analyse(tmp, neu, ausser="neu22222")
         assert pfad is not None
@@ -85,7 +95,7 @@ def test_anderes_ziel_ist_kein_treffer():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
         _lauf(tmp, "alt11111", ziel="TOFU")
-        neu = {"sha256": "abc", "prompt_version": "2026-09-16a", "format": "Andere",
+        neu = {"sha256": "abc", "prompt_version": _pv(), "format": "Andere",
                "ziel": "BOFU", "engine": "v3"}
         assert finde_vorherige_analyse(tmp, neu, ausser="neu22222")[0] is None
 
@@ -99,7 +109,7 @@ def test_ein_noch_laufender_lauf_wird_gemeldet_statt_ignoriert():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
         _lauf(tmp, "alt11111", phase="evaluate", ergebnis=False)
-        neu = {"sha256": "abc", "prompt_version": "2026-09-16a", "format": "Andere",
+        neu = {"sha256": "abc", "prompt_version": _pv(), "format": "Andere",
                "ziel": "", "engine": "v2_split"}
         pfad, abweichung = finde_vorherige_analyse(tmp, neu, ausser="neu22222")
         assert pfad is not None and abweichung == ["laeuft_noch"]
