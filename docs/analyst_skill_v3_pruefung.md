@@ -217,3 +217,85 @@ Füllwort-Korridore (obwohl gemessen), Pausen-Messschwelle, „drei Hinweise" in
 
 Dazu die Überlappung TOFU 7–60 s / MOFU 30–90 s: Im Bereich 30–60 s entscheidet die Länge nichts,
 und was stattdessen entscheidet, steht nirgends.
+
+---
+
+# Nachprüfung vor der Umsetzung (2026-09-16)
+
+Chris hat vor der Umsetzung eine Gegenprüfung verlangt: Woher weiß ich bei jedem Widerspruch,
+welche Seite die richtige ist? Antwort je Fund unten. Drei Autoritäten:
+
+- **Code** — im Quelltext nachgelesen, nicht erinnert. Der Code ist die Wahrheit, weil er das
+  Ergebnis erzeugt. Kein Rückfragebedarf.
+- **Festlegung** — eine Entscheidung von Chris aus dem Verlauf. Zitiert, damit er widersprechen kann.
+- **Offen** — weder Code noch Festlegung entscheidet. Braucht seine Antwort.
+
+## Dabei neu gefunden (stand nicht im ersten Bericht)
+
+### N1 Die Lautheits-Entfernung hat den Messwert-Block nie erreicht
+
+`services/analyst_eval.py` Z. 50–55 (`_AUDIO_GUIDE`) geht bei JEDER Analyse in den Prompt und sagt
+dem Modell: „Erst deutlich unter {LOUDNESS_TOO_QUIET} LUFS ist der Ton wirklich zu leise."
+Zusammen mit dem Leitsatz Z. 103 im Skill sind das ZWEI Stellen, die „zu leise" erlauben, gegen
+eine (Z. 887), die es verbietet. `verwirf_lautstaerke_empfehlungen` fängt nur die Empfehlung ab —
+den Score-Abzug nicht.
+
+`_AUDIO_GUIDE` ist mit V2 geteilt. Eine V3-Fassung über den vorhandenen `result`-Parameter an
+beiden Aufrufstellen (`analyst_gemini_eval.py` Z. 54, `analyst_eval.py` Z. 2487) lässt V2 Byte für
+Byte unverändert.
+
+### N2 Der angedrohte Standardsatz existiert für 11 der 16 Dimensionen nicht
+
+Z. 1160–1161 verspricht: „Fehlt sie, setzt das System einen allgemeinen Standardsatz ein."
+`_DIMENSIONEN` (Z. 1248–1264) kennt genau fünf: `sprechqualitaet`, `visuelle_aesthetik`,
+`spannungsbogen`, `struktur`, `schnitt_pacing`.
+
+Die sechs Empfehlungsverbote aus A2 betreffen Dimensionen mit EIGENER Erzwingung
+(`erzwinge_hook_empfehlungen`, `erzwinge_untertitel_empfehlung`, `baue_pausen_schritt`,
+`baue_einblendungs_schritt`, `erzwinge_blick_empfehlung`). Dort ist der Widerspruch also nur
+sprachlich — A2 ist milder als im Bericht behauptet.
+
+Der echte Schaden liegt woanders: `skript`, `cta`, `untertitel_gestaltung`, `soundeffekte`,
+`audioqualitaet` und `protagonist_auftreten` haben WEDER eine Erzwingung NOCH ein Verbot. Schreibt
+das Modell dort nichts, verschwindet der Mangel aus den Empfehlungen — ohne Standardsatz, ohne
+Warnung.
+
+### N3 Der Rückfalltext widerspricht der 20-%-Festlegung
+
+`_DIMENSIONEN` Z. 1253–1254 sagt dem Nutzer wörtlich „etwa 10–15 % Luft". Der Skill sagt seit der
+Festlegung 20 %. Der Satz erscheint unverändert im Output, sobald `visuelle_aesthetik` ≤ 3 steht
+und das Modell keine eigenen Probleme benannt hat. Nicht V3-begrenzt — eine Korrektur ändert auch
+V2-Ergebnisse (nicht den V2-Prompt).
+
+## Entscheidungstabelle
+
+| Fund | Richtig ist | Autorität |
+|---|---|---|
+| C1 Gewichte | Die Tabelle aus `SCORE_GEWICHTE_JE_ZIEL`, nachgerechnet: Summe je Ziel 100, 16 Dimensionen. Satz muss neu geschrieben werden | Code |
+| C2 + N1 „zu leise" | Lautstärke wird nicht bewertet. Z. 103 kürzen UND `_AUDIO_GUIDE` für V3 entschärfen | Festlegung („die lautstärke ist wirklich super … nimm die bewertung raus") |
+| C3 Funnel-Überschrift | „steuert die Gewichte", nicht „den Score" | Code (`SCORE_GEWICHTE_JE_ZIEL` je Ziel) |
+| C4 Gesamtscore | `berechne_performance_score` überschreibt. Z. 96 streichen | Code |
+| A1 Untertitel | `untertitel_vorhanden` und `untertitel_gestaltung` sind eigene Dimensionen mit eigenem Gewicht. Z. 256–257 ist die falsche Seite | Code |
+| A2/N2 Empfehlungspflicht | Die sechs Verbote gelten. Die Pflicht auf die fünf Dimensionen aus `_DIMENSIONEN` begrenzen — und für die sechs ungedeckten entscheiden, ob Erzwingung dazukommt | Code + **offen** |
+| A3 `staerken`-Menge | `MAX_LOB_PRO_KATEGORIE` = 2 × 4 Kategorien = 8, nicht 6. „Bereich" durch „Kategorie" ersetzen | Code |
+| A4 `betrifft` | Die Enum ist verbindlich (`filtere_staerken` verwirft alles andere). Blickkontakt und Energie gehören zu `protagonist_auftreten`, Pausen zu `sprechqualitaet` | Code + **offen** (Zuordnung bestätigen) |
+| A5 Dreifachabzug | Regel „jede Beobachtung nur einmal" gilt. Welche Dimension die monotone Stimme führt: **offen** | offen |
+| A6 Anker | `deckle_score_auf_probleme` deckt nur `sprechqualitaet`, `visuelle_aesthetik`, `audioqualitaet`, `protagonist_auftreten` ab. Bei `visuell_hook`, `schnitt_pacing`, `soundeffekte`, `spannungsbogen` entscheidet nichts | offen |
+| A7 Geometrie | Kopfraum 20 % steht fest. Kinnhöhe (53 % statt „Mitte") und „Brustbild bis Taille" gegen „Gesicht = ⅓" sind **offen** | Festlegung + offen |
+| N3 Rückfalltext | 20 %. Offen ist nur, ob V2 mitgeändert wird | Festlegung + offen |
+
+## Was gestrichen werden darf — und was nicht
+
+**Darf weg, ohne dass sich eine Bewertung ändert (~7.000 Zeichen):** Herkunftsbelege (Lauf-IDs,
+Datumsangaben, Nutzerzitate, „Anlass …") — sie begründen eine Regel gegenüber dem Leser, nicht
+gegenüber dem Modell; die Regel selbst bleibt jedes Mal stehen. Dazu die wortgleichen Dopplungen:
+zweite und dritte Funnel-Definition, Blickkontakt-Regeln, Testreel-Tipp, CTA-`null`-Regel zweimal,
+Bildausschnitt-Formatregel, 16 Dimensionsnamen beim zweiten Mal.
+
+**Bleibt stehen:** „Die Abwesenheit von Mängeln genügt für eine 5" unter allen 14 Ankerblöcken —
+gekürzt auf den dimensionsspezifischen Nachsatz, aber nicht entfernt; die Wiederholung am
+Anwendungsort ist das, was gegen die Mitte-Tendenz des Modells arbeitet. Ebenso die drei kurzen
+Erinnerungen zur Abgrenzung Sprech-/Audioqualität.
+
+**Nicht ohne Entscheidung:** `top_tipps` aus dem Vertrag nehmen (wird erzeugt, seit dem 2026-09-13
+nirgends angezeigt) — das ändert das Schema, nicht nur den Text.
