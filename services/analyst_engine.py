@@ -119,6 +119,23 @@ def _run(run_id: str, run_dir: Path) -> None:
     write_status(run_dir, "done", "Analyse abgeschlossen", done=True)
 
 
+def lade_vorgaenger_empfehlungen(basis: Path, vorgaenger_id: str) -> list[str]:
+    """V4: Alle Handlungsempfehlungen einer frueheren Analyse als Text (Top-3, naechstes Video,
+    weitere). Fehlt der Lauf oder ist er kaputt: leere Liste — die Neubewertung laeuft dann ohne
+    Abgleich weiter, statt an einem geloeschten Vorgaenger zu scheitern."""
+    try:
+        ev = json.loads((basis / vorgaenger_id / "analysis.json").read_text()).get("evaluation") or {}
+    except (OSError, json.JSONDecodeError):
+        return []
+    texte = []
+    for feld in ("action_steps", "naechstes_video", "weitere_empfehlungen"):
+        for s in ev.get(feld) or []:
+            a = (s.get("anweisung") or "").strip() if isinstance(s, dict) else ""
+            if a:
+                texte.append(a)
+    return texte
+
+
 def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str, split: bool = False):
     """Ein Gemini-Lauf bewertet das Video direkt (pure = nur Video; hybrid = Video + lokale Messwerte).
 
@@ -157,6 +174,9 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str, split: bool = Fal
     # V3 haengt weiterhin an `gewaehltes_ziel` und merkt davon nichts.
     if meta.get("engine"):
         result.engine = meta["engine"]
+    if meta.get("vorgaenger"):
+        result.vorgaenger_id = meta["vorgaenger"]
+        result.vorgaenger_empfehlungen = lade_vorgaenger_empfehlungen(ANALYST_PATH, meta["vorgaenger"])
     result.geplante_texthook = meta.get("planned_text_hook", "")
     result.gewaehltes_format = meta.get("format", "")  # leer nur bei Altläufen vor der Pflicht-Auswahl
     result.gewaehltes_ziel = meta.get("ziel", "")

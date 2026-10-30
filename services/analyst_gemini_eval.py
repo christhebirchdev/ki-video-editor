@@ -257,7 +257,8 @@ def _user_message(result: AnalystResult, mode: str) -> str:
 def _evaluate(video_path: Path, result: AnalystResult, mode: str, run_dir=None) -> AnalystEvaluationV2:
     video_file = gemini_service._upload_video_to_gemini(video_path)
     system = analyst_eval.build_system_prompt(ziel=getattr(result, "gewaehltes_ziel", ""),
-                                              marke=getattr(result, "marke_text", ""))
+                                              marke=getattr(result, "marke_text", ""),
+                                              v4=analyst_eval._ist_v4(result))
     user = _user_message(result, mode)
     if getattr(result, "gewaehltes_ziel", ""):
         user += _PFLICHT_TONEFFEKTE
@@ -348,13 +349,18 @@ def _evaluate_teil(video_file, result: AnalystResult, teil: str, run_dir,
     """Ein Teil-Call. Das Video wird als bereits hochgeladene Datei-Referenz übergeben — die Files
     API erlaubt die Wiederverwendung über mehrere Requests, es wird also nicht zweimal geladen."""
     system = analyst_eval.build_system_prompt(teil=teil, ziel=getattr(result, "gewaehltes_ziel", ""),
-                                              marke=getattr(result, "marke_text", ""))
+                                              marke=getattr(result, "marke_text", ""),
+                                              v4=analyst_eval._ist_v4(result))
     user = _TEIL_AUFGABE[teil] + _user_message(result, "hybrid")
     # Nur im Handwerk-Teil: Dort wird `soundeffekte` bewertet, in der Eroeffnung nicht.
     if getattr(result, "gewaehltes_ziel", "") and teil == "handwerk":
         user += _PFLICHT_TONEFFEKTE
     if kontext:
         user += "\n\n" + kontext
+    # V4-Neubewertung: Nur der Handwerk-Call gleicht ab — er sieht das ganze Video und fuehrt das
+    # Feld `vorgaenger_abgleich` im Vertrag.
+    if teil == "handwerk" and getattr(result, "vorgaenger_empfehlungen", None):
+        user += "\n\n" + analyst_eval.vorgaenger_kontext(result.vorgaenger_empfehlungen)
     cfg = types.GenerateContentConfig(
         system_instruction=system, response_mime_type="application/json", temperature=0.0,
     )
@@ -372,7 +378,8 @@ def _evaluate_teil(video_file, result: AnalystResult, teil: str, run_dir,
             # dem Bewertungsschritt), deshalb wird am Ziel unterschieden — dieselbe Regel wie
             # überall sonst in V3. Ohne eigenes Label wäre ein Vergleich V2/V3 im Protokoll
             # (tools/vergleiche_laeufe.py) den Läufen nicht zuzuordnen.
-            "engine": "v3" if getattr(result, "gewaehltes_ziel", "") else "v2_split",
+            "engine": ("v4" if analyst_eval._ist_v4(result)
+                       else "v3" if getattr(result, "gewaehltes_ziel", "") else "v2_split"),
             "teil": teil, "filename": result.filename,
             "duration_sec": result.duration_sec,
             "geplante_texthook": getattr(result, "geplante_texthook", ""),

@@ -137,3 +137,43 @@ def test_v4_effekt_ohne_optionen_neutral():
 def test_v3_effekt_text_unveraendert():
     ev = ae.baue_effekt_schritt(_effekt_ev(["ein Ding"]))
     assert "ein Whoosh" in ev.empfehlungen[-1].anweisung
+
+
+# ---------- Vorgaenger ----------
+from models.analyst import VorgaengerPunkt
+
+
+def test_vorgaenger_kontext_nummeriert_und_erklaert_status():
+    k = ae.vorgaenger_kontext(["Schneide die Pause raus", "Sprich lauter"])
+    assert "VORHERIGE ANALYSE" in k and "1. Schneide die Pause raus" in k and "2. Sprich lauter" in k
+    assert "umgesetzt" in k and "teilweise" in k and "offen" in k
+    assert ae.vorgaenger_kontext([]) == ""
+
+
+def test_vorgaenger_abgleich_nur_mit_vorgaenger_und_gueltigem_status():
+    r = AnalystResult(id="x", filename="a.mp4", duration_sec=1, scene_count=0, scenes=[], engine="v4")
+    ev = Ev(vorgaenger_abgleich=[VorgaengerPunkt(anweisung="A", status="Umgesetzt"),
+                                 VorgaengerPunkt(anweisung="B", status="vielleicht"),
+                                 VorgaengerPunkt(anweisung="", status="offen")])
+    assert ae.pruefe_vorgaenger_abgleich(ev.model_copy(deep=True), r).vorgaenger_abgleich == []
+    r.vorgaenger_id = "alt1"
+    out = ae.pruefe_vorgaenger_abgleich(ev, r).vorgaenger_abgleich
+    assert [(p.anweisung, p.status) for p in out] == [("A", "umgesetzt")]
+
+
+def test_cache_key_unterscheidet_vorgaenger():
+    from services.analyst_cache import cache_key
+    m = {"sha256": "abc", "prompt_version": "p", "engine": "v4"}
+    assert cache_key(m) != cache_key({**m, "vorgaenger": "alt1"})
+
+
+def test_lade_vorgaenger_empfehlungen(tmp_path):
+    import json
+    from services.analyst_engine import lade_vorgaenger_empfehlungen
+    d = tmp_path / "alt1"
+    d.mkdir()
+    (d / "analysis.json").write_text(json.dumps({"evaluation": {
+        "action_steps": [{"anweisung": "A"}], "naechstes_video": [{"anweisung": "B"}],
+        "weitere_empfehlungen": [{"anweisung": "C"}, {"anweisung": ""}]}}))
+    assert lade_vorgaenger_empfehlungen(tmp_path, "alt1") == ["A", "B", "C"]
+    assert lade_vorgaenger_empfehlungen(tmp_path, "fehlt") == []

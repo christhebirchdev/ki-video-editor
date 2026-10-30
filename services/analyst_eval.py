@@ -1939,6 +1939,25 @@ def _ist_v4(result) -> bool:
 VORGAENGER_STATUS = ("umgesetzt", "teilweise", "offen")
 
 
+def vorgaenger_kontext(empfehlungen: list[str]) -> str:
+    """V4: Die Empfehlungen der vorherigen Analyse fuer den Handwerk-Call.
+
+    Der Nutzer laedt eine verbesserte Fassung hoch und will wissen, ob seine Aenderungen
+    angekommen sind (Kundenwunsch, 2026-10-30). Nur die Handlungen, nicht die alte Bewertung: Das
+    Modell soll das NEUE Video unbefangen bewerten und nur den Abgleich gegen die Liste machen."""
+    if not empfehlungen:
+        return ""
+    liste = "\n".join(f"{i}. {e}" for i, e in enumerate(empfehlungen, 1))
+    return (
+        "VORHERIGE ANALYSE: Dieses Video ist eine überarbeitete Fassung. Zur vorherigen Fassung gab "
+        "es diese Empfehlungen:\n" + liste + "\n"
+        "Prüfe für JEDE davon im neuen Video, ob sie umgesetzt ist, und trag sie in "
+        "`vorgaenger_abgleich` ein: status \"umgesetzt\" (klar erledigt), \"teilweise\" (angegangen, "
+        "aber noch nicht ganz) oder \"offen\" (nicht erkennbar). Gilt eine Empfehlung weiterhin, "
+        "darf sie wieder in `empfehlungen` stehen. Bewerte die Scores unabhängig von dieser Liste."
+    )
+
+
 def pruefe_vorgaenger_abgleich(parsed: AnalystEvaluationV2, result) -> AnalystEvaluationV2:
     """Ohne Vorgaenger gibt es nichts abzugleichen — ein trotzdem geliefertes Feld waere erfunden.
     Eintraege mit unbekanntem Status oder ohne Anweisung fallen weg."""

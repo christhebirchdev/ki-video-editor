@@ -65,6 +65,9 @@ def cache_key(meta: dict):
         meta.get("marke_hash", ""),
         meta.get("engine", ""),
         meta["prompt_version"],
+        # V4-Neubewertung: Mit Vorgaenger gibt es den Abgleich zur alten Analyse — ein Lauf ohne
+        # ihn ist kein gueltiger Treffer. Laeufe ohne Vorgaenger haben "" und bleiben vergleichbar.
+        meta.get("vorgaenger", ""),
     )
 
 
