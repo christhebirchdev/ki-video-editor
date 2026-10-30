@@ -7,6 +7,9 @@ services:
     container_name: analyst
     restart: unless-stopped
     env_file: .env
+    environment:
+      # V4: Videos nach 30 Tagen löschen, Analysen bleiben (services/analyst_aufbewahrung.py).
+      - ANALYST_VIDEO_TAGE=30
     labels:
       - traefik.enable=true
       - traefik.http.routers.analyst.rule=Host(`analyst.srv1691345.hstgr.cloud`)

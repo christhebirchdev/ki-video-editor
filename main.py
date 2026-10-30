@@ -14,6 +14,11 @@ async def lifespan(app: FastAPI):
     n = markiere_abgebrochene_laeufe()
     if n:
         print(f"  [ANALYST] {n} Lauf/Läufe nach Neustart als abgebrochen markiert")
+    from services.analyst_aufbewahrung import raeume_videos_auf
+    from services.analyst_engine import ANALYST_PATH
+    v = raeume_videos_auf(ANALYST_PATH, settings.analyst_video_tage)
+    if v:
+        print(f"  [ANALYST] {v} Video(s) nach {settings.analyst_video_tage} Tagen gelöscht")
     yield
 
 

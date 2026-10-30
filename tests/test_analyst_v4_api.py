@@ -232,3 +232,24 @@ def test_fortschritt_endpunkt(client):
     e = client.get("/api/analyst/fortschritt", headers=A).json()
     assert e["analysen"] == 3 and e["gesamt"]["level"] == 2
     assert client.get("/api/analyst/fortschritt", headers=B).json()["analysen"] == 0
+
+
+# ---------- Task 10: Aufbewahrung ----------
+
+def test_alte_videos_werden_geloescht_analyse_bleibt(tmp_path):
+    from datetime import datetime, timedelta
+    from services.analyst_aufbewahrung import raeume_videos_auf
+    jetzt = datetime(2026, 10, 30)
+    for name, alter in (("alt", 31), ("jung", 5)):
+        d = tmp_path / name
+        (d / "raw").mkdir(parents=True)
+        (d / "raw" / "v.mp4").write_bytes(b"x")
+        (d / "analysis.json").write_text("{}")
+        (d / "meta.json").write_text(json.dumps({"created_at": (jetzt - timedelta(days=alter)).isoformat()}))
+        (d / "status.json").write_text(json.dumps({"phase": "done"}))
+    assert raeume_videos_auf(tmp_path, 30, jetzt) == 1
+    assert not list((tmp_path / "alt" / "raw").iterdir())
+    assert (tmp_path / "alt" / "analysis.json").exists()
+    assert json.loads((tmp_path / "alt" / "meta.json").read_text())["video_geloescht"]
+    assert list((tmp_path / "jung" / "raw").iterdir())
+    assert raeume_videos_auf(tmp_path, 0, jetzt) == 0      # 0 = ausgeschaltet

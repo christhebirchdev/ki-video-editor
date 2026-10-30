@@ -44,7 +44,8 @@ class Settings(BaseSettings):
     analyst_nutzer_pflicht: bool = False
 
     # V4: Nach wie vielen Tagen die Videodatei eines Laufs geloescht wird. Die Analyse bleibt.
-    analyst_video_tage: int = 30
+    # 0 = nie (Default, damit lokale Testvideos bleiben). Der Server setzt 30 (docker-compose.yml).
+    analyst_video_tage: int = 0
 
     model_config = {"env_file": ".env"}
 

@@ -86,6 +86,10 @@ def upload_video(file: UploadFile = File(...), nutzer: str = Depends(nutzer_der_
         "nutzer": nutzer,   # V4: Besitzer ("" = anonym, Uebergang/V3)
     }, ensure_ascii=False))
     write_status(run_dir, "uploaded", "Bereit zur Analyse")
+    # Aufbewahrung nebenbei: Der Server laeuft wochenlang ohne Neustart, der Start allein reicht
+    # nicht. Ein Verzeichnis-Scan pro Upload ist bei ein paar hundert Laeufen vernachlaessigbar.
+    from services.analyst_aufbewahrung import raeume_videos_auf
+    raeume_videos_auf(ANALYST_PATH, settings.analyst_video_tage)
     return {"id": run_id, "filename": safe_name}
 
 
