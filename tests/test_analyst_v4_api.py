@@ -253,3 +253,13 @@ def test_alte_videos_werden_geloescht_analyse_bleibt(tmp_path):
     assert json.loads((tmp_path / "alt" / "meta.json").read_text())["video_geloescht"]
     assert list((tmp_path / "jung" / "raw").iterdir())
     assert raeume_videos_auf(tmp_path, 0, jetzt) == 0      # 0 = ausgeschaltet
+
+
+def test_cache_check_verraet_keine_fremden_laeufe(client):
+    fremd = _upload(client, B); _fertig(client, fremd)
+    (client.runs / fremd / "meta.json").write_text(json.dumps({**_meta(client, fremd),
+        "format": "Talking Head", "engine": "v4", "ziel": "MOFU", "prompt_version": "x"}))
+    eigen = _upload(client, A)
+    r = client.get(f"/api/analyst/{eigen}/cache-check", headers=A,
+                   params={"format": "Talking Head", "ziel": "MOFU", "engine": "v4"})
+    assert r.json() == {"treffer": False}

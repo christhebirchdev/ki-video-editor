@@ -244,6 +244,10 @@ def cache_check(run_id: str, format: str = "", ziel: str = "", planned_text_hook
         quell_meta = json.loads((quelle / "meta.json").read_text())
     except (OSError, json.JSONDecodeError):
         quell_meta = {}
+    # V4: Ein fremder Lauf mit derselben Datei ist fuer diesen Nutzer kein Treffer — sonst verriete
+    # die Rueckfrage Dateiname und Datum eines anderen Kunden, und „vorhandene zeigen" liefe in 404.
+    if not analyst_nutzer.darf_zugreifen(quell_meta, nutzer, settings.analyst_nutzer_pflicht):
+        return {"treffer": False}
     return {"treffer": True, "run_id": quelle.name, "erstellt_am": quell_meta.get("created_at", ""),
             "dateiname": quell_meta.get("filename", ""), "abweichung": abweichung}
 
