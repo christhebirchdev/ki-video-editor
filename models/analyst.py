@@ -209,6 +209,17 @@ class EffektVorschlag(BaseModel):
     zeitpunkt_sek: float = 0.0
     art: str = ""
     zweck: str = ""
+    # V4: 1–2 konkrete Effekte, die zu `zweck` passen (z.B. ["ein kurzer Ding", "ein Plopp"]).
+    # Zwei, wenn mehrere passen — der Nutzer waehlt nach Stil. Anlass: Kunden bekamen fast immer
+    # „Whoosh" empfohlen, weil Beispiele im Prompt und der feste Ersatztext ihn vorgaben.
+    optionen: list[str] = Field(default_factory=list)
+
+    @field_validator("optionen", mode="before")
+    @classmethod
+    def _optionen_als_liste(cls, v):
+        if isinstance(v, str):
+            return [v] if v.strip() else []
+        return liste_von_strings(v)
 
 
 class UntertitelEval(BaseModel):
@@ -393,6 +404,7 @@ class ActionStep(BaseModel):
     aus `empfehlungen` berechnet (sortieren/bündeln/splitten ist Arithmetik, kein Urteil)."""
     zeitpunkt: str = ""      # z.B. "ca. Sek. 3" oder "ca. Sek. 3, 15 und 24" (Richtwert, ±1–2 s)
     anweisung: str = ""      # EINE konkrete Handlung in super einfacher Sprache
+    aufwand: str = ""        # V4: "schnitt" | "dreh" (siehe Empfehlung.aufwand); leer = V3/Altlauf
     erzwungen: bool = False   # True = vom Code eingesetzter Standardsatz, weil das Modell zu
                               # dieser Dimension nichts geschrieben hat. Nur zur Messung: Wie oft
                               # greift der Notnagel noch? Ziel ist, dass er selten greift
@@ -456,12 +468,25 @@ class Empfehlung(BaseModel):
     # `sprech` traf „Sprechhook", `hintergrund` traf eine Farb-Empfehlung, Wortmengen-Überlappung
     # scheiterte an Paraphrasen). Eine Zuordnung durch das Modell ist exakt statt geraten.
     betrifft: str = ""
+    # V4: Was die Umsetzung kostet. "schnitt" = im Editing am vorhandenen Material loesbar,
+    # "dreh" = braucht eine neue Aufnahme. Anlass (Andrea, 2026-10-23): „ich werde das Video nicht
+    # noch mal drehen" — wenn zwei der drei Top-Punkte einen Neudreh verlangen, ist die Analyse fuer
+    # das fertige Video wertlos. V4 trennt deshalb: Top-3 nur Schnitt, Dreh-Punkte „fuers naechste
+    # Video". Leer = V3/Altlauf; die Nachbearbeitung setzt bei V4 einen Wert (setze_aufwand).
+    aufwand: str = ""
 
     erzwungen: bool = False   # True = vom Code eingesetzter Standardsatz, weil das Modell zu
                               # dieser Dimension nichts geschrieben hat. Nur zur Messung: Wie oft
                               # greift der Notnagel noch? Ziel ist, dass er selten greift
                               # (Vorgabe Chris, 2026-09-12). Kein Einfluss auf Reihenfolge,
                               # Auswahl oder Anzeige.
+
+
+class VorgaengerPunkt(BaseModel):
+    """V4: Wie eine Empfehlung der VORHERIGEN Analyse im neuen Video umgesetzt wurde."""
+    anweisung: str = ""      # die alte Empfehlung, woertlich
+    status: str = ""         # umgesetzt | teilweise | offen
+    kommentar: str = ""      # EIN Satz, woran das Modell das festmacht
 
 
 # Die sieben Bewertungsdimensionen als Single Source of Truth: Schema-Vertrag, Score-Gewichte und
@@ -717,6 +742,12 @@ class AnalystEvaluationV2(BaseModel):
     # Die beiden folgenden Listen berechnet der Code aus `empfehlungen` — das Modell füllt sie nicht:
     action_steps: list[ActionStep] = Field(default_factory=list)  # die 3 frühesten Handlungsempfehlungen
     weitere_empfehlungen: list[ActionStep] = Field(default_factory=list)  # alle übrigen (aufklappbar)
+    # V4: Schritte, die eine neue Aufnahme brauchen (aufwand="dreh") — getrennt von den Top-3,
+    # die nur Schnitt-Schritte enthalten. Max. 3, nach Schwere. Bei V3 immer leer.
+    naechstes_video: list[ActionStep] = Field(default_factory=list)
+    # V4 mit Vorgaenger: je alte Empfehlung, ob sie im neuen Video umgesetzt ist (Modell-Urteil,
+    # im Code auf gueltige Status gefiltert — pruefe_vorgaenger_abgleich).
+    vorgaenger_abgleich: list[VorgaengerPunkt] = Field(default_factory=list)
 
     @field_validator("protagonist_ab_sek", mode="before")
     @classmethod
@@ -797,3 +828,9 @@ class AnalystResult(BaseModel):
     # Der extrahierte Text. Er wird mitgespeichert, weil sonst nicht mehr nachvollziehbar waere,
     # WORAUF sich ein Zielgruppen-Urteil bezogen hat — dieselbe Begruendung wie beim `transcript`.
     marke_text: str = ""
+    # V4: Neubewertung eines verbesserten Videos. `vorgaenger_id` ist die Lauf-ID der vorherigen
+    # Analyse, `vorgaenger_empfehlungen` deren Handlungsempfehlungen als Text — mitgespeichert aus
+    # demselben Grund wie `marke_text`: Der Abgleich muss nachvollziehbar bleiben, auch wenn der
+    # Vorgaenger spaeter geloescht wird.
+    vorgaenger_id: str = ""
+    vorgaenger_empfehlungen: list[str] = Field(default_factory=list)
