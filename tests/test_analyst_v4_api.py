@@ -223,3 +223,12 @@ def test_start_mit_fremdem_oder_unfertigem_vorgaenger(client):
                        params={**p, "vorgaenger": fremd}).status_code == 404
     assert client.post(f"/api/analyst/{neu}/start", headers=A,
                        params={**p, "vorgaenger": unfertig}).status_code == 409
+
+
+def test_fortschritt_endpunkt(client):
+    for _ in range(3):
+        rid = _upload(client, A)
+        _fertig(client, rid, evaluation={"performance_score": 70, "hook": {"sprech_hook_score": 4}})
+    e = client.get("/api/analyst/fortschritt", headers=A).json()
+    assert e["analysen"] == 3 and e["gesamt"]["level"] == 2
+    assert client.get("/api/analyst/fortschritt", headers=B).json()["analysen"] == 0
