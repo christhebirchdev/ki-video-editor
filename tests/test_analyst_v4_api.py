@@ -87,3 +87,139 @@ def test_engine_dispatcher_kennt_v4(tmp_path, monkeypatch):
     analyst_engine._run("r1", d)
     assert aufrufe == [("hybrid", True, "v4")]
     assert json.loads((d / "analysis.json").read_text())["engine"] == "v4"
+
+
+# ---------- Task 7: Nutzer und Zugriff ----------
+
+def test_upload_schreibt_nutzer(client):
+    rid = _upload(client, A)
+    assert _meta(client, rid)["nutzer"] == A["X-Analyst-Nutzer"]
+
+
+def test_ungueltige_nutzer_id_wird_ignoriert(client):
+    rid = _upload(client, {"X-Analyst-Nutzer": "../etc/passwd"})
+    assert "nutzer" not in _meta(client, rid) or _meta(client, rid)["nutzer"] == ""
+
+
+def test_fremder_nutzer_sieht_lauf_nicht(client):
+    rid = _upload(client, A)
+    _fertig(client, rid)
+    assert client.get(f"/api/analyst/{rid}", headers=B).status_code == 404
+    assert client.get(f"/api/analyst/{rid}/chat", headers=B).status_code == 404
+    assert client.post(f"/api/analyst/{rid}/start", headers=B,
+                       params={"format": "Talking Head", "engine": "v4", "ziel": "MOFU"}).status_code == 404
+    assert client.get(f"/api/analyst/{rid}", headers=A).status_code == 200
+
+
+def test_ohne_header_bleibt_erlaubt_ausser_im_pflichtmodus(client, monkeypatch):
+    from config import settings
+    rid = _upload(client, A)
+    _fertig(client, rid)
+    assert client.get(f"/api/analyst/{rid}").status_code == 200
+    monkeypatch.setattr(settings, "analyst_nutzer_pflicht", True)
+    assert client.get(f"/api/analyst/{rid}").status_code == 401
+    assert client.get(f"/api/analyst/{rid}", headers=A).status_code == 200
+
+
+def test_pflichtmodus_lauf_ohne_besitzer_ist_gesperrt(client, monkeypatch):
+    from config import settings
+    rid = _upload(client)            # Altlauf ohne Nutzer
+    monkeypatch.setattr(settings, "analyst_nutzer_pflicht", True)
+    assert client.get(f"/api/analyst/{rid}", headers=A).status_code == 404
+
+
+# ---------- Task 8: Historie, Loeschen, Export, Uebergang, Neubewertung ----------
+
+def test_meine_listet_nur_eigene_neueste_zuerst(client):
+    r1 = _upload(client, A); _fertig(client, r1, score=60)
+    r2 = _upload(client, A); _fertig(client, r2, score=75)
+    _upload(client, B)
+    m = client.get("/api/analyst/meine", headers=A).json()["laeufe"]
+    assert [x["id"] for x in m] == [r2, r1]
+    assert m[0]["score"] == 75 and m[0]["ziel"] == "MOFU" and m[0]["video_da"] is True
+    assert m[0]["phase"] == "done"
+
+
+def test_meine_ohne_nutzer_ist_leer(client):
+    _upload(client, A)
+    assert client.get("/api/analyst/meine").json()["laeufe"] == []
+
+
+def test_loeschen_nur_eigener_lauf(client):
+    rid = _upload(client, A)
+    assert client.delete(f"/api/analyst/{rid}", headers=B).status_code == 404
+    assert client.delete(f"/api/analyst/{rid}").status_code == 404   # ohne Nutzer kein Loeschen
+    assert client.delete(f"/api/analyst/{rid}", headers=A).status_code == 200
+    assert not (client.runs / rid).exists()
+
+
+def test_alle_eigenen_loeschen(client):
+    r1 = _upload(client, A); r2 = _upload(client, A); r3 = _upload(client, B)
+    assert client.delete("/api/analyst/meine", headers=A).json()["geloescht"] == 2
+    assert not (client.runs / r1).exists() and not (client.runs / r2).exists()
+    assert (client.runs / r3).exists()
+
+
+def test_export_liefert_analysen(client):
+    rid = _upload(client, A); _fertig(client, rid, score=81)
+    ex = client.get("/api/analyst/meine/export", headers=A).json()
+    assert ex["nutzer"] == A["X-Analyst-Nutzer"]
+    assert ex["analysen"][0]["id"] == rid
+    assert ex["analysen"][0]["analyse"]["evaluation"]["performance_score"] == 81
+
+
+def test_uebergang_geraet_zu_konto(client, monkeypatch):
+    from config import settings
+    alt = {"X-Analyst-Nutzer": "browser-1234-abcd", "X-Analyst-Geraet": "browser-1234-abcd"}
+    rid = _upload(client, alt)
+    monkeypatch.setattr(settings, "analyst_nutzer_pflicht", True)
+    konto = {"X-Analyst-Nutzer": "konto-42-xyz-0000", "X-Analyst-Geraet": "browser-1234-abcd"}
+    m = client.get("/api/analyst/meine", headers=konto).json()["laeufe"]
+    assert [x["id"] for x in m] == [rid]
+    assert _meta(client, rid)["nutzer"] == "konto-42-xyz-0000"
+
+
+def test_uebergang_nicht_ohne_pflichtmodus(client):
+    alt = {"X-Analyst-Nutzer": "browser-1234-abcd", "X-Analyst-Geraet": "browser-1234-abcd"}
+    _upload(client, alt)
+    fremd = {"X-Analyst-Nutzer": "jemand-anderes-01", "X-Analyst-Geraet": "browser-1234-abcd"}
+    assert client.get("/api/analyst/meine", headers=fremd).json()["laeufe"] == []
+
+
+def test_neu_bewerten_mit_gleichem_video(client):
+    rid = _upload(client, A); _fertig(client, rid)
+    r = client.post(f"/api/analyst/{rid}/neu-bewerten", headers=A)
+    assert r.status_code == 200, r.text
+    neu = r.json()["id"]
+    assert neu != rid
+    mn, ma = _meta(client, neu), _meta(client, rid)
+    assert mn["sha256"] == ma["sha256"] and mn["nutzer"] == A["X-Analyst-Nutzer"]
+    assert list((client.runs / neu / "raw").iterdir())
+    assert client.post(f"/api/analyst/{rid}/neu-bewerten", headers=B).status_code == 404
+
+
+def test_neu_bewerten_ohne_video_410(client):
+    rid = _upload(client, A)
+    for f in (client.runs / rid / "raw").iterdir():
+        f.unlink()
+    assert client.post(f"/api/analyst/{rid}/neu-bewerten", headers=A).status_code == 410
+
+
+def test_start_mit_vorgaenger(client):
+    alt = _upload(client, A); _fertig(client, alt)
+    neu = _upload(client, A)
+    r = client.post(f"/api/analyst/{neu}/start", headers=A, params={
+        "format": "Talking Head", "engine": "v4", "ziel": "MOFU", "vorgaenger": alt})
+    assert r.status_code == 200, r.text
+    assert _meta(client, neu)["vorgaenger"] == alt
+
+
+def test_start_mit_fremdem_oder_unfertigem_vorgaenger(client):
+    fremd = _upload(client, B); _fertig(client, fremd)
+    unfertig = _upload(client, A)
+    neu = _upload(client, A)
+    p = {"format": "Talking Head", "engine": "v4", "ziel": "MOFU"}
+    assert client.post(f"/api/analyst/{neu}/start", headers=A,
+                       params={**p, "vorgaenger": fremd}).status_code == 404
+    assert client.post(f"/api/analyst/{neu}/start", headers=A,
+                       params={**p, "vorgaenger": unfertig}).status_code == 409

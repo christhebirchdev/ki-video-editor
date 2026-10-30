@@ -1,26 +1,48 @@
 # api/analyst.py
 """AI Video Analyst: Upload → Start (BackgroundTask) → Status/Ergebnis pollen."""
 import json
+import os
 import re
 import secrets
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from config import settings
 from models.analyst import FORMATE, ZIELE, AnalystResult
-from services import analyst_cache, analyst_chat, analyst_marke, analyst_vlm
+from services import analyst_cache, analyst_chat, analyst_marke, analyst_nutzer, analyst_vlm
 from services.analyst_engine import ANALYST_PATH, RUNNING_PHASES, run_analysis, write_status
 
 router = APIRouter()
 
 
-def _run_dir(run_id: str):
+def nutzer_der_anfrage(request: Request) -> str:
+    """Die Nutzer-ID aus dem Header (siehe services/analyst_nutzer.py). Im Pflichtmodus ohne
+    Nutzer: 401 — dann steht kein Agentursystem-Proxy davor, und niemand soll anonym rein."""
+    n = analyst_nutzer.aktueller_nutzer(request)
+    if settings.analyst_nutzer_pflicht and not n:
+        raise HTTPException(status_code=401, detail="Nicht angemeldet")
+    return n
+
+
+def _run_dir(run_id: str, nutzer: str | None = None):
+    """`nutzer=None` = keine Zugriffspruefung (Admin-Endpunkte mit Passwort). Fremde Laeufe melden
+    404 statt 403: Ob es eine ID gibt, geht einen fremden Nutzer nichts an."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", run_id or ""):
+        raise HTTPException(status_code=404, detail="Analyse nicht gefunden")
     d = ANALYST_PATH / run_id
     if not (d / "meta.json").exists():
         raise HTTPException(status_code=404, detail=f"Analyse {run_id} nicht gefunden")
+    if nutzer is not None:
+        try:
+            meta = json.loads((d / "meta.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            meta = {}
+        if not analyst_nutzer.darf_zugreifen(meta, nutzer, settings.analyst_nutzer_pflicht):
+            raise HTTPException(status_code=404, detail=f"Analyse {run_id} nicht gefunden")
     return d
 
 
@@ -43,7 +65,7 @@ def _active_runs():
 
 
 @router.post("/upload")
-def upload_video(file: UploadFile = File(...)):
+def upload_video(file: UploadFile = File(...), nutzer: str = Depends(nutzer_der_anfrage)):
     """Bewusst `def` statt `async def`: `shutil.copyfileobj` unten ist blockierend. In einer
     `async def`-Funktion würde ein großer Upload den Event-Loop anhalten und bei `--workers 1`
     die ganze App blockieren — inklusive laufender Analysen. Als `def` läuft der Endpunkt im
@@ -61,13 +83,89 @@ def upload_video(file: UploadFile = File(...)):
         "filename": safe_name,
         "created_at": datetime.now().isoformat(),
         "sha256": sha256,
+        "nutzer": nutzer,   # V4: Besitzer ("" = anonym, Uebergang/V3)
     }, ensure_ascii=False))
     write_status(run_dir, "uploaded", "Bereit zur Analyse")
     return {"id": run_id, "filename": safe_name}
 
 
+# ---------- V4: eigene Analysen, Fortschritt, Loeschen, Export ----------
+# Statische Pfade stehen VOR allen "/{run_id}"-Routen — sonst haelt FastAPI "meine" fuer eine ID.
+
+def _video_da(run_dir: Path) -> bool:
+    raw = run_dir / "raw"
+    return raw.is_dir() and any(f.is_file() for f in raw.iterdir())
+
+
+def _lies_json(pfad: Path) -> dict:
+    try:
+        return json.loads(pfad.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _eintrag(run_dir: Path, meta: dict) -> dict:
+    analyse = _lies_json(run_dir / "analysis.json")
+    ev = analyse.get("evaluation") or {}
+    return {
+        "id": run_dir.name,
+        "filename": meta.get("filename", ""),
+        "created_at": meta.get("created_at", ""),
+        "engine": meta.get("engine", ""),
+        "ziel": meta.get("ziel") or analyse.get("gewaehltes_ziel", ""),
+        "format": meta.get("format") or analyse.get("gewaehltes_format", ""),
+        "vorgaenger": meta.get("vorgaenger", ""),
+        "phase": _lies_json(run_dir / "status.json").get("phase", ""),
+        "score": ev.get("performance_score") if ev else None,
+        "video_da": _video_da(run_dir),
+        "aus_cache": bool(meta.get("cached_from")),
+    }
+
+
+def _meine(request: Request, nutzer: str) -> list[tuple[Path, dict]]:
+    # Uebergang Browser-ID → Konto (siehe services/analyst_nutzer.py). Nur im Pflichtmodus: Ohne
+    # Proxy davor koennte jeder einen fremden Geraete-Header schicken und Laeufe an sich ziehen.
+    if settings.analyst_nutzer_pflicht:
+        analyst_nutzer.uebertrage(ANALYST_PATH, analyst_nutzer.geraet(request), nutzer)
+    return analyst_nutzer.eigene_laeufe(ANALYST_PATH, nutzer)
+
+
+@router.get("/meine")
+def meine_analysen(request: Request, nutzer: str = Depends(nutzer_der_anfrage)):
+    """Die eigenen Analysen, neueste zuerst — Grundlage fuer „Meine Analysen" im Frontend."""
+    return {"laeufe": [_eintrag(d, m) for d, m in _meine(request, nutzer)]}
+
+
+@router.get("/meine/export")
+def meine_exportieren(request: Request, nutzer: str = Depends(nutzer_der_anfrage)):
+    """Alle eigenen Analysen mit vollem Ergebnis (Datenauskunft, Umzug in ein anderes System)."""
+    return {"nutzer": nutzer, "analysen": [
+        {**_eintrag(d, m), "analyse": _lies_json(d / "analysis.json") or None,
+         "chat": analyst_chat.lade_verlauf(d)}
+        for d, m in _meine(request, nutzer)]}
+
+
+@router.delete("/meine")
+def meine_loeschen(request: Request, nutzer: str = Depends(nutzer_der_anfrage)):
+    """Alle eigenen Laeufe loeschen — fuer die Account-Loeschung im Agentursystem."""
+    if not nutzer:
+        raise HTTPException(status_code=400, detail="Ohne Nutzer gibt es nichts zu löschen")
+    laeufe = analyst_nutzer.eigene_laeufe(ANALYST_PATH, nutzer)
+    for d, _ in laeufe:
+        shutil.rmtree(d, ignore_errors=True)
+    return {"geloescht": len(laeufe)}
+
+
+@router.get("/fortschritt")
+def fortschritt(request: Request, nutzer: str = Depends(nutzer_der_anfrage)):
+    """Level je Kategorie + Gesamtlevel (services/analyst_fortschritt.py)."""
+    from services import analyst_fortschritt
+    return analyst_fortschritt.berechne([d for d, _ in _meine(request, nutzer)])
+
+
 @router.post("/{run_id}/marke")
-def upload_marke(run_id: str, files: list[UploadFile] = File(...)):
+def upload_marke(run_id: str, files: list[UploadFile] = File(...),
+                 nutzer: str = Depends(nutzer_der_anfrage)):
     """Optionale Zielgruppen- und Strategiedatei zu einem Lauf (Spec 1.2).
 
     MEHRERE Dateien, seit der Nutzer die beiden Dokumente aus dem Content-Hub hochlaedt (Vorgabe
@@ -87,7 +185,7 @@ def upload_marke(run_id: str, files: list[UploadFile] = File(...)):
     ist ein legitim anderes Ergebnis. Vor dem Start hochladen — ein laufender oder fertiger Lauf
     liest meta.json nicht neu.
     """
-    run_dir = _run_dir(run_id)
+    run_dir = _run_dir(run_id, nutzer)
     eingaben = [(f.file.read(), re.sub(r"[^\w.\-äöüÄÖÜß ]", "_", f.filename or "datei.txt"))
                 for f in files]
     try:
@@ -120,7 +218,7 @@ def _eingaben(run_dir, format: str, ziel: str, planned_text_hook: str) -> dict:
 
 @router.get("/{run_id}/cache-check")
 def cache_check(run_id: str, format: str = "", ziel: str = "", planned_text_hook: str = "",
-                engine: str = "v2_split"):
+                engine: str = "v2_split", nutzer: str = Depends(nutzer_der_anfrage)):
     """Gibt es zu DIESER Datei mit DIESEN Eingaben schon eine Analyse?
 
     Das Frontend fragt zwischen Upload und Start. Anlass (Kollege von Chris, 2026-09-13): Er hat
@@ -132,7 +230,7 @@ def cache_check(run_id: str, format: str = "", ziel: str = "", planned_text_hook
     Deshalb ist das hier bewusst LOCKERER als der Cache-Schluessel und meldet den Unterschied mit:
     Das Frontend fragt dann nach, ob das Video zwischendurch veraendert wurde.
     """
-    run_dir = _run_dir(run_id)
+    run_dir = _run_dir(run_id, nutzer)
     meta = _eingaben(run_dir, format, ziel, planned_text_hook)
     meta["engine"] = engine
     quelle, abweichung = analyst_cache.finde_vorherige_analyse(ANALYST_PATH, meta, ausser=run_id)
@@ -147,15 +245,15 @@ def cache_check(run_id: str, format: str = "", ziel: str = "", planned_text_hook
 
 
 @router.post("/{run_id}/uebernehmen")
-def uebernehmen(run_id: str, von: str):
+def uebernehmen(run_id: str, von: str, nutzer: str = Depends(nutzer_der_anfrage)):
     """Die Antwort auf „nein, ich habe am Video nichts veraendert": das vorhandene Ergebnis zeigen.
 
     Kein Modell-Call, keine Kosten, und vor allem: dieselbe Bewertung wie beim ersten Mal. Genau
     das ist der Zweck des Caches — zwei abweichende Antworten zu demselben Video lassen den Nutzer
     im Unklaren, welche Empfehlungen jetzt gelten.
     """
-    run_dir = _run_dir(run_id)
-    quelle = _run_dir(von)
+    run_dir = _run_dir(run_id, nutzer)
+    quelle = _run_dir(von, nutzer)
     if not (quelle / "analysis.json").exists():
         raise HTTPException(status_code=409, detail="Diese Analyse ist noch nicht fertig.")
     herkunft = analyst_cache.uebernehmen(quelle, run_dir)
@@ -194,7 +292,7 @@ class StartIn(BaseModel):
 async def start_analysis(
     run_id: str, background: BackgroundTasks, skip_eval: bool = False, engine: str = "v2_hybrid",
     planned_text_hook: str = "", format: str = "", ziel: str = "", neu: bool = False,
-    body: StartIn | None = None,
+    vorgaenger: str = "", body: StartIn | None = None, nutzer: str = Depends(nutzer_der_anfrage),
 ):
     """engine: v1 (Claude bewertet aus Text) | v2_pure (nur Gemini) | v2_hybrid (Gemini + lokale Messwerte).
     skip_eval=true → nur lokale Rohanalyse (Whisper/Quality), KEIN Bewertungs-Call (nur v1 sinnvoll).
@@ -229,10 +327,18 @@ async def start_analysis(
                 status_code=422,
                 detail=f"Unbekanntes Ziel: {gewaehltes_ziel}. Erlaubt: {', '.join(ZIELE)}",
             )
-    run_dir = _run_dir(run_id)
+    run_dir = _run_dir(run_id, nutzer)
     status = json.loads((run_dir / "status.json").read_text())
     if status.get("phase") in RUNNING_PHASES:
         raise HTTPException(status_code=409, detail="Analyse läuft bereits")
+    # V4-Neubewertung: Vorgaenger muss demselben Nutzer gehoeren und fertig sein. Nur v4 kennt den
+    # Abgleich; bei aelteren Engines wird das Feld ignoriert (wie `ziel` bei v2).
+    vorgaenger = (vorgaenger or "").strip() if engine == "v4" else ""
+    if vorgaenger:
+        if vorgaenger == run_id:
+            raise HTTPException(status_code=422, detail="Ein Lauf kann nicht sein eigener Vorgänger sein")
+        if not (_run_dir(vorgaenger, nutzer) / "analysis.json").exists():
+            raise HTTPException(status_code=409, detail="Die vorherige Analyse ist noch nicht fertig.")
     # `neu=true` kommt aus der Rueckfrage „Hast du das Video veraendert?" und braucht deshalb KEIN
     # Admin-Passwort: Der Nutzer hat gerade selbst gesagt, dass die alte Analyse nicht mehr passt.
     # Wuerde /start hier trotzdem den Cache nehmen, widerspraeche das System seiner eigenen Frage.
@@ -249,6 +355,7 @@ async def start_analysis(
     meta["planned_text_hook"] = (planned_text_hook or "").strip()
     meta["format"] = gewaehlt
     meta["ziel"] = gewaehltes_ziel
+    meta["vorgaenger"] = vorgaenger
     # Teil des Cache-Keys: dieselbe Datei unter geändertem Bewertungs-Prompt ist ein anderer Lauf.
     meta["prompt_version"] = PROMPT_VERSION
     meta_path.write_text(json.dumps(meta, ensure_ascii=False))
@@ -274,8 +381,8 @@ async def start_analysis(
 
 
 @router.get("/{run_id}")
-async def get_analysis(run_id: str):
-    run_dir = _run_dir(run_id)
+async def get_analysis(run_id: str, nutzer: str = Depends(nutzer_der_anfrage)):
+    run_dir = _run_dir(run_id, nutzer)
     status = json.loads((run_dir / "status.json").read_text())
     out = {"id": run_id, **status}
     if status.get("phase") in RUNNING_PHASES:
@@ -308,11 +415,11 @@ class ChatIn(BaseModel):
     frage: str = ""
 
 
-def _fertige_analyse(run_id: str) -> tuple[Path, AnalystResult]:
+def _fertige_analyse(run_id: str, nutzer: str | None = None) -> tuple[Path, AnalystResult]:
     """Run-Verzeichnis + geparste Analyse. 409, solange es noch keine fertige Analyse gibt —
     ein Chat über ein Ergebnis, das es nicht gibt, ist kein Serverfehler, sondern ein
     Zustandsproblem."""
-    run_dir = _run_dir(run_id)
+    run_dir = _run_dir(run_id, nutzer)
     pfad = run_dir / "analysis.json"
     if not pfad.exists():
         raise HTTPException(status_code=409, detail="Für diesen Lauf gibt es noch keine fertige Analyse")
@@ -320,13 +427,13 @@ def _fertige_analyse(run_id: str) -> tuple[Path, AnalystResult]:
 
 
 @router.get("/{run_id}/chat")
-def chat_verlauf(run_id: str):
+def chat_verlauf(run_id: str, nutzer: str = Depends(nutzer_der_anfrage)):
     """Bisheriger Chatverlauf — damit die Ansicht nach einem Reload nicht leer ist."""
-    return {"nachrichten": analyst_chat.lade_verlauf(_run_dir(run_id))}
+    return {"nachrichten": analyst_chat.lade_verlauf(_run_dir(run_id, nutzer))}
 
 
 @router.post("/{run_id}/chat")
-def chat_frage(run_id: str, body: ChatIn):
+def chat_frage(run_id: str, body: ChatIn, nutzer: str = Depends(nutzer_der_anfrage)):
     """Antwort wird gestreamt, damit die Anzeige sofort etwas zeigt statt zu warten.
 
     Bewusst `def` statt `async def`: FastAPI führt synchrone Endpunkte in einem Threadpool aus.
@@ -338,7 +445,7 @@ def chat_frage(run_id: str, body: ChatIn):
         raise HTTPException(status_code=422, detail="Bitte eine Frage eingeben")
     if len(frage) > 4000:
         raise HTTPException(status_code=422, detail="Frage ist zu lang (max. 4000 Zeichen)")
-    run_dir, result = _fertige_analyse(run_id)
+    run_dir, result = _fertige_analyse(run_id, nutzer)
     kontext = analyst_chat.baue_kontext(result)
     return StreamingResponse(
         analyst_chat.stream_antwort(run_dir, kontext, frage),
@@ -347,6 +454,50 @@ def chat_frage(run_id: str, body: ChatIn):
         # den Stream und liefert die Antwort am Stück — genau das, was Streaming verhindern soll.
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+
+# ---------- V4: Lauf loeschen, dasselbe Video neu bewerten ----------
+
+@router.delete("/{run_id}")
+def lauf_loeschen(run_id: str, nutzer: str = Depends(nutzer_der_anfrage)):
+    """Nur der Besitzer — Laeufe ohne Besitzer (Altlaeufe) loescht kein Nutzer."""
+    run_dir = _run_dir(run_id, nutzer)
+    if not nutzer or _lies_json(run_dir / "meta.json").get("nutzer") != nutzer:
+        raise HTTPException(status_code=404, detail=f"Analyse {run_id} nicht gefunden")
+    status = _lies_json(run_dir / "status.json")
+    if status.get("phase") in RUNNING_PHASES:
+        raise HTTPException(status_code=409, detail="Die Analyse läuft noch")
+    shutil.rmtree(run_dir, ignore_errors=True)
+    return {"geloescht": run_id}
+
+
+@router.post("/{run_id}/neu-bewerten")
+def neu_bewerten(run_id: str, nutzer: str = Depends(nutzer_der_anfrage)):
+    """Neuer Lauf mit derselben Videodatei — z.B. um dasselbe Video gegen ein anderes Ziel zu
+    bewerten (Andrea, 2026-10-23). Danach startet das Frontend ihn wie jeden Lauf.
+
+    Hardlink statt Kopie, wo das Dateisystem es kann: kein doppelter Speicher. Ist das Video schon
+    weggeraeumt (Aufbewahrungsfrist), 410 — die Analyse selbst gibt es noch, das Video nicht."""
+    quelle = _run_dir(run_id, nutzer)
+    videos = [f for f in (quelle / "raw").iterdir() if f.is_file()] if (quelle / "raw").is_dir() else []
+    if not videos:
+        raise HTTPException(status_code=410, detail="Das Video ist nicht mehr gespeichert. Bitte lade es neu hoch.")
+    alt = _lies_json(quelle / "meta.json")
+    neu_id = str(uuid.uuid4())[:8]
+    ziel_dir = ANALYST_PATH / neu_id
+    (ziel_dir / "raw").mkdir(parents=True)
+    ziel = ziel_dir / "raw" / videos[0].name
+    try:
+        os.link(videos[0], ziel)
+    except OSError:
+        shutil.copy2(videos[0], ziel)
+    meta = {k: alt[k] for k in ("filename", "sha256", "marke_datei", "marke_text", "marke_gekuerzt",
+                                "marke_hash") if k in alt}
+    meta.update({"id": neu_id, "created_at": datetime.now().isoformat(), "nutzer": nutzer,
+                 "neu_bewertet_von": run_id})
+    (ziel_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False))
+    write_status(ziel_dir, "uploaded", "Bereit zur Analyse")
+    return {"id": neu_id, "filename": meta.get("filename", "")}
 
 
 # ---------- Admin-/Feedback-Ansicht (Experten-Feedback sammeln) ----------
