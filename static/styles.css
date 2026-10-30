@@ -861,3 +861,127 @@
 .dlg-knoepfe{display:flex;gap:10px;flex-wrap:wrap;}
 .dlg-knoepfe .btn{flex:1 1 170px;}
 @media(max-width:520px){ .dlg-knoepfe .btn{flex:1 1 100%;} }
+
+/* ===== V4 (Spec 2026-10-30) =====
+   Nur Variablen aus templates/index.html — keine zweite Palette. */
+
+.btn-klein{padding:6px 11px; font-size:12.5px; border-radius:9px;}
+.btn-klein.btn-icon{width:auto; padding:6px 8px;}
+
+/* „Frag nach" an jeder Empfehlung: dezent, damit die Empfehlung selbst das Wichtigste bleibt. */
+.frag-nach{
+  display:inline-block; margin-left:8px; padding:0; border:none; background:none;
+  font:inherit; font-size:12.5px; font-weight:600; color:var(--gold-deep); cursor:pointer;
+  white-space:nowrap;
+}
+.frag-nach:hover{text-decoration:underline;}
+
+/* Ab „Mehr Details" ist alles eingeklappt — weniger Scrollen auf dem Handy. */
+.analyst-mehr{margin-top:10px; border-top:1px solid var(--line); padding-top:8px;}
+.analyst-mehr > summary{cursor:pointer; font-weight:600; font-size:14px; padding:6px 0; color:var(--ink);}
+
+/* Vorgänger-Vergleich */
+.v4-hinweis{
+  display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px;
+  padding:10px 14px; font-size:13.5px; background:var(--gold-tint-2); border:1px solid var(--line-strong);
+  border-radius:var(--radius-sm);
+}
+.v4-vergleich{background:var(--paper-alt); border:1px solid var(--line); border-radius:12px; padding:12px 14px;}
+.v4-delta{font-size:15px; margin:4px 0;}
+.v4-delta .plus{color:var(--ok-ink); font-weight:700;}
+.v4-delta .minus{color:var(--err-ink); font-weight:700;}
+.v4-abgleich{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; font-size:13.5px;}
+.v4-abgleich li{display:flex; gap:8px; align-items:flex-start;}
+.v4-abgleich-ico{flex:0 0 18px; text-align:center;}
+.v4-abgleich .st-umgesetzt b{color:var(--ok-ink);}
+
+/* Fortschritt: Balken mit Stufenmarken. Die Marken sitzen dicht am Anfang (mehr Meilensteine,
+   solange die Motivation am wackeligsten ist) und weit am Ende. */
+.lvl-liste{display:flex; flex-direction:column; gap:14px;}
+.lvl-kopf{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px;}
+.lvl-titel{font-size:13.5px; font-weight:600; color:var(--ink);}
+.lvl-zahl{font-size:13px; font-weight:700; color:var(--gold-deep); font-variant-numeric:tabular-nums;}
+.lvl-gross .lvl-titel{font-size:16px;}
+.lvl-gross .lvl-zahl{font-size:16px;}
+.lvl-trend.hoch{color:var(--ok-ink);}
+.lvl-trend.runter{color:var(--taupe);}
+.lvl-bahn{position:relative; height:10px; border-radius:999px; background:var(--cream-deep); overflow:visible;}
+.lvl-gross .lvl-bahn{height:14px;}
+.lvl-fuellung{
+  position:absolute; inset:0 auto 0 0; border-radius:999px;
+  background:linear-gradient(90deg,var(--gold),var(--gold-deep));
+  transition:width .6s cubic-bezier(.22,1,.36,1);
+}
+.lvl-marke{
+  position:absolute; top:50%; width:8px; height:8px; margin:-4px 0 0 -4px; border-radius:50%;
+  background:var(--paper); border:1.5px solid var(--line-strong);
+}
+.lvl-marke.erreicht{background:var(--gold-deep); border-color:var(--paper);}
+.lvl-unter{font-size:12px; color:var(--taupe); margin-top:5px;}
+.lvl-fokus{
+  font-size:13px; line-height:1.5; padding:10px 12px; border-radius:10px;
+  background:var(--gold-tint-2); border:1px solid var(--line);
+}
+@media (prefers-reduced-motion:reduce){ .lvl-fuellung{transition:none;} }
+
+/* Meine Analysen */
+.meine-liste{display:flex; flex-direction:column;}
+.meine-zeile{
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 12px;
+  padding:10px 0; border-bottom:1px solid var(--line);
+}
+.meine-zeile:last-child{border-bottom:none;}
+.meine-info{min-width:0; flex:1 1 200px;}
+.meine-name{font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.meine-meta{font-size:12px; color:var(--taupe); margin-top:2px;}
+.meine-knoepfe{display:flex; flex-wrap:wrap; gap:6px; align-items:center;}
+
+/* Messenger-Chat: runder Knopf unten rechts, Fenster darüber — kein Modal, die Analyse bleibt
+   bedienbar. Unter 640 px fährt es als Panel von unten hoch. */
+.chat-fab{
+  position:fixed; right:20px; bottom:20px; z-index:70;
+  display:flex; align-items:center; gap:8px; height:56px; min-width:56px; padding:0 18px;
+  border:none; border-radius:999px; cursor:pointer; font:inherit; font-weight:700; font-size:14px;
+  color:#fff; background:linear-gradient(145deg,var(--gold),var(--gold-deep));
+  box-shadow:0 8px 24px rgba(166,134,63,.35);
+}
+.chat-fab.ist-offen{padding:0; justify-content:center; width:56px;}
+.chat-fab:focus-visible{outline:3px solid var(--gold-tint); outline-offset:2px;}
+.chat-fenster{
+  position:fixed; right:20px; bottom:88px; z-index:70;
+  width:380px; max-width:calc(100vw - 32px); height:560px; max-height:calc(100vh - 120px);
+  display:flex; flex-direction:column; overflow:hidden;
+  background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:0 18px 50px rgba(34,30,24,.25);
+  animation:chatFensterRein .25s cubic-bezier(.22,1,.36,1);
+}
+@keyframes chatFensterRein{ from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:none;} }
+@media (prefers-reduced-motion:reduce){ .chat-fenster{animation:none;} }
+.chat-fenster-kopf{
+  display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid var(--line);
+}
+.chat-fenster-kopf .chat-badge{width:30px; height:30px; border-radius:9px;}
+.chat-fenster-kopf .chat-sub{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.chat-fenster-zu{
+  flex:none; width:32px; height:32px; display:grid; place-items:center; cursor:pointer;
+  border:1px solid var(--line); border-radius:9px; background:var(--paper); color:var(--taupe);
+}
+.chat-fenster-zu:hover{color:var(--err-ink); border-color:var(--err-line);}
+/* Im Fenster füllt der Chat die Höhe: kein Klapp-Rahmen, kein Kartenrand. */
+.chat-card.ist-schwebend{flex:1; min-height:0; border:none; border-radius:0; box-shadow:none;}
+.chat-card.ist-schwebend .chat-klapp{flex:1; min-height:0; display:flex;}
+.chat-card.ist-schwebend .chat-klapp-inner{flex:1; min-height:0;}
+.chat-card.ist-schwebend .chat-stream{height:auto; max-height:none; padding:16px;}
+@media (max-width:640px){
+  .chat-fenster{left:0; right:0; bottom:0; width:100%; max-width:none; height:85vh; max-height:85vh;
+    border-radius:var(--radius) var(--radius) 0 0;}
+  .chat-fab{right:14px; bottom:14px;}
+}
+
+/* Schwebender Player weicht nach links aus, wenn rechts der Chat-Knopf sitzt. */
+.analyst-player-rahmen.ist-mini.links{right:auto; left:16px;}
+@media (max-width:640px){ .analyst-player-rahmen.ist-mini.links{left:10px;} }
+.btn-klein:disabled{opacity:.45; cursor:not-allowed;}
+/* Auf dem Handy hat das Panel einen eigenen Schließen-Knopf; der runde Knopf würde sonst über
+   dem Senden-Pfeil liegen. */
+@media (max-width:640px){ .chat-fab.ist-offen{display:none;} }

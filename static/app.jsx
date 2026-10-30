@@ -46,9 +46,35 @@ const SEGMENT_TYPE_LABELS = {
   repetition: "Wiederholung",
 };
 
+/* ===== Nutzer-ID (V4) =====
+   Die Browser-ID ordnet Analysen einem Nutzer zu, solange der Analyst noch nicht im Agentursystem
+   haengt. Sie geht IMMER doppelt raus: als X-Analyst-Nutzer (ueberschreibt der Proxy nach der
+   Integration mit der Konto-ID) und als X-Analyst-Geraet (bleibt) — daran erkennt der Server, welche
+   Uebergangs-Laeufe er auf das Konto umschreiben soll (services/analyst_nutzer.py).
+   localStorage kann fehlen oder werfen (privates Fenster, gesperrte Daten): dann gilt die ID nur
+   fuer diese Sitzung. */
+const LS_NUTZER = "analyst.nutzerId";
+let _nutzerId = null;
+function nutzerId() {
+  if (_nutzerId !== null) return _nutzerId;
+  const neu = () => (window.crypto?.randomUUID?.() ||
+    (Date.now().toString(36) + Math.random().toString(36).slice(2, 14)));
+  try {
+    _nutzerId = localStorage.getItem(LS_NUTZER) || "";
+    if (!_nutzerId) { _nutzerId = neu(); localStorage.setItem(LS_NUTZER, _nutzerId); }
+  } catch (_) {
+    _nutzerId = _nutzerId || neu();
+  }
+  return _nutzerId;
+}
+function nutzerHeader() {
+  const id = nutzerId();
+  return id ? { "X-Analyst-Nutzer": id, "X-Analyst-Geraet": id } : {};
+}
+
 /* ===== API helper ===== */
 async function api(method, path, body) {
-  const opts = { method, headers: {} };
+  const opts = { method, headers: { ...nutzerHeader() } };
   if (body && !(body instanceof FormData)) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
@@ -444,14 +470,14 @@ function ScoreChip({ label, score, positiv, kritik, beschreibung }) {
 }
 
 // Handlungsempfehlungen: max 3, nach Priorität; die wichtigste hervorgehoben. Ruhige Liste, kein Häkchen-Zwang.
-function Handlungsempfehlungen({ steps }) {
+function Handlungsempfehlungen({ steps, titel = "💡 Handlungsempfehlungen",
+                                 hinweis = "Du musst nicht alles umsetzen — schon eine Änderung hilft.",
+                                 onFrage = null }) {
   const top = (steps || []).slice(0, 3);
   return (
     <div className="analyst-eval-block">
-      <div className="analyst-eval-title">💡 Handlungsempfehlungen</div>
-      <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-        Du musst nicht alles umsetzen — schon eine Änderung hilft.
-      </div>
+      <div className="analyst-eval-title">{titel}</div>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>{hinweis}</div>
       {top.map((s, i) => (
         <div
           key={i}
@@ -469,8 +495,15 @@ function Handlungsempfehlungen({ steps }) {
           }}>
             {i === 0 ? "★ Wichtigste" : `#${i + 1}`}
           </span>
-          <span style={{ fontSize: i === 0 ? 15 : 14 }}>
+          <span style={{ fontSize: i === 0 ? 15 : 14, flex: 1 }}>
             {s.zeitpunkt ? <b>{s.zeitpunkt} — </b> : null}{s.anweisung}
+            {/* V4: öffnet den Chat mit genau dieser Empfehlung als Frage (Andrea: „da hätte ich
+                gerne eine Rückfrage gestellt und habe gar nicht gewusst, dass ich das kann"). */}
+            {onFrage && (
+              <button type="button" className="frag-nach" onClick={() => onFrage(s)}>
+                Frag nach →
+              </button>
+            )}
           </span>
         </div>
       ))}
@@ -700,8 +733,11 @@ function MarkdownLite({ text }) {
 /* ===== V1.1: Rückfragen-Chat zur fertigen Analyse =====
    Fragt nach, lässt sich erklären, bekommt konkretere Hinweise. Der Chat ÄNDERT die Bewertung
    nicht — das braucht Versionierung und ein Bestätigungs-Gate und kommt separat. */
-function ChatPanel({ runId, filename, dauerSec = 0 }) {
-  const [offen, setOffen] = useState(false);
+function ChatPanel({ runId, filename, dauerSec = 0, schwebend = false, entwurf = null }) {
+  // `schwebend` (V4): Das Panel steckt im Messenger-Fenster und ist immer offen — Auf/Zu macht
+  // dort der runde Knopf. `entwurf` = {text, n}: „Frag nach" an einer Empfehlung fuellt das Feld vor.
+  const [offenIntern, setOffen] = useState(false);
+  const offen = schwebend || offenIntern;
   const [nachrichten, setNachrichten] = useState([]);
   const [eingabe, setEingabe] = useState("");
   const [laeuft, setLaeuft] = useState(false);
@@ -720,6 +756,13 @@ function ChatPanel({ runId, filename, dauerSec = 0 }) {
       .catch(() => {});
     return () => { abgebrochen = true; };
   }, [runId]);
+
+  useEffect(() => {
+    if (!entwurf?.text) return;
+    setEingabe(entwurf.text);
+    // Nach dem Rendern fokussieren und die Höhe anpassen — der Text ist meist zweizeilig.
+    setTimeout(() => { if (feldRef.current) { feldRef.current.focus(); autoResize(feldRef.current); } }, 50);
+  }, [entwurf]);
 
   // Immer ans Ende scrollen — auch während die Antwort noch wächst.
   // Nur wenn der Chat offen ist: sonst scrollt der Browser zu einem unsichtbaren Element
@@ -747,7 +790,7 @@ function ChatPanel({ runId, filename, dauerSec = 0 }) {
     try {
       const res = await fetch(`/api/analyst/${runId}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...nutzerHeader() },
         body: JSON.stringify({ frage }),
       });
       if (!res.ok) {
@@ -788,10 +831,11 @@ function ChatPanel({ runId, filename, dauerSec = 0 }) {
   const leer = nachrichten.length === 0 && !laeuft;
 
   return (
-    <div className={"chat-card" + (offen ? " ist-offen" : "")}>
+    <div className={"chat-card" + (offen ? " ist-offen" : "") + (schwebend ? " ist-schwebend" : "")}>
       {/* Kopf ist der Auf-/Zuklapp-Schalter. Als <button>, damit Tastatur und Screenreader
-          ihn bedienen können — ein <div> mit onClick kann beides nicht. */}
-      <button
+          ihn bedienen können — ein <div> mit onClick kann beides nicht. Im Messenger (V4)
+          entfällt er: Das Fenster hat einen eigenen Kopf mit Schließen-Knopf. */}
+      {!schwebend && <button
         type="button"
         className="chat-head"
         onClick={() => setOffen((o) => !o)}
@@ -815,7 +859,7 @@ function ChatPanel({ runId, filename, dauerSec = 0 }) {
           <span className="chat-toggle-bar" />
           <span className="chat-toggle-bar chat-toggle-bar-v" />
         </span>
-      </button>
+      </button>}
 
       <div className="chat-klapp" id="chat-klapp">
        <div className="chat-klapp-inner">
@@ -886,6 +930,264 @@ function ChatPanel({ runId, filename, dauerSec = 0 }) {
   );
 }
 
+/* ===== V4: Fortschritt, Meine Analysen, Vergleich, Messenger ===== */
+const DIMENSION_LABEL = {
+  sprech_hook: "Sprech-Hook", text_hook: "Text-Hook", visuell_hook: "Visuelle Hook",
+  spannungsbogen: "Spannungsbogen", struktur: "Struktur", skript: "Skript",
+  untertitel_vorhanden: "Untertitel", cta: "Call to Action", schnitt_pacing: "Schnitt & Pacing",
+  untertitel_gestaltung: "Untertitel-Gestaltung", einblendungen: "Einblendungen",
+  soundeffekte: "Soundeffekte", sprechqualitaet: "Sprechqualität", visuelle_aesthetik: "Bildqualität",
+  audioqualitaet: "Audioqualität", protagonist_auftreten: "Auftreten",
+};
+const KATEGORIE_TITEL = Object.fromEntries(OUTPUT_KATEGORIEN.map((k) => [k.key, k.titel]));
+const komma = (x) => String(x).replace(".", ",");
+
+// Was zum nächsten Level fehlt — in Worten statt als Formel.
+function naechstesZiel(k, fs) {
+  const n = k.naechstes;
+  if (!n) return "Höchstes Level erreicht.";
+  if (n.art === "analysen") {
+    const rest = Math.max(1, n.wert - fs.analysen);
+    return `Noch ${rest} ${rest === 1 ? "Analyse" : "Analysen"} bis Level ${k.level + 1}.`;
+  }
+  if (n.art === "neubewertung_oder_analysen") {
+    return "Lad eine verbesserte Version eines Videos hoch — oder mach insgesamt 5 Analysen.";
+  }
+  return `Level ${k.level + 1}: Schnitt ${komma(n.wert.toFixed(1))} über deine letzten 5 Videos` +
+    (k.schnitt != null ? ` (aktuell ${komma(k.schnitt.toFixed(1))}).` : ".");
+}
+
+function LevelBalken({ titel, level, position, stufen, gross = false, unterzeile = "", trend = "" }) {
+  return (
+    <div className={"lvl" + (gross ? " lvl-gross" : "")}>
+      <div className="lvl-kopf">
+        <span className="lvl-titel">{titel}</span>
+        <span className="lvl-zahl">
+          Level {level}
+          {trend === "hoch" && <span className="lvl-trend hoch" title="Zuletzt besser geworden"> ↑</span>}
+          {trend === "runter" && <span className="lvl-trend runter" title="Zuletzt etwas schwächer"> ↓</span>}
+        </span>
+      </div>
+      <div className="lvl-bahn" role="progressbar" aria-label={`${titel}: Level ${level}`}
+           aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(position)}>
+        <div className="lvl-fuellung" style={{ width: `${position}%` }} />
+        {/* Stufenmarken: dicht am Anfang, weit am Ende (services/analyst_fortschritt.POSITION). */}
+        {stufen.slice(1).map((s, i) => (
+          <span key={i} className={"lvl-marke" + (i + 1 <= level ? " erreicht" : "")} style={{ left: `${s}%` }} />
+        ))}
+      </div>
+      {unterzeile && <div className="lvl-unter">{unterzeile}</div>}
+    </div>
+  );
+}
+
+function V4Bereich({ stand, onOeffnen, onVerbessert, onAnderesZiel }) {
+  const [fs, setFs] = useState(null);
+  const [laeufe, setLaeufe] = useState([]);
+  const [alle, setAlle] = useState(false);
+  const [loeschFrage, setLoeschFrage] = useState("");
+  const [fehler, setFehler] = useState("");
+
+  async function laden() {
+    try {
+      const [f, m] = await Promise.all([api("GET", "/api/analyst/fortschritt"), api("GET", "/api/analyst/meine")]);
+      setFs(f);
+      setLaeufe(m.laeufe || []);
+      setFehler("");
+    } catch (e) { setFehler(e.message); }
+  }
+  useEffect(() => { laden(); }, [stand]);
+
+  async function loeschen(id) {
+    try {
+      await api("DELETE", `/api/analyst/${id}`);
+      setLoeschFrage("");
+      laden();
+    } catch (e) { setFehler(e.message); }
+  }
+
+  const fertig = laeufe.filter((l) => l.phase === "done");
+  const sichtbar = alle ? fertig : fertig.slice(0, 5);
+  return (
+    <>
+      <Card icon={<Ico.chart />} title="Dein Fortschritt"
+            sub={fs ? `${fs.analysen} ${fs.analysen === 1 ? "Analyse" : "Analysen"} · Level steigen mit jedem Video, sie sinken nie` : "wird geladen …"}>
+        {fehler && <div className="muted" style={{ fontSize: 13 }}>{fehler}</div>}
+        {fs && (
+          <div className="lvl-liste">
+            <LevelBalken titel="Gesamt" gross level={fs.gesamt.level} position={fs.gesamt.position}
+                         stufen={fs.stufen}
+                         unterzeile={fs.analysen === 0 ? "Deine erste Analyse bringt dich auf Level 1." : ""} />
+            {fs.kategorien.map((k) => (
+              <LevelBalken key={k.key} titel={KATEGORIE_TITEL[k.key] || k.key} level={k.level}
+                           position={k.position} stufen={fs.stufen} trend={k.trend}
+                           unterzeile={naechstesZiel(k, fs)} />
+            ))}
+            {fs.fokus && (
+              <div className="lvl-fokus">
+                🎯 <b>Dein Fokus:</b> {DIMENSION_LABEL[fs.fokus.dimension] || fs.fokus.dimension} — in {fs.fokus.anzahl}{" "}
+                von {fs.fokus.von} deiner letzten Videos noch schwach. Hier bringt dich die nächste Verbesserung am weitesten.
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {fertig.length > 0 && (
+        <Card icon={<Ico.film />} title="Meine Analysen" sub="Gespeichert — du kannst jederzeit zurück">
+          <div className="meine-liste">
+            {sichtbar.map((l) => (
+              <div key={l.id} className="meine-zeile">
+                <div className="meine-info">
+                  <div className="meine-name" title={l.filename}>{l.filename}</div>
+                  <div className="meine-meta">
+                    {l.created_at ? new Date(l.created_at).toLocaleDateString("de-DE") : ""}
+                    {l.ziel ? ` · ${ZIEL_LABEL[l.ziel] || l.ziel}` : ""}
+                    {l.score != null ? ` · Umsetzung ${l.score}` : ""}
+                    {l.vorgaenger ? " · verbesserte Version" : ""}
+                  </div>
+                </div>
+                <div className="meine-knoepfe">
+                  {loeschFrage === l.id ? (
+                    <>
+                      <span className="muted" style={{ fontSize: 12.5 }}>Wirklich löschen?</span>
+                      <button className="btn btn-ghost btn-klein" onClick={() => loeschen(l.id)}>Ja</button>
+                      <button className="btn btn-ghost btn-klein" onClick={() => setLoeschFrage("")}>Nein</button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="btn btn-soft btn-klein" onClick={() => onOeffnen(l)}>Öffnen</button>
+                      <button className="btn btn-ghost btn-klein" onClick={() => onVerbessert(l)}
+                              title="Lade die überarbeitete Fassung hoch — sie wird mit dieser Analyse verglichen.">
+                        Verbesserte Version
+                      </button>
+                      <button className="btn btn-ghost btn-klein" onClick={() => onAnderesZiel(l)} disabled={!l.video_da}
+                              title={l.video_da ? "Dasselbe Video mit einem anderen Ziel bewerten"
+                                                : "Das Video ist nicht mehr gespeichert (nach 30 Tagen gelöscht)."}>
+                        Anderes Ziel
+                      </button>
+                      <button className="btn btn-ghost btn-klein btn-icon" onClick={() => setLoeschFrage(l.id)}
+                              aria-label={`${l.filename} löschen`} title="Löschen">
+                        <Ico.x width="13" height="13" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          {fertig.length > 5 && (
+            <button className="btn btn-ghost btn-klein" style={{ marginTop: 10 }} onClick={() => setAlle(!alle)}>
+              {alle ? "Weniger anzeigen" : `Alle ${fertig.length} anzeigen`}
+            </button>
+          )}
+        </Card>
+      )}
+    </>
+  );
+}
+
+const ABGLEICH_ICON = { umgesetzt: "✅", teilweise: "🔸", offen: "⭕" };
+const ABGLEICH_TEXT = { umgesetzt: "umgesetzt", teilweise: "teilweise", offen: "noch offen" };
+
+function VorgaengerVergleich({ result }) {
+  const [alt, setAlt] = useState(null);
+  useEffect(() => {
+    if (!result.vorgaenger_id) return;
+    let ab = false;
+    api("GET", `/api/analyst/${result.vorgaenger_id}`)
+      .then((d) => { if (!ab) setAlt(d.result || null); })
+      .catch(() => {});   // Vorgänger gelöscht: Abgleich steht trotzdem (er ist mitgespeichert)
+    return () => { ab = true; };
+  }, [result.vorgaenger_id]);
+  if (!result.vorgaenger_id) return null;
+  const ev = result.evaluation || {};
+  const punkte = ev.vorgaenger_abgleich || [];
+  const altScore = alt?.evaluation?.performance_score;
+  // Andere Ziele = andere Gewichte: Die Zahlen vergleicht man dann nicht (Spec 2.3).
+  const gleichesZiel = alt && alt.gewaehltes_ziel === result.gewaehltes_ziel;
+  const delta = gleichesZiel && altScore != null ? ev.performance_score - altScore : null;
+  const erledigt = punkte.filter((p) => p.status === "umgesetzt").length;
+  return (
+    <div className="analyst-eval-block v4-vergleich">
+      <div className="analyst-eval-title">🔁 Vergleich mit deiner vorherigen Version</div>
+      {delta != null && (
+        <div className="v4-delta">
+          Umsetzungs-Score: {altScore} → <b>{ev.performance_score}</b>{" "}
+          <span className={delta > 0 ? "plus" : delta < 0 ? "minus" : ""}>({delta > 0 ? "+" : ""}{delta})</span>
+        </div>
+      )}
+      {alt && !gleichesZiel && (
+        <div className="muted" style={{ fontSize: 12.5 }}>
+          Die vorherige Analyse hatte ein anderes Ziel — die Scores sind deshalb nicht direkt vergleichbar.
+        </div>
+      )}
+      {punkte.length > 0 ? (
+        <>
+          <div className="muted" style={{ fontSize: 12.5, margin: "6px 0" }}>
+            Von {punkte.length} Empfehlungen hast du {erledigt} umgesetzt.
+          </div>
+          <ul className="v4-abgleich">
+            {punkte.map((p, i) => (
+              <li key={i} className={"st-" + p.status}>
+                <span className="v4-abgleich-ico" aria-hidden="true">{ABGLEICH_ICON[p.status]}</span>
+                <span>
+                  <b>{ABGLEICH_TEXT[p.status]}:</b> {p.anweisung}
+                  {p.kommentar && <span className="muted"> — {p.kommentar}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <div className="muted" style={{ fontSize: 12.5 }}>Zu den einzelnen Empfehlungen liegt kein Abgleich vor.</div>
+      )}
+    </div>
+  );
+}
+
+// Weniger Scrollen auf dem Handy (Andrea): In V4 stehen oben nur Score, Vergleich und die
+// Schritte; alles Weitere liegt eingeklappt darunter. V3 bleibt unverändert (an=false).
+function MehrDetails({ an, children }) {
+  if (!an) return <>{children}</>;
+  return (
+    <details className="analyst-mehr">
+      <summary>Mehr Details zur Analyse</summary>
+      <div style={{ marginTop: 10 }}>{children}</div>
+    </details>
+  );
+}
+
+// Messenger-Chat (V4): runder Knopf unten rechts, Fenster daneben statt Popup. Auf schmalen
+// Bildschirmen fährt es als Panel von unten hoch (styles.css, .chat-fenster).
+function ChatMessenger({ runId, filename, dauerSec, offen, setOffen, entwurf }) {
+  return (
+    <>
+      {offen && (
+        <div className="chat-fenster" role="dialog" aria-label="Rückfragen zur Analyse">
+          <div className="chat-fenster-kopf">
+            <div className="chat-badge"><Ico.brain width="16" height="16" /></div>
+            <div className="chat-head-text">
+              <div className="chat-titel" style={{ fontSize: 15 }}>Rückfragen zur Analyse</div>
+              <div className="chat-sub" title={filename}>{filename}</div>
+            </div>
+            <button type="button" className="chat-fenster-zu" onClick={() => setOffen(false)} aria-label="Chat schließen">
+              <Ico.x width="16" height="16" />
+            </button>
+          </div>
+          <ChatPanel runId={runId} filename={filename} dauerSec={dauerSec} schwebend entwurf={entwurf} />
+        </div>
+      )}
+      <button type="button" className={"chat-fab" + (offen ? " ist-offen" : "")}
+              onClick={() => setOffen(!offen)} aria-expanded={offen}
+              aria-label={offen ? "Chat schließen" : "Rückfragen zur Analyse stellen"}>
+        {offen ? <Ico.x width="22" height="22" /> : <Ico.brain width="22" height="22" />}
+        {!offen && <span className="chat-fab-label">Fragen?</span>}
+      </button>
+    </>
+  );
+}
+
 // `chat` ist per Default aus → die bestehende Analyst-Ansicht verhält sich unverändert.
 // V1.1 mountet dieselbe Komponente ein zweites Mal mit chat={true}.
 function VideoAnalystPage({ adminPw = "", chat = false }) {
@@ -900,6 +1202,15 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   // Umschalten nur in der Admin-Ansicht — Endnutzer sehen genau eine Variante
   // (Entscheidung 2026-08-10), seit 2026-09-16 ist das V3.
   const [engine, setEngine] = useState(ANALYST_ENGINE);
+  // V3 und V4 verlangen ein Ziel; V4 erbt die komplette V3-Zielsteuerung.
+  const mitZiel = engine === "v3" || engine === "v4";
+  // V4: Neubewertung einer verbesserten Fassung — {id, filename} der vorherigen Analyse.
+  const [vorgaenger, setVorgaenger] = useState(null);
+  // V4: dasselbe, schon gespeicherte Video erneut bewerten (anderes Ziel) — {runId, filename}.
+  const [gespeichertesVideo, setGespeichertesVideo] = useState(null);
+  const [v4Stand, setV4Stand] = useState(0);            // lädt Fortschritt/Liste neu
+  const [chatOffen, setChatOffen] = useState(false);    // Messenger-Fenster (V4)
+  const [chatEntwurf, setChatEntwurf] = useState(null); // {text, n} aus „Frag nach"
   const [plannedTextHook, setPlannedTextHook] = useState("");  // Freifeld: geplante Texthook (falls noch nicht im Video)
   // Optionale Marken-/Zielgruppen-Datei. Sie liegt bis zum Start NUR im Browser: Die Lauf-ID
   // entsteht erst beim Video-Upload, und ein Zwischenspeicher auf dem Server ohne Lauf waere
@@ -970,13 +1281,13 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     if (f) setAnalysisFile({ file: f, name: f.name, size: (f.size / 1024 / 1024).toFixed(1) + " MB" });
   }
 
-  const canStart = !!analysisFile && !!format && (engine !== "v3" || !!ziel);
+  const canStart = (!!analysisFile || !!gespeichertesVideo) && !!format && (!mitZiel || !!ziel);
   // Dieselben drei Bedingungen wie oben, nur in Worten — damit der Hinweis unter dem Knopf nicht
   // auseinanderlaufen kann, wenn eine Bedingung dazukommt.
   const fehlendeEingaben = [
-    !analysisFile && "eine Videodatei",
+    !analysisFile && !gespeichertesVideo && "eine Videodatei",
     !format && "das Format",
-    engine === "v3" && !ziel && "das Ziel des Videos",
+    mitZiel && !ziel && "das Ziel des Videos",
   ].filter(Boolean);
 
   async function pollUntilDone(runId) {
@@ -1010,10 +1321,16 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     activePhaseRef.current = "";
     setPhaseStartMs(0);
     try {
-      setProgress("Video wird hochgeladen …");   // neutral; verrät nichts
-      const fd = new FormData();
-      fd.append("file", analysisFile.file);
-      const up = await api("POST", "/api/analyst/upload", fd);
+      let up;
+      if (gespeichertesVideo) {
+        // Der Lauf mit der gespeicherten Datei existiert schon (POST /neu-bewerten).
+        up = { id: gespeichertesVideo.runId };
+      } else {
+        setProgress("Video wird hochgeladen …");   // neutral; verrät nichts
+        const fd = new FormData();
+        fd.append("file", analysisFile.file);
+        up = await api("POST", "/api/analyst/upload", fd);
+      }
       setRunId(up.id);
       // Marken-/Zielgruppen-Datei VOR dem Start: /start liest meta.json und baut daraus den
       // Cache-Key. Danach hochgeladen wuerde sie im laufenden Lauf nicht mehr gelesen.
@@ -1033,7 +1350,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
         engine,
         planned_text_hook: plannedTextHook,
         format,
-        ...(engine === "v3" ? { ziel } : {}),
+        ...(mitZiel ? { ziel } : {}),
+        ...(engine === "v4" && vorgaenger ? { vorgaenger: vorgaenger.id } : {}),
       });
       // Gibt es zu dieser Datei schon eine Analyse? Dann NICHT einfach rechnen, sondern fragen.
       // Anlass: Ein Nutzer hat dasselbe Video zweimal hochgeladen und zwei verschiedene
@@ -1042,7 +1360,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       // Server ohne diesen Endpunkt), läuft die Analyse normal weiter. Sie hier scheitern zu
       // lassen würde für einen Komfort-Aufruf den ganzen Start blockieren — und serverseitig
       // greift der Cache in /start ohnehin weiterhin.
-      if (!cacheUmgehen) {
+      // Beim gespeicherten Video ist die Frage „hast du es verändert?" sinnlos — es ist dieselbe Datei.
+      if (!cacheUmgehen && !gespeichertesVideo) {
         let vorher = null;
         try {
           vorher = await api("GET", `/api/analyst/${up.id}/cache-check?${qs}`);
@@ -1059,6 +1378,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       if (res) {
         setResult(res);
         setPhase("done");
+        setV4Stand((s) => s + 1);
       }
     } catch (e) {
       setError(e.message);
@@ -1077,6 +1397,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       setCacheInfo({ from: quelle, at: rueckfrage.erstelltAm || "" });
       setResult(daten.result);
       setPhase("done");
+      setV4Stand((s) => s + 1);
     } catch (e) {
       setError(e.message);
       setPhase("idle");
@@ -1092,11 +1413,12 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       setProgress(ANALYSE_LAEUFT);
       const qs = new URLSearchParams({
         engine, planned_text_hook: plannedTextHook, format, neu: "true",
-        ...(engine === "v3" ? { ziel } : {}),
+        ...(mitZiel ? { ziel } : {}),
+        ...(engine === "v4" && vorgaenger ? { vorgaenger: vorgaenger.id } : {}),
       });
       await api("POST", `/api/analyst/${runId}/start?${qs}`);
       const res = await pollUntilDone(runId);
-      if (res) { setResult(res); setPhase("done"); }
+      if (res) { setResult(res); setPhase("done"); setV4Stand((s) => s + 1); }
     } catch (e) {
       setError(e.message);
       setPhase("idle");
@@ -1121,6 +1443,50 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     setActivePhase("");
     activePhaseRef.current = "";
     setPhaseStartMs(0);
+    setVorgaenger(null);
+    setGespeichertesVideo(null);
+    setChatOffen(false);
+    setChatEntwurf(null);
+  }
+
+  // ---- V4: Aktionen aus „Meine Analysen" ----
+  function nachOben() { window.scrollTo({ top: 0, behavior: "smooth" }); }
+
+  async function oeffneAnalyse(lauf) {
+    try {
+      const d = await api("GET", `/api/analyst/${lauf.id}`);
+      if (!d.result) throw new Error("Diese Analyse ist noch nicht fertig.");
+      reset();
+      setRunId(lauf.id);
+      setResult(d.result);
+      setPhase("done");
+      setTimeout(() => document.getElementById("analyst-ergebnis")?.scrollIntoView({ behavior: "smooth" }), 80);
+    } catch (e) { setError(e.message); }
+  }
+
+  function verbesserteVersion(lauf) {
+    reset();
+    setVorgaenger({ id: lauf.id, filename: lauf.filename });
+    // Gleiche Eingaben wie beim ersten Mal vorschlagen — der Vergleich ist so am aussagekräftigsten.
+    if (lauf.ziel) setZiel(lauf.ziel);
+    if (lauf.format) setFormat(lauf.format);
+    nachOben();
+    setTimeout(() => fileRef.current?.click(), 300);
+  }
+
+  async function anderesZiel(lauf) {
+    try {
+      const neu = await api("POST", `/api/analyst/${lauf.id}/neu-bewerten`);
+      reset();
+      setGespeichertesVideo({ runId: neu.id, filename: lauf.filename });
+      if (lauf.format) setFormat(lauf.format);
+      nachOben();
+    } catch (e) { setError(e.message); }
+  }
+
+  function fragNach(schritt) {
+    setChatEntwurf({ text: `Zu deiner Empfehlung „${schritt.anweisung}": Wie setze ich das konkret um?`, n: Date.now() });
+    setChatOffen(true);
   }
 
   // Player erst nach der Analyse — vorher gibt es kein „analysiertes Video".
@@ -1197,6 +1563,12 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
         </div>
       )}
 
+      {/* V4: Fortschritt und gespeicherte Analysen oben — sichtbar, sobald V4 gewählt ist. */}
+      {engine === "v4" && (
+        <V4Bereich stand={v4Stand} onOeffnen={oeffneAnalyse} onVerbessert={verbesserteVersion}
+                   onAnderesZiel={anderesZiel} />
+      )}
+
       {/* Eingabe */}
       <Card
         icon={zeigePlayer ? <Ico.film /> : <Ico.upload />}
@@ -1205,7 +1577,26 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       >
         {/* Nach der Analyse verschwindet der Upload-Bereich komplett — es gibt nichts mehr
             hochzuladen. Für einen neuen Durchlauf gibt es unten „Neue Analyse". */}
-        {!zeigePlayer && (
+        {!zeigePlayer && vorgaenger && engine === "v4" && (
+          <div className="v4-hinweis">
+            🔁 Verbesserte Version von <b>{vorgaenger.filename}</b> — die neue Analyse prüft, was du
+            von den bisherigen Empfehlungen umgesetzt hast.
+            <button type="button" className="btn btn-ghost btn-klein" onClick={() => setVorgaenger(null)}>Aufheben</button>
+          </div>
+        )}
+        {!zeigePlayer && gespeichertesVideo && (
+          <div className="fileitem">
+            <span className="fi-ico"><Ico.film width="16" height="16" /></span>
+            <span className="fi-name" title={gespeichertesVideo.filename}>
+              Gespeichertes Video: {gespeichertesVideo.filename} — wähl unten ein anderes Ziel
+            </span>
+            <button type="button" className="btn btn-ghost btn-icon fi-rm-btn" onClick={() => setGespeichertesVideo(null)}
+                    aria-label="Gespeichertes Video abwählen" title="Abwählen">
+              <Ico.x width="14" height="14" />
+            </button>
+          </div>
+        )}
+        {!zeigePlayer && !gespeichertesVideo && (
           <div className="analyst-quelle-eingabe">
             <input
               ref={fileRef}
@@ -1264,7 +1655,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
               ref={slotRef}
               style={schwebt && slotHoehe ? { height: slotHoehe } : undefined}
             >
-              <div className={"analyst-player-rahmen" + (schwebt ? " ist-mini" : "")}>
+              <div className={"analyst-player-rahmen" + (schwebt ? " ist-mini" : "")
+                              + (schwebt && result?.engine === "v4" ? " links" : "")}>
                 <video
                   ref={videoRef}
                   src={videoUrl}
@@ -1314,7 +1706,9 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             <div key={f.title} className="analyst-feature">
               <span className="analyst-feature-ico">{f.ico}</span>
               <div>
-                <div className="analyst-feature-title">{f.title}</div>
+                <div className="analyst-feature-title">
+                  {engine === "v4" && f.title === "Performance-Score" ? "Umsetzungs-Score" : f.title}
+                </div>
                 <div className="analyst-feature-desc">{f.desc}</div>
               </div>
             </div>
@@ -1358,8 +1752,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             </div>
           </div>
 
-          {/* Ziel-Auswahl (Pflicht bei V3): steuert die Score-Gewichte serverseitig. */}
-          {engine === "v3" && (
+          {/* Ziel-Auswahl (Pflicht bei V3/V4): steuert die Score-Gewichte serverseitig. */}
+          {mitZiel && (
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                 Ziel des Videos <span style={{ color: "var(--danger, #c0392b)" }}>*</span>
@@ -1384,7 +1778,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
               Zielgruppe, Relevanz, Texthook-Varianten, Sprachlevel, CTA-Passung und das Auftreten
               des Protagonisten — nicht auf Schnitt, Ton, Untertitel oder Bild. Der Geltungsbereich
               steht im Prompt; hier steht nur, was der Nutzer davon hat. */}
-          {engine === "v3" && (
+          {mitZiel && (
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                 Zielgruppe &amp; Strategie (optional)
@@ -1480,6 +1874,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
               Version
               <select value={engine} onChange={(e) => setEngine(e.target.value)}
                       disabled={phase === "running"}>
+                <option value="v4">V4 (neu: Aufwand, Fortschritt, Neubewertung)</option>
                 <option value="v3">V3 (aktuell)</option>
                 <option value={ANALYST_ENGINE_ALT}>V2 (Vergleich)</option>
               </select>
@@ -1578,6 +1973,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
 
       {/* Ergebnis */}
       {phase === "done" && result && (
+        <div id="analyst-ergebnis">
         <Card
           icon={<Ico.check />}
           title="Analyse abgeschlossen"
@@ -1604,16 +2000,26 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
           {result.evaluation && (() => {
             const ev = result.evaluation;
             const ez = scoreEinordnung(ev.performance_score);
+            const v4 = result.engine === "v4";
             return (
             <div className="analyst-eval">
               {/* 1. Score + Einordnung */}
               <div className="analyst-score">
                 <div className="analyst-score-num" style={{ color: ez.color }}>{ev.performance_score}</div>
                 <div className="analyst-score-label">
-                  {result.gewaehltes_ziel
+                  {v4
+                    ? `Umsetzungs-Score · gemessen an: ${ZIEL_LABEL[result.gewaehltes_ziel] || result.gewaehltes_ziel}`
+                    : result.gewaehltes_ziel
                     ? `gemessen an: ${ZIEL_LABEL[result.gewaehltes_ziel] || result.gewaehltes_ziel}`
                     : "Performance-Score von 100"}
                 </div>
+                {/* Katharina: „Reels mit weniger Views bekommen eine höhere Bewertung". Der Score
+                    misst die Umsetzung, nicht die Reichweite — das muss dranstehen. */}
+                {v4 && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    Misst, wie gut das Video für dein Ziel umgesetzt ist — nicht, wie viele Views es bekommt.
+                  </div>
+                )}
                 {ez.label && (
                   <div style={{ fontSize: 13, fontWeight: 600, color: ez.color, marginTop: 4 }}>{ez.label}</div>
                 )}
@@ -1623,6 +2029,26 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                 )}
                 <Feedback field="performance_score" />
               </div>
+
+              {/* V4: oben nur, was man jetzt tun kann — Rest eingeklappt (MehrDetails). */}
+              {v4 && <VorgaengerVergleich result={result} />}
+              {v4 && (ev.action_steps?.length > 0 ? (
+                <><Handlungsempfehlungen steps={ev.action_steps} titel="💡 Jetzt im Schnitt verbessern"
+                    hinweis="Geht alles mit deinem vorhandenen Material — ohne neu zu drehen."
+                    onFrage={chat ? fragNach : null} /><Feedback field="action_steps" /></>
+              ) : (
+                <div className="analyst-eval-block">
+                  <div className="analyst-eval-title">💡 Jetzt im Schnitt verbessern</div>
+                  <div className="muted" style={{ fontSize: 13 }}>Im Schnitt gibt es nichts Dringendes mehr.</div>
+                </div>
+              ))}
+              {v4 && ev.naechstes_video?.length > 0 && (
+                <><Handlungsempfehlungen steps={ev.naechstes_video} titel="🎬 Fürs nächste Video"
+                    hinweis="Dafür bräuchtest du eine neue Aufnahme — nimm es dir für den nächsten Dreh vor."
+                    onFrage={chat ? fragNach : null} /><Feedback field="naechstes_video" /></>
+              )}
+
+              <MehrDetails an={v4}>
 
               {ev.zielgruppe && (
                 <>
@@ -1700,13 +2126,13 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                 );
               })()}
 
-              {/* 3. Handlungsempfehlungen (max 3, wichtigste groß) */}
-              {ev.action_steps?.length > 0 && (
+              {/* 3. Handlungsempfehlungen (max 3, wichtigste groß) — V4 zeigt sie weiter oben. */}
+              {!v4 && ev.action_steps?.length > 0 && (
                 <><Handlungsempfehlungen steps={ev.action_steps} /><Feedback field="action_steps" /></>
               )}
 
               {/* Nur wenn das Chat-Panel unten auch wirklich da ist — sonst zeigt der Hinweis ins Leere. */}
-              {chat && ev.action_steps?.length > 0 && (
+              {!v4 && chat && ev.action_steps?.length > 0 && (
                 <div className="muted" style={{ fontSize: 12.5, marginTop: -4 }}>
                   Mehr Optimierungen? Frag unten im Chat — er kennt diese Analyse.
                 </div>
@@ -1752,6 +2178,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                   </div>
                 </details>
               ))}
+              </MehrDetails>
 
             </div>
             );
@@ -1827,10 +2254,15 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
           </details>
           )}
         </Card>
+        </div>
       )}
 
       {/* V1.1: Chat erscheint erst, wenn eine Analyse fertig ist — vorher gibt es nichts zu fragen. */}
-      {chat && phase === "done" && result && (
+      {chat && phase === "done" && result && result.engine === "v4" && (
+        <ChatMessenger runId={runId} filename={result.filename} dauerSec={result.duration_sec}
+                       offen={chatOffen} setOffen={setChatOffen} entwurf={chatEntwurf} />
+      )}
+      {chat && phase === "done" && result && result.engine !== "v4" && (
         <div style={{ marginTop: 24 }}>
           <ChatPanel runId={runId} filename={result.filename} dauerSec={result.duration_sec} />
         </div>
