@@ -895,46 +895,95 @@
 .v4-abgleich-ico{flex:0 0 18px; text-align:center;}
 .v4-abgleich .st-umgesetzt b{color:var(--ok-ink);}
 
-/* Fortschritt: Balken mit Stufenmarken. Die Marken sitzen dicht am Anfang (mehr Meilensteine,
-   solange die Motivation am wackeligsten ist) und weit am Ende. */
-.lvl-liste{display:flex; flex-direction:column; gap:14px;}
-.lvl-kopf{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px;}
-.lvl-titel{font-size:13.5px; font-weight:600; color:var(--ink);}
-.lvl-zahl{font-size:13px; font-weight:700; color:var(--gold-deep); font-variant-numeric:tabular-nums;}
-.lvl-gross .lvl-titel{font-size:16px;}
-.lvl-gross .lvl-zahl{font-size:16px;}
-.lvl-trend.hoch{color:var(--ok-ink);}
-.lvl-trend.runter{color:var(--taupe);}
-.lvl-bahn{position:relative; height:10px; border-radius:999px; background:var(--cream-deep); overflow:visible;}
-.lvl-gross .lvl-bahn{height:14px;}
+/* Fortschritt als schmale, einklappbare Leiste (Vorgabe Chris, 2026-10-30): eingeklappt nur
+   Gesamtlevel + vier Mini-Balken, aufgeklappt die Ziele zum nächsten Level. */
+.fs-leiste{
+  margin-bottom:14px; background:var(--paper); border:1px solid var(--line);
+  border-radius:var(--radius-sm); box-shadow:var(--shadow-sm);
+}
+.fs-leiste > summary{
+  list-style:none; cursor:pointer; display:grid; align-items:center; gap:10px 18px;
+  grid-template-columns:minmax(150px,220px) 1fr auto; padding:10px 14px;
+}
+.fs-leiste > summary::-webkit-details-marker{display:none;}
+.fs-gesamt{display:flex; flex-direction:column; gap:5px;}
+.fs-gesamt-zahl{font-size:13px; font-weight:700; color:var(--gold-deep);}
+.fs-kats{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px;}
+.fs-kat{display:flex; flex-direction:column; gap:4px; min-width:0;}
+.fs-kat-kopf{display:flex; justify-content:space-between; gap:6px; font-size:11.5px; color:var(--taupe);}
+.fs-kat-kopf span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.fs-kat-kopf b{color:var(--ink); font-variant-numeric:tabular-nums;}
+.fs-pfeil{color:var(--taupe); font-size:13px; transition:transform .2s;}
+.fs-leiste[open] .fs-pfeil{transform:rotate(180deg);}
+.fs-details{
+  display:flex; flex-direction:column; gap:6px; padding:4px 14px 12px; font-size:12.5px;
+  border-top:1px solid var(--line); padding-top:10px;
+}
+.fs-ziel{color:var(--ink-2, var(--ink));}
+@media (max-width:640px){
+  .fs-leiste > summary{grid-template-columns:1fr auto;}
+  .fs-kats{grid-column:1 / -1; grid-row:2; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 14px;}
+}
+
+.lvl-bahn{position:relative; display:block; height:8px; border-radius:999px; background:var(--cream-deep);}
+.lvl-bahn-klein{height:5px;}
 .lvl-fuellung{
   position:absolute; inset:0 auto 0 0; border-radius:999px;
   background:linear-gradient(90deg,var(--gold),var(--gold-deep));
   transition:width .6s cubic-bezier(.22,1,.36,1);
 }
 .lvl-marke{
-  position:absolute; top:50%; width:8px; height:8px; margin:-4px 0 0 -4px; border-radius:50%;
-  background:var(--paper); border:1.5px solid var(--line-strong);
+  position:absolute; top:50%; width:6px; height:6px; margin:-3px 0 0 -3px; border-radius:50%;
+  background:var(--paper); border:1px solid var(--line-strong);
 }
 .lvl-marke.erreicht{background:var(--gold-deep); border-color:var(--paper);}
-.lvl-unter{font-size:12px; color:var(--taupe); margin-top:5px;}
 .lvl-fokus{
-  font-size:13px; line-height:1.5; padding:10px 12px; border-radius:10px;
+  font-size:12.5px; line-height:1.5; padding:8px 10px; border-radius:10px;
   background:var(--gold-tint-2); border:1px solid var(--line);
 }
-@media (prefers-reduced-motion:reduce){ .lvl-fuellung{transition:none;} }
+@media (prefers-reduced-motion:reduce){ .lvl-fuellung, .fs-pfeil{transition:none;} }
 
-/* Meine Analysen */
-.meine-liste{display:flex; flex-direction:column;}
-.meine-zeile{
-  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 12px;
-  padding:10px 0; border-bottom:1px solid var(--line);
+/* „Neue Analyse starten" nach Abschluss — oben, gut sichtbar. */
+.v4-neu-leiste{display:flex; justify-content:flex-end; margin-bottom:14px;}
+
+/* Historie: immer sichtbar, die ganze Zeile öffnet die Analyse. */
+.meine-box{
+  margin-bottom:18px; padding:4px 14px; background:var(--paper); border:1px solid var(--line);
+  border-radius:var(--radius-sm); box-shadow:var(--shadow-sm);
 }
-.meine-zeile:last-child{border-bottom:none;}
-.meine-info{min-width:0; flex:1 1 200px;}
-.meine-name{font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.meine-meta{font-size:12px; color:var(--taupe); margin-top:2px;}
+.meine-box > summary{cursor:pointer; font-size:14px; font-weight:700; padding:8px 0;}
+.meine-liste{display:flex; flex-direction:column; padding-bottom:6px;}
+.meine-zeile{
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px 12px;
+  padding:6px 8px; margin:0 -8px; border-radius:10px;
+}
+.meine-zeile:hover{background:var(--paper-alt);}
+.meine-zeile.ist-aktiv{background:var(--gold-tint-2); box-shadow:inset 3px 0 0 var(--gold);}
+.meine-info{
+  min-width:0; flex:1 1 220px; display:flex; flex-direction:column; text-align:left;
+  padding:4px 0; border:none; background:none; font:inherit; color:inherit; cursor:pointer;
+}
+.meine-name{font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.meine-meta{font-size:12px; color:var(--taupe); margin-top:1px;}
 .meine-knoepfe{display:flex; flex-wrap:wrap; gap:6px; align-items:center;}
+
+/* Info-Knopf mit Erklärung — per Hover (Desktop) und per Fokus/Tippen (Handy). */
+.mit-info{position:relative; display:inline-flex; align-items:center; gap:4px;}
+.info-knopf{
+  width:20px; height:20px; border-radius:50%; padding:0; cursor:help;
+  border:1px solid var(--line-strong); background:var(--paper); color:var(--taupe);
+  font:inherit; font-size:11.5px; font-weight:700; font-style:italic; line-height:1;
+}
+.info-knopf:hover, .info-knopf:focus-visible{border-color:var(--gold); color:var(--gold-deep);}
+.info-text{
+  position:absolute; right:0; bottom:calc(100% + 8px); z-index:40; width:260px;
+  padding:10px 12px; font-size:12.5px; line-height:1.45; color:var(--ink);
+  background:var(--paper); border:1px solid var(--line-strong); border-radius:10px;
+  box-shadow:0 8px 24px rgba(34,30,24,.16);
+  opacity:0; visibility:hidden; transform:translateY(4px); transition:opacity .15s, transform .15s;
+}
+.info-knopf:hover + .info-text, .info-knopf:focus + .info-text{opacity:1; visibility:visible; transform:none;}
+@media (max-width:640px){ .info-text{right:-40px; width:min(260px, calc(100vw - 48px));} }
 
 /* Messenger-Chat: runder Knopf unten rechts, Fenster darüber — kein Modal, die Analyse bleibt
    bedienbar. Unter 640 px fährt es als Panel von unten hoch. */

@@ -957,32 +957,80 @@ function naechstesZiel(k, fs) {
     (k.schnitt != null ? ` (aktuell ${komma(k.schnitt.toFixed(1))}).` : ".");
 }
 
-function LevelBalken({ titel, level, position, stufen, gross = false, unterzeile = "", trend = "" }) {
+function LevelBahn({ level, position, stufen, klein = false }) {
   return (
-    <div className={"lvl" + (gross ? " lvl-gross" : "")}>
-      <div className="lvl-kopf">
-        <span className="lvl-titel">{titel}</span>
-        <span className="lvl-zahl">
-          Level {level}
-          {trend === "hoch" && <span className="lvl-trend hoch" title="Zuletzt besser geworden"> ↑</span>}
-          {trend === "runter" && <span className="lvl-trend runter" title="Zuletzt etwas schwächer"> ↓</span>}
-        </span>
-      </div>
-      <div className="lvl-bahn" role="progressbar" aria-label={`${titel}: Level ${level}`}
-           aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(position)}>
-        <div className="lvl-fuellung" style={{ width: `${position}%` }} />
-        {/* Stufenmarken: dicht am Anfang, weit am Ende (services/analyst_fortschritt.POSITION). */}
-        {stufen.slice(1).map((s, i) => (
-          <span key={i} className={"lvl-marke" + (i + 1 <= level ? " erreicht" : "")} style={{ left: `${s}%` }} />
-        ))}
-      </div>
-      {unterzeile && <div className="lvl-unter">{unterzeile}</div>}
-    </div>
+    <span className={"lvl-bahn" + (klein ? " lvl-bahn-klein" : "")} role="progressbar"
+          aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(position)}>
+      <span className="lvl-fuellung" style={{ width: `${position}%` }} />
+      {/* Stufenmarken: dicht am Anfang, weit am Ende (services/analyst_fortschritt.POSITION). */}
+      {!klein && stufen.slice(1).map((s, i) => (
+        <span key={i} className={"lvl-marke" + (i + 1 <= level ? " erreicht" : "")} style={{ left: `${s}%` }} />
+      ))}
+    </span>
   );
 }
 
-function V4Bereich({ stand, onOeffnen, onVerbessert, onAnderesZiel }) {
+const LS_FORTSCHRITT_OFFEN = "analyst.fortschrittOffen";
+
+// Fortschritt als schmale Leiste (Vorgabe Chris, 2026-10-30): eingeklappt nur Gesamtlevel und
+// die vier Kategorie-Level mit Mini-Balken. Aufgeklappt: was zum nächsten Level fehlt + Fokus.
+function Fortschritt({ stand }) {
   const [fs, setFs] = useState(null);
+  const [offen, setOffen] = useState(() => {
+    try { return localStorage.getItem(LS_FORTSCHRITT_OFFEN) === "1"; } catch (_) { return false; }
+  });
+  useEffect(() => {
+    api("GET", "/api/analyst/fortschritt").then(setFs).catch(() => setFs(null));
+  }, [stand]);
+  if (!fs) return null;
+  function umschalten(e) {
+    const jetzt = e.currentTarget.open;
+    setOffen(jetzt);
+    try { localStorage.setItem(LS_FORTSCHRITT_OFFEN, jetzt ? "1" : "0"); } catch (_) {}
+  }
+  return (
+    <details className="fs-leiste" open={offen} onToggle={umschalten}>
+      <summary aria-label={`Dein Fortschritt: Level ${fs.gesamt.level} von ${fs.max_level}`}>
+        <span className="fs-gesamt">
+          <span className="fs-gesamt-zahl">Level {fs.gesamt.level}</span>
+          <LevelBahn level={fs.gesamt.level} position={fs.gesamt.position} stufen={fs.stufen} />
+        </span>
+        <span className="fs-kats">
+          {fs.kategorien.map((k) => (
+            <span key={k.key} className="fs-kat" title={naechstesZiel(k, fs)}>
+              <span className="fs-kat-kopf">
+                <span>{KATEGORIE_TITEL[k.key] === "Auftreten, Bild & Ton" ? "Auftreten" : (KATEGORIE_TITEL[k.key] || k.key)}</span>
+                <b>{k.level}{k.trend === "hoch" ? " ↑" : ""}</b>
+              </span>
+              <LevelBahn klein level={k.level} position={k.position} stufen={fs.stufen} />
+            </span>
+          ))}
+        </span>
+        <span className="fs-pfeil" aria-hidden="true">▾</span>
+      </summary>
+      <div className="fs-details">
+        {fs.analysen === 0 && <div>Deine erste Analyse bringt dich auf Level 1.</div>}
+        {fs.kategorien.map((k) => (
+          <div key={k.key} className="fs-ziel">
+            <b>{KATEGORIE_TITEL[k.key] || k.key}</b> (Level {k.level}): {naechstesZiel(k, fs)}
+          </div>
+        ))}
+        {fs.fokus && (
+          <div className="lvl-fokus">
+            🎯 <b>Dein Fokus:</b> {DIMENSION_LABEL[fs.fokus.dimension] || fs.fokus.dimension} — in {fs.fokus.anzahl}{" "}
+            von {fs.fokus.von} deiner letzten Videos noch schwach. Hier bringt dich die nächste Verbesserung am weitesten.
+          </div>
+        )}
+        <div className="muted" style={{ fontSize: 12 }}>
+          {fs.analysen} {fs.analysen === 1 ? "Analyse" : "Analysen"} · Level steigen mit jedem Video und sinken nie.
+        </div>
+      </div>
+    </details>
+  );
+}
+
+// Historie: immer sichtbar, eine Zeile = eine Analyse, die ganze Zeile öffnet sie.
+function MeineAnalysen({ stand, aktiveId, onOeffnen, onVerbessert }) {
   const [laeufe, setLaeufe] = useState([]);
   const [alle, setAlle] = useState(false);
   const [loeschFrage, setLoeschFrage] = useState("");
@@ -990,8 +1038,7 @@ function V4Bereich({ stand, onOeffnen, onVerbessert, onAnderesZiel }) {
 
   async function laden() {
     try {
-      const [f, m] = await Promise.all([api("GET", "/api/analyst/fortschritt"), api("GET", "/api/analyst/meine")]);
-      setFs(f);
+      const m = await api("GET", "/api/analyst/meine");
       setLaeufe(m.laeufe || []);
       setFehler("");
     } catch (e) { setFehler(e.message); }
@@ -1007,83 +1054,63 @@ function V4Bereich({ stand, onOeffnen, onVerbessert, onAnderesZiel }) {
   }
 
   const fertig = laeufe.filter((l) => l.phase === "done");
+  if (!fertig.length && !fehler) return null;
   const sichtbar = alle ? fertig : fertig.slice(0, 5);
   return (
-    <>
-      <Card icon={<Ico.chart />} title="Dein Fortschritt"
-            sub={fs ? `${fs.analysen} ${fs.analysen === 1 ? "Analyse" : "Analysen"} · Level steigen mit jedem Video, sie sinken nie` : "wird geladen …"}>
-        {fehler && <div className="muted" style={{ fontSize: 13 }}>{fehler}</div>}
-        {fs && (
-          <div className="lvl-liste">
-            <LevelBalken titel="Gesamt" gross level={fs.gesamt.level} position={fs.gesamt.position}
-                         stufen={fs.stufen}
-                         unterzeile={fs.analysen === 0 ? "Deine erste Analyse bringt dich auf Level 1." : ""} />
-            {fs.kategorien.map((k) => (
-              <LevelBalken key={k.key} titel={KATEGORIE_TITEL[k.key] || k.key} level={k.level}
-                           position={k.position} stufen={fs.stufen} trend={k.trend}
-                           unterzeile={naechstesZiel(k, fs)} />
-            ))}
-            {fs.fokus && (
-              <div className="lvl-fokus">
-                🎯 <b>Dein Fokus:</b> {DIMENSION_LABEL[fs.fokus.dimension] || fs.fokus.dimension} — in {fs.fokus.anzahl}{" "}
-                von {fs.fokus.von} deiner letzten Videos noch schwach. Hier bringt dich die nächste Verbesserung am weitesten.
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-
-      {fertig.length > 0 && (
-        <Card icon={<Ico.film />} title="Meine Analysen" sub="Gespeichert — du kannst jederzeit zurück">
-          <div className="meine-liste">
-            {sichtbar.map((l) => (
-              <div key={l.id} className="meine-zeile">
-                <div className="meine-info">
-                  <div className="meine-name" title={l.filename}>{l.filename}</div>
-                  <div className="meine-meta">
-                    {l.created_at ? new Date(l.created_at).toLocaleDateString("de-DE") : ""}
-                    {l.ziel ? ` · ${ZIEL_LABEL[l.ziel] || l.ziel}` : ""}
-                    {l.score != null ? ` · Umsetzung ${l.score}` : ""}
-                    {l.vorgaenger ? " · verbesserte Version" : ""}
-                  </div>
-                </div>
-                <div className="meine-knoepfe">
-                  {loeschFrage === l.id ? (
-                    <>
-                      <span className="muted" style={{ fontSize: 12.5 }}>Wirklich löschen?</span>
-                      <button className="btn btn-ghost btn-klein" onClick={() => loeschen(l.id)}>Ja</button>
-                      <button className="btn btn-ghost btn-klein" onClick={() => setLoeschFrage("")}>Nein</button>
-                    </>
-                  ) : (
-                    <>
-                      <button className="btn btn-soft btn-klein" onClick={() => onOeffnen(l)}>Öffnen</button>
-                      <button className="btn btn-ghost btn-klein" onClick={() => onVerbessert(l)}
-                              title="Lade die überarbeitete Fassung hoch — sie wird mit dieser Analyse verglichen.">
-                        Verbesserte Version
-                      </button>
-                      <button className="btn btn-ghost btn-klein" onClick={() => onAnderesZiel(l)} disabled={!l.video_da}
-                              title={l.video_da ? "Dasselbe Video mit einem anderen Ziel bewerten"
-                                                : "Das Video ist nicht mehr gespeichert (nach 30 Tagen gelöscht)."}>
-                        Anderes Ziel
-                      </button>
-                      <button className="btn btn-ghost btn-klein btn-icon" onClick={() => setLoeschFrage(l.id)}
-                              aria-label={`${l.filename} löschen`} title="Löschen">
-                        <Ico.x width="13" height="13" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          {fertig.length > 5 && (
-            <button className="btn btn-ghost btn-klein" style={{ marginTop: 10 }} onClick={() => setAlle(!alle)}>
-              {alle ? "Weniger anzeigen" : `Alle ${fertig.length} anzeigen`}
+    <details className="meine-box" open>
+      <summary>Meine Analysen <span className="muted">({fertig.length})</span></summary>
+      {fehler && <div className="muted" style={{ fontSize: 13 }}>{fehler}</div>}
+      <div className="meine-liste">
+        {sichtbar.map((l) => (
+          <div key={l.id} className={"meine-zeile" + (l.id === aktiveId ? " ist-aktiv" : "")}>
+            <button type="button" className="meine-info" onClick={() => onOeffnen(l)}
+                    title="Analyse öffnen">
+              <span className="meine-name">{l.filename}</span>
+              <span className="meine-meta">
+                {l.created_at ? new Date(l.created_at).toLocaleDateString("de-DE") : ""}
+                {l.ziel ? ` · ${ZIEL_LABEL[l.ziel] || l.ziel}` : ""}
+                {l.score != null ? ` · Umsetzung ${l.score}` : ""}
+                {l.vorgaenger ? " · verbesserte Version" : ""}
+              </span>
             </button>
-          )}
-        </Card>
+            <div className="meine-knoepfe">
+              {loeschFrage === l.id ? (
+                <>
+                  <span className="muted" style={{ fontSize: 12.5 }}>Wirklich löschen?</span>
+                  <button className="btn btn-ghost btn-klein" onClick={() => loeschen(l.id)}>Ja</button>
+                  <button className="btn btn-ghost btn-klein" onClick={() => setLoeschFrage("")}>Nein</button>
+                </>
+              ) : (
+                <>
+                  <span className="mit-info">
+                    <button className="btn btn-ghost btn-klein" onClick={() => onVerbessert(l)}>
+                      Verbesserte Version
+                    </button>
+                    {/* Info per Hover UND per Fokus/Tippen — auf dem Handy gibt es kein Hover. */}
+                    <button type="button" className="info-knopf" aria-label="Was heißt „Verbesserte Version“?"
+                            aria-describedby={"info-" + l.id}>i</button>
+                    <span role="tooltip" id={"info-" + l.id} className="info-text">
+                      Du hast das Video nach der Analyse überarbeitet? Lade die neue Fassung hier hoch.
+                      Sie wird neu analysiert und mit dieser Analyse verglichen — du siehst, welche
+                      Empfehlungen du umgesetzt hast und wie sich der Score verändert.
+                    </span>
+                  </span>
+                  <button className="btn btn-ghost btn-klein btn-icon" onClick={() => setLoeschFrage(l.id)}
+                          aria-label={`${l.filename} löschen`} title="Löschen">
+                    <Ico.x width="13" height="13" />
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {fertig.length > 5 && (
+        <button className="btn btn-ghost btn-klein" style={{ marginTop: 8 }} onClick={() => setAlle(!alle)}>
+          {alle ? "Weniger anzeigen" : `Alle ${fertig.length} anzeigen`}
+        </button>
       )}
-    </>
+    </details>
   );
 }
 
@@ -1206,8 +1233,6 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   const mitZiel = engine === "v3" || engine === "v4";
   // V4: Neubewertung einer verbesserten Fassung — {id, filename} der vorherigen Analyse.
   const [vorgaenger, setVorgaenger] = useState(null);
-  // V4: dasselbe, schon gespeicherte Video erneut bewerten (anderes Ziel) — {runId, filename}.
-  const [gespeichertesVideo, setGespeichertesVideo] = useState(null);
   const [v4Stand, setV4Stand] = useState(0);            // lädt Fortschritt/Liste neu
   const [chatOffen, setChatOffen] = useState(false);    // Messenger-Fenster (V4)
   const [chatEntwurf, setChatEntwurf] = useState(null); // {text, n} aus „Frag nach"
@@ -1281,11 +1306,11 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     if (f) setAnalysisFile({ file: f, name: f.name, size: (f.size / 1024 / 1024).toFixed(1) + " MB" });
   }
 
-  const canStart = (!!analysisFile || !!gespeichertesVideo) && !!format && (!mitZiel || !!ziel);
+  const canStart = !!analysisFile && !!format && (!mitZiel || !!ziel);
   // Dieselben drei Bedingungen wie oben, nur in Worten — damit der Hinweis unter dem Knopf nicht
   // auseinanderlaufen kann, wenn eine Bedingung dazukommt.
   const fehlendeEingaben = [
-    !analysisFile && !gespeichertesVideo && "eine Videodatei",
+    !analysisFile && "eine Videodatei",
     !format && "das Format",
     mitZiel && !ziel && "das Ziel des Videos",
   ].filter(Boolean);
@@ -1321,16 +1346,10 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     activePhaseRef.current = "";
     setPhaseStartMs(0);
     try {
-      let up;
-      if (gespeichertesVideo) {
-        // Der Lauf mit der gespeicherten Datei existiert schon (POST /neu-bewerten).
-        up = { id: gespeichertesVideo.runId };
-      } else {
-        setProgress("Video wird hochgeladen …");   // neutral; verrät nichts
-        const fd = new FormData();
-        fd.append("file", analysisFile.file);
-        up = await api("POST", "/api/analyst/upload", fd);
-      }
+      setProgress("Video wird hochgeladen …");   // neutral; verrät nichts
+      const fd = new FormData();
+      fd.append("file", analysisFile.file);
+      const up = await api("POST", "/api/analyst/upload", fd);
       setRunId(up.id);
       // Marken-/Zielgruppen-Datei VOR dem Start: /start liest meta.json und baut daraus den
       // Cache-Key. Danach hochgeladen wuerde sie im laufenden Lauf nicht mehr gelesen.
@@ -1360,8 +1379,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       // Server ohne diesen Endpunkt), läuft die Analyse normal weiter. Sie hier scheitern zu
       // lassen würde für einen Komfort-Aufruf den ganzen Start blockieren — und serverseitig
       // greift der Cache in /start ohnehin weiterhin.
-      // Beim gespeicherten Video ist die Frage „hast du es verändert?" sinnlos — es ist dieselbe Datei.
-      if (!cacheUmgehen && !gespeichertesVideo) {
+      if (!cacheUmgehen) {
         let vorher = null;
         try {
           vorher = await api("GET", `/api/analyst/${up.id}/cache-check?${qs}`);
@@ -1444,7 +1462,6 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     activePhaseRef.current = "";
     setPhaseStartMs(0);
     setVorgaenger(null);
-    setGespeichertesVideo(null);
     setChatOffen(false);
     setChatEntwurf(null);
   }
@@ -1472,16 +1489,6 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     if (lauf.format) setFormat(lauf.format);
     nachOben();
     setTimeout(() => fileRef.current?.click(), 300);
-  }
-
-  async function anderesZiel(lauf) {
-    try {
-      const neu = await api("POST", `/api/analyst/${lauf.id}/neu-bewerten`);
-      reset();
-      setGespeichertesVideo({ runId: neu.id, filename: lauf.filename });
-      if (lauf.format) setFormat(lauf.format);
-      nachOben();
-    } catch (e) { setError(e.message); }
   }
 
   function fragNach(schritt) {
@@ -1563,13 +1570,23 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
         </div>
       )}
 
-      {/* V4: Fortschritt und gespeicherte Analysen oben — sichtbar, sobald V4 gewählt ist. */}
+      {/* V4: schmale Fortschrittsleiste, „Neue Analyse" und die Historie oben. */}
+      {engine === "v4" && <Fortschritt stand={v4Stand} />}
+      {engine === "v4" && phase === "done" && (
+        <div className="v4-neu-leiste">
+          <button className="btn btn-primary" onClick={() => { reset(); nachOben(); }}>
+            <Ico.upload width="16" height="16" /> Neue Analyse starten
+          </button>
+        </div>
+      )}
       {engine === "v4" && (
-        <V4Bereich stand={v4Stand} onOeffnen={oeffneAnalyse} onVerbessert={verbesserteVersion}
-                   onAnderesZiel={anderesZiel} />
+        <MeineAnalysen stand={v4Stand} aktiveId={phase === "done" ? runId : ""}
+                       onOeffnen={oeffneAnalyse} onVerbessert={verbesserteVersion} />
       )}
 
-      {/* Eingabe */}
+      {/* Eingabe — in V4 nach Abschluss nur noch als Player, wenn das Video lokal vorliegt.
+          Nach dem Öffnen aus der Historie gibt es kein lokales Video: dann ganz weg. */}
+      {(engine !== "v4" || phase !== "done" || zeigePlayer) && (
       <Card
         icon={zeigePlayer ? <Ico.film /> : <Ico.upload />}
         title={zeigePlayer ? "Analysiertes Video" : "Video-Quelle"}
@@ -1584,19 +1601,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             <button type="button" className="btn btn-ghost btn-klein" onClick={() => setVorgaenger(null)}>Aufheben</button>
           </div>
         )}
-        {!zeigePlayer && gespeichertesVideo && (
-          <div className="fileitem">
-            <span className="fi-ico"><Ico.film width="16" height="16" /></span>
-            <span className="fi-name" title={gespeichertesVideo.filename}>
-              Gespeichertes Video: {gespeichertesVideo.filename} — wähl unten ein anderes Ziel
-            </span>
-            <button type="button" className="btn btn-ghost btn-icon fi-rm-btn" onClick={() => setGespeichertesVideo(null)}
-                    aria-label="Gespeichertes Video abwählen" title="Abwählen">
-              <Ico.x width="14" height="14" />
-            </button>
-          </div>
-        )}
-        {!zeigePlayer && !gespeichertesVideo && (
+        {!zeigePlayer && (
           <div className="analyst-quelle-eingabe">
             <input
               ref={fileRef}
@@ -1698,8 +1703,11 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
           )
         )}
       </Card>
+      )}
 
-      {/* Analyse-Umfang + Start-Button */}
+      {/* Analyse-Umfang + Start-Button — in V4 nach Abschluss ausgeblendet (Vorgabe Chris):
+          dann steht nur noch die Analyse da, „Neue Analyse starten" holt die Eingabe zurück. */}
+      {(engine !== "v4" || phase !== "done") && (
       <Card icon={<Ico.chart />} title="Analyse-Umfang" sub="Was der AI Video Analyst prüft">
         <div className="analyst-features">
           {ANALYST_FEATURES.map((f) => (
@@ -1930,6 +1938,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
           )}
         </div>
       </Card>
+      )}
 
       {/* Rückfrage vor einer zweiten Analyse desselben Videos. Bewusst ein Dialog und kein
           Hinweistext: Die Antwort entscheidet, ob gerechnet wird — das darf man nicht überlesen.
