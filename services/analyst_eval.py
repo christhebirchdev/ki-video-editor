@@ -451,7 +451,42 @@ def filtere_positiv(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEvalu
     return parsed
 
 
-def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "") -> AnalystEvaluationV2:
+AUFWAENDE = ("schnitt", "dreh")
+# V4: Aufwand fuer Schritte, die der CODE baut. Deren Text ist generisch — das Modell hat dazu
+# nichts gesagt, also entscheidet die Art des Schritts. Erst nach Gruppe (genauer), dann nach
+# Dimension, sonst "schnitt": Im Zweifel soll der Schritt oben stehen, wo der Nutzer ihn sieht.
+AUFWAND_JE_GRUPPE = {
+    "sprechhook": "dreh", "blick": "dreh",
+    "anlauf": "schnitt", "sprechpausen": "schnitt", "videoende": "schnitt",
+    "einblendungen": "schnitt", "effekte": "schnitt", "untertitel": "schnitt",
+    "texthook": "schnitt", "visuellhook": "schnitt",
+}
+AUFWAND_JE_DIMENSION = {
+    "sprech_hook": "dreh", "sprechqualitaet": "dreh", "visuelle_aesthetik": "dreh",
+    "protagonist_auftreten": "dreh", "audioqualitaet": "dreh", "skript": "dreh", "struktur": "dreh",
+}
+NAECHSTES_VIDEO_MAX = 3
+
+
+def setze_aufwand(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+    """V4: jeder Empfehlung einen gueltigen Aufwand geben.
+
+    Modellwert gilt, wenn er gueltig ist und die Empfehlung vom Modell stammt. Erzwungene
+    Schritte (Standardsaetze des Codes) und ungueltige Werte bekommen ihn aus den Tabellen.
+    """
+    for e in parsed.empfehlungen:
+        wert = (e.aufwand or "").strip().lower()
+        if wert in AUFWAENDE and not e.erzwungen:
+            e.aufwand = wert
+            continue
+        e.aufwand = (AUFWAND_JE_GRUPPE.get((e.gruppe or "").strip().lower())
+                     or AUFWAND_JE_DIMENSION.get((e.betrifft or "").strip())
+                     or "schnitt")
+    return parsed
+
+
+def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "",
+                          v4: bool = False) -> AnalystEvaluationV2:
     """Bündeln → sortieren → Top-N abtrennen. Deterministisch im Code statt per Prompt-Regel.
 
     Das Modell liefert eine flache `empfehlungen`-Liste und entscheidet nur, WELCHE Einträge
@@ -511,9 +546,19 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "") -> Analys
                 # Ohne diese Übergabe waere im gespeicherten Lauf nicht mehr messbar, wie oft ein
                 # Standardsatz einen der drei Top-Plaetze belegt hat.
                 erzwungen=erste.erzwungen,
+                aufwand=erste.aufwand if v4 else "",
             ),
         ))
     schritte.sort(key=lambda t: t[0])
+
+    # V4: Dreh-Schritte raus aus der Top-Auswahl, in eine eigene Liste (Spec 2.1). Danach laeuft
+    # die bestehende Auswahl unveraendert ueber die Schnitt-Schritte.
+    naechstes: list[ActionStep] = []
+    dreh_rest: list[ActionStep] = []
+    if v4:
+        for _, _, _, s in (x for x in schritte if x[3].aufwand == "dreh"):
+            (naechstes if len(naechstes) < NAECHSTES_VIDEO_MAX else dreh_rest).append(s)
+        schritte = [x for x in schritte if x[3].aufwand != "dreh"]
 
     # Weniger als drei Schritte, wenn das Video stark ist und nichts Kritisches offen steht.
     obergrenze = TOP_ACTION_STEPS
@@ -566,7 +611,8 @@ def verteile_empfehlungen(parsed: AnalystEvaluationV2, ziel: str = "") -> Analys
             rest.append(schritt)
 
     parsed.action_steps = oben
-    parsed.weitere_empfehlungen = rest
+    parsed.weitere_empfehlungen = rest + dreh_rest
+    parsed.naechstes_video = naechstes
     return parsed
 
 
@@ -1455,7 +1501,7 @@ EFFEKTE_MAX = 3
 EFFEKT_FEINSCHLIFF_GRENZE = 3
 
 
-def baue_effekt_schritt(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
+def baue_effekt_schritt(parsed: AnalystEvaluationV2, v4: bool = False) -> AnalystEvaluationV2:
     """Aus `effekt_vorschlaege` EINEN Schritt bauen — aber nur, wenn er gerade zählt.
 
     Zwei Auslöser, beide von Chris (2026-08-06):
@@ -1478,6 +1524,11 @@ def baue_effekt_schritt(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
     if not (gering or feinschliff):
         return parsed
     stellen = sorted(parsed.effekt_vorschlaege, key=lambda e: e.zeitpunkt_sek)[:EFFEKTE_MAX]
+    if v4:
+        parsed.empfehlungen.append(Empfehlung(
+            zeitpunkt_sek=stellen[0].zeitpunkt_sek, gruppe="effekte", anweisung=_effekt_text_v4(stellen),
+        ))
+        return parsed
     liste = ", ".join(
         f"bei Sek. {round(s.zeitpunkt_sek):g}" + (f" ({s.zweck})" if s.zweck else "")
         for s in stellen
@@ -1491,6 +1542,30 @@ def baue_effekt_schritt(parsed: AnalystEvaluationV2) -> AnalystEvaluationV2:
         ),
     ))
     return parsed
+
+
+def _effekt_text_v4(stellen) -> str:
+    """V4: Der Effekt kommt vom Modell (`optionen`, passend zum Zweck), nicht aus einem festen Satz.
+
+    Der alte Text nannte „ein Whoosh" als erstes Beispiel — zusammen mit den Prompt-Beispielen der
+    Grund, warum Kunden fast immer Whoosh empfohlen bekamen. Bei zwei Optionen sagt der Text
+    ausdruecklich, dass beide passen: Der Nutzer soll die Wahl als Freiheit verstehen, nicht als
+    Unentschlossenheit des Tools (Vorgabe Chris, 2026-10-30)."""
+    teile, zwei = [], False
+    for s in stellen:
+        ort = f"bei Sek. {round(s.zeitpunkt_sek):g}" + (f" ({s.zweck})" if s.zweck else "")
+        opt = [o.strip() for o in s.optionen if o.strip()][:2]
+        if len(opt) == 2:
+            zwei = True
+            teile.append(f"{ort}: {opt[0]} oder {opt[1]}")
+        elif opt:
+            teile.append(f"{ort}: {opt[0]}")
+        else:
+            teile.append(ort)
+    satz = "Setz einen kurzen Effekt, der zur Stelle passt — " + "; ".join(teile) + "."
+    if zwei:
+        satz += " Wo zwei stehen: Beides passt — nimm, was besser zu deinem Stil passt."
+    return satz + " Das bringt Abwechslung und hält die Zuschauer länger dran."
 
 
 # Baustein je gemeldetem Untertitel-Mangel — dieselbe Bauart wie _TEXTHOOK_BAUSTEINE: Der Code setzt
@@ -1825,7 +1900,7 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     parsed = erzwinge_untertitel_empfehlung(parsed, result)
     # ZULETZT vor der Verteilung: baue_effekt_schritt zählt die offenen Empfehlungen, um zu
     # entscheiden, ob Feinschliff überhaupt das Thema ist. Es muss also alle anderen schon sehen.
-    parsed = baue_effekt_schritt(parsed)
+    parsed = baue_effekt_schritt(parsed, v4=_ist_v4(result))
     # NACH den Hook- und Anlauf-Schritten: Alle liegen auf Sekunde 0, die Einfügereihenfolge
     # entscheidet damit über die Reihenfolge im Output. Hook- und Anlauf-Schritte werden vorne
     # eingefügt, diese hier angehängt — Hooks behalten Vorrang (Vorgabe Chris).
@@ -1848,7 +1923,35 @@ def nachbearbeiten(parsed: AnalystEvaluationV2, result: AnalystResult) -> Analys
     # Direkt dahinter und aus demselben Grund: Die Kritikseite haengt am fertigen Score.
     parsed = filtere_verbesserung(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
     parsed = berechne_performance_score(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
-    return verteile_empfehlungen(parsed, ziel=getattr(result, "gewaehltes_ziel", ""))
+    v4 = _ist_v4(result)
+    if v4:
+        parsed = setze_aufwand(parsed)
+        parsed = pruefe_vorgaenger_abgleich(parsed, result)
+    return verteile_empfehlungen(parsed, ziel=getattr(result, "gewaehltes_ziel", ""), v4=v4)
+
+
+def _ist_v4(result) -> bool:
+    """V4-Schalter. Anders als bei V3 haengt er an `engine`: Seit V4 setzt analyst_engine._run_v2
+    die Engine VOR der Bewertung (aus meta.json)."""
+    return getattr(result, "engine", "") == "v4"
+
+
+VORGAENGER_STATUS = ("umgesetzt", "teilweise", "offen")
+
+
+def pruefe_vorgaenger_abgleich(parsed: AnalystEvaluationV2, result) -> AnalystEvaluationV2:
+    """Ohne Vorgaenger gibt es nichts abzugleichen — ein trotzdem geliefertes Feld waere erfunden.
+    Eintraege mit unbekanntem Status oder ohne Anweisung fallen weg."""
+    if not getattr(result, "vorgaenger_id", ""):
+        parsed.vorgaenger_abgleich = []
+        return parsed
+    gut = []
+    for p in parsed.vorgaenger_abgleich:
+        p.status = (p.status or "").strip().lower()
+        if p.status in VORGAENGER_STATUS and (p.anweisung or "").strip():
+            gut.append(p)
+    parsed.vorgaenger_abgleich = gut
+    return parsed
 
 
 def pausen_txt(stats) -> str:
