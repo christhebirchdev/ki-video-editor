@@ -2126,12 +2126,86 @@ for _anker, _ in V3_VERTRAG_ERSETZUNGEN:
     assert OUTPUT_SCHEMA.count(_anker) == 1, f"V3-Anker passt nicht mehr zum Vertrag: {_anker[:60]}"
 
 
+# --- V4 (Spec 2026-10-30) ---------------------------------------------------------------------
+# V4 = V3-Skill und V3-Vertrag plus Ersetzungen und ein Nachsatz. Dasselbe Muster wie V3 gegen V2:
+# eine Skill-Datei, keine zweite Kopie, die in zwei Wochen auseinanderlaeuft.
+
+# Die Whoosh-Beispiele im Skill: Das Modell uebernimmt Beispiele als Standardloesung. Kunden
+# bekamen deshalb fast immer „Whoosh" empfohlen (Feedback Chris, 2026-10-30).
+V4_SKILL_ERSETZUNGEN = (
+    ("""`effekt_vorschlaege`: Stellen, an denen ein kurzer Soundeffekt (Whoosh, Klick) oder ein kleiner
+visueller Effekt (Flash beim Übergang, kurzer Punch-In) etwas bringen würde — höchstens 3, je mit
+Zeitpunkt, `art` und Zweck.""",
+     """`effekt_vorschlaege`: Stellen, an denen ein kurzer Sound- oder ein kleiner visueller Effekt etwas
+bringen würde — höchstens 3, je mit Zeitpunkt, `art`, Zweck und `optionen` (1–2 konkrete Effekte,
+die genau zu DIESEM Zweck und zur Tonalität des Videos passen; Zuordnung siehe EFFEKTE PASSEND ZUM
+ZWECK am Ende)."""),
+    ("""(z.B. „einen kurzen Woosh-Ton einfügen, der 2 Sekunden hält", „ein kleines Foto vom Hof oben rechts
+  einblenden").""",
+     """(z.B. „ein kleines Foto vom Hof oben rechts einblenden").""")
+)
+
+V4_NACHSATZ = """--- V4: ZUSATZREGELN (gelten vor allem, was oben steht) ---
+
+AUFWAND JE EMPFEHLUNG: Gib bei JEDER Empfehlung `aufwand` an.
+- "schnitt": am VORHANDENEN Material im Schnitt/Editing lösbar — kürzen, umstellen, Text,
+  Untertitel, Einblendung, Effekt, Musik, Lautstärke, Zoom/Punch-In, Farbe.
+- "dreh": braucht eine NEUE Aufnahme — anders sprechen, anderer erster Satz, Licht, Hintergrund,
+  Kamera, Blick, Kleidung, Inhalt neu aufbauen.
+Viele Nutzer drehen ein fertiges Video NICHT neu. Suche deshalb aktiv nach der Schnitt-Lösung:
+Lässt sich ein Mangel auch im Schnitt mildern (z.B. schwacher erster Satz → Texthook darüberlegen
+oder mit einem stärkeren Satz aus der Mitte beginnen), schreib DIESE Lösung mit "schnitt" und
+die Dreh-Lösung als eigene Empfehlung mit "dreh".
+
+EFFEKTE PASSEND ZUM ZWECK: Wähle Effekte nach dem Zweck der Stelle, nicht aus Gewohnheit.
+- Übergang/Szenenwechsel: Swoosh, Swipe-Geräusch, kurzer Flash, Wischblende.
+- Pointe/Witz: Ding, Rimshot, Plopp, kurze Musikpause (Stille vor der Pointe).
+- Zahl, Liste, Aufzählung: Klick, Pop, Tipp-Geräusch, Kasse/Cha-Ching bei Geld.
+- Spannung/Enthüllung: Riser, tiefer Bass-Hit, kurzer Stopp der Musik.
+- Betonung einer Kernaussage: Punch-In (Zoom), Impact/Boom, Textblitz.
+- Ironie/Widerspruch: Plattenkratzer, Fail-Ton, Freeze-Frame.
+Passen mehrere, nenne in `optionen` GENAU ZWEI unterschiedliche. Passt nur einer, nenne einen.
+Ein Swoosh gehört NUR an echte Bild- oder Szenenwechsel."""
+
+# Ausgabe-Vertrag: Aufwand an jeder Empfehlung, Optionen an jedem Effekt-Vorschlag, und der
+# Vorgaenger-Abgleich als eigene Top-Level-Zeile (einzeilig — _schema_fuer filtert zeilenweise).
+_EFFEKT_ZEILE = next(z for z in OUTPUT_SCHEMA.split("\n") if z.startswith('  "effekt_vorschlaege":'))
+VORGAENGER_ZEILE_V4 = (
+    '  "vorgaenger_abgleich": [{"anweisung": "<die Empfehlung aus der VORHERIGEN ANALYSE, wörtlich>", '
+    '"status": "<umgesetzt | teilweise | offen>", "kommentar": "<EIN Satz, woran du das im neuen '
+    'Video siehst>"}],  // NUR wenn unten eine VORHERIGE ANALYSE steht, sonst []'
+)
+V4_VERTRAG_ERSETZUNGEN = (
+    (EMPFEHLUNGEN_BETRIFFT_V3,
+     EMPFEHLUNGEN_BETRIFFT_V3 + ', "aufwand": "<schnitt | dreh — siehe AUFWAND JE EMPFEHLUNG>"'),
+    (_EFFEKT_ZEILE,
+     _EFFEKT_ZEILE.replace(
+         '"zweck": "<was der Effekt an dieser Stelle verstärkt — z.B. Übergang, erscheinende Zahl, Pointe>"',
+         '"zweck": "<was der Effekt an dieser Stelle verstärkt — z.B. Übergang, erscheinende Zahl, Pointe>", '
+         '"optionen": ["<1–2 konkrete, zum Zweck passende Effekte, z.B. ein kurzes Ding>"]')
+     + "\n" + VORGAENGER_ZEILE_V4),
+)
+
+
+def v4_schema() -> str:
+    schema = v3_schema()
+    for anker, ersatz in V4_VERTRAG_ERSETZUNGEN:
+        schema = schema.replace(anker, ersatz)
+    return schema
+
+
+
 def v3_schema() -> str:
     """Der Ausgabe-Vertrag mit allen V3-Erweiterungen."""
     schema = OUTPUT_SCHEMA
     for anker, ersatz in V3_VERTRAG_ERSETZUNGEN:
         schema = schema.replace(anker, ersatz)
     return schema
+
+
+for _anker, _ersatz in V4_VERTRAG_ERSETZUNGEN:
+    assert v3_schema().count(_anker) == 1, f"V4-Anker passt nicht mehr zum Vertrag: {_anker[:60]}"
+    assert _anker != _ersatz, "V4-Ersetzung ohne Wirkung — Anker im Effekt-Feld veraendert?"
 
 
 
@@ -2247,13 +2321,19 @@ TEIL_FELDER = {
         "einblendungen_eval", "soundeffekte", "skript",
         "dynamik", "effekt_vorschlaege", "blickkontakt", "energie", "protagonist_auftreten",
         "staerken", "top_tipps", "pausen_urteile", "einblendungen", "empfehlungen",
+        "vorgaenger_abgleich",   # V4: der Handwerk-Call sieht das ganze Video
     ),
 }
 
 
-def _skill_fuer(teil: str | None, pfad=None) -> str:
-    """Skill-Abschnitte für einen Teil-Call. `teil=None` → alles (V1.1-Verhalten, unverändert)."""
+def _skill_fuer(teil: str | None, pfad=None, v4: bool = False) -> str:
+    """Skill-Abschnitte für einen Teil-Call. `teil=None` → alles (V1.1-Verhalten, unverändert).
+    `v4` wendet V4_SKILL_ERSETZUNGEN an — VOR dem Filtern, weil die Ersetzungen in Abschnitten
+    beider Teile liegen."""
     body = load_skill_body(pfad)
+    if v4:
+        for anker, ersatz in V4_SKILL_ERSETZUNGEN:
+            body = body.replace(anker, ersatz)
     if not teil:
         return body
     # Vorspann vor der ersten „## "-Überschrift gehört immer dazu (Rollenbeschreibung).
@@ -2269,7 +2349,7 @@ def _skill_fuer(teil: str | None, pfad=None) -> str:
     return "\n\n".join(p for p in raus if p)
 
 
-def _schema_fuer(teil: str | None, ziel: str = "") -> str:
+def _schema_fuer(teil: str | None, ziel: str = "", v4: bool = False) -> str:
     """Ausgabe-Vertrag auf die Felder dieses Teils eindampfen.
 
     Gefiltert wird über die Top-Level-Schlüssel im Schema-Text. Das ist bewusst textuell und nicht
@@ -2280,7 +2360,7 @@ def _schema_fuer(teil: str | None, ziel: str = "") -> str:
     Vertrag stehen — würde erst danach ersetzt, wären sie im Teil-Call schon aussortiert oder in
     der alten Form stehengeblieben.
     """
-    schema = v3_schema() if ziel else OUTPUT_SCHEMA
+    schema = v4_schema() if v4 else (v3_schema() if ziel else OUTPUT_SCHEMA)
     if not teil:
         return schema
     kopf, _, rest = schema.partition("{\n")
@@ -2366,7 +2446,8 @@ DIE UNTERLAGEN:
 --- ENDE ZIELGRUPPE UND STRATEGIE ---"""
 
 
-def build_system_prompt(teil: str | None = None, ziel: str = "", marke: str = "") -> str:
+def build_system_prompt(teil: str | None = None, ziel: str = "", marke: str = "",
+                        v4: bool = False) -> str:
     """Skill-Body (Logik) + optionale Editing-Referenz + strikter JSON-Vertrag (Pipeline-Modus).
 
     `teil` steuert den V1.2-Split: „eroeffnung" oder „handwerk". `ziel` schaltet auf den V3-Skill
@@ -2375,7 +2456,7 @@ def build_system_prompt(teil: str | None = None, ziel: str = "", marke: str = ""
     NUR mit gesetztem Ziel, damit der V2-Prompt byte-identisch bleibt.
     """
     pfad = SKILL_PATH_V3 if ziel else None
-    parts = [_skill_fuer(teil, pfad)]
+    parts = [_skill_fuer(teil, pfad, v4=v4)]
     if ziel:
         # Dieser Nachsatz steht GANZ HINTEN im Prompt und wird deshalb besonders zuverlässig
         # befolgt (Primacy/Recency, siehe die Notiz zum Prompt-Split oben). Genau deshalb muss er
@@ -2400,7 +2481,11 @@ def build_system_prompt(teil: str | None = None, ziel: str = "", marke: str = ""
             "KEIN Ausgabe-Template — der Output bleibt strikt knapp + JSON wie unten definiert.\n\n"
             + ref
         )
-    parts.append(_schema_fuer(teil, ziel))
+    if v4:
+        # Hinter Ziel und Marke, vor der Referenz und dem Vertrag: spaet im Prompt, damit die
+        # Aufwand- und Effektregel die V3-Beispiele weiter oben sicher uebersteuert.
+        parts.append(V4_NACHSATZ)
+    parts.append(_schema_fuer(teil, ziel, v4=v4))
     return "\n\n".join(parts)
 
 

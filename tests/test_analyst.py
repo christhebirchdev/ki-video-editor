@@ -751,7 +751,8 @@ def test_teilschemas_decken_zusammen_alle_felder_ab():
     from models.analyst import AnalystEvaluationV2
     from services.analyst_eval import TEIL_FELDER
     pflicht = set(AnalystEvaluationV2.model_fields) - {
-        "action_steps", "weitere_empfehlungen", "performance_score"}
+        "action_steps", "weitere_empfehlungen", "performance_score",
+        "naechstes_video"}   # V4: berechnet der Code aus `empfehlungen`, wie action_steps
     abgedeckt = set(TEIL_FELDER["eroeffnung"]) | set(TEIL_FELDER["handwerk"])
     assert pflicht <= abgedeckt, f"fehlt in beiden Teilen: {pflicht - abgedeckt}"
 

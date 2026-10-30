@@ -108,7 +108,7 @@ def _run(run_id: str, run_dir: Path) -> None:
         # nur die Zielsteuerung messen, nicht zusätzlich den Wechsel von zwei Calls auf einen.
         # v4 = v3 plus Aufwand, Effekt-Optionen und Vorgaenger-Abgleich — gleiche Call-Struktur.
         result = _run_v2(run_dir, video, meta, mode="hybrid",
-                         split=(engine in ("v2_split", "v3", "v4")), engine=engine)
+                         split=(engine in ("v2_split", "v3", "v4")))
     else:
         result = _run_v1(run_dir, video, meta)
     result.id = run_id
@@ -119,8 +119,7 @@ def _run(run_id: str, run_dir: Path) -> None:
     write_status(run_dir, "done", "Analyse abgeschlossen", done=True)
 
 
-def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str, split: bool = False,
-            engine: str = ""):
+def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str, split: bool = False):
     """Ein Gemini-Lauf bewertet das Video direkt (pure = nur Video; hybrid = Video + lokale Messwerte).
 
     `split=True` (V1.2) ersetzt den einen Bewertungs-Call durch zwei: Eröffnung, dann Handwerk.
@@ -156,8 +155,8 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str, split: bool = Fal
     write_status(run_dir, "evaluate", "Analyse & Bewertung laufen…")
     # Seit V4 steht die Engine VOR der Bewertung fest — die V4-Nachbearbeitung verzweigt daran.
     # V3 haengt weiterhin an `gewaehltes_ziel` und merkt davon nichts.
-    if engine:
-        result.engine = engine
+    if meta.get("engine"):
+        result.engine = meta["engine"]
     result.geplante_texthook = meta.get("planned_text_hook", "")
     result.gewaehltes_format = meta.get("format", "")  # leer nur bei Altläufen vor der Pflicht-Auswahl
     result.gewaehltes_ziel = meta.get("ziel", "")

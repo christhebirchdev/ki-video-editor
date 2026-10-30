@@ -75,11 +75,10 @@ def test_engine_dispatcher_kennt_v4(tmp_path, monkeypatch):
     from services import analyst_engine
     aufrufe = []
 
-    def fake_v2(run_dir, video, meta, mode, split=False, engine=""):
+    def fake_v2(run_dir, video, meta, mode, split=False):
         from models.analyst import AnalystResult
-        aufrufe.append((mode, split, engine))
-        return AnalystResult(id="", filename="a.mp4", duration_sec=1, scene_count=0, scenes=[],
-                             engine=engine)
+        aufrufe.append((mode, split, meta["engine"]))
+        return AnalystResult(id="", filename="a.mp4", duration_sec=1, scene_count=0, scenes=[])
     monkeypatch.setattr(analyst_engine, "_run_v2", fake_v2)
     monkeypatch.setattr(analyst_engine, "_find_video", lambda d: d / "raw" / "a.mp4")
     d = tmp_path / "r1"
