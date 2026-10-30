@@ -175,7 +175,9 @@ def uebernehmen(run_id: str, von: str):
 # v2_split = V1.2: derselbe Prompt-Inhalt, aber auf zwei Calls geteilt (Eröffnung / Handwerk).
 # Läuft bewusst NEBEN v2_hybrid (V1.1) statt es zu ersetzen — nur so lässt sich messen, ob der
 # Split etwas bringt. Beide Engines nutzen dieselben Bewertungsfelder und dieselbe Nachbearbeitung.
-ENGINES = {"v2_pure", "v2_hybrid", "v2_split", "v3"}
+ENGINES = {"v2_pure", "v2_hybrid", "v2_split", "v3", "v4"}
+# Engines mit Pflicht-Ziel. v4 erbt die komplette V3-Zielsteuerung.
+ZIEL_ENGINES = ("v3", "v4")
 
 
 class StartIn(BaseModel):
@@ -215,8 +217,8 @@ async def start_analysis(
         )
     # Ziel ist Pflicht bei v3 und wird bei den älteren Engines ignoriert: Sie kennen es nicht,
     # und ein mitgeschriebenes Ziel würde ihren Cache-Key ohne Wirkung verändern.
-    gewaehltes_ziel = (ziel or "").strip().upper() if engine == "v3" else ""
-    if engine == "v3":
+    gewaehltes_ziel = (ziel or "").strip().upper() if engine in ZIEL_ENGINES else ""
+    if engine in ZIEL_ENGINES:
         if not gewaehltes_ziel:
             raise HTTPException(
                 status_code=422,

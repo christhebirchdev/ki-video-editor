@@ -94,20 +94,21 @@ def _run(run_id: str, run_dir: Path) -> None:
     misst die reine Verarbeitungszeit und schreibt analysis.json + Abschluss-Status."""
     meta = json.loads((run_dir / "meta.json").read_text())
     engine = meta.get("engine", "v1")
-    if engine not in ("v1", "v2_pure", "v2_hybrid", "v2_split", "v3"):
+    if engine not in ("v1", "v2_pure", "v2_hybrid", "v2_split", "v3", "v4"):
         engine = "v1"
     video = _find_video(run_dir)
 
     t0 = time.perf_counter()
     if engine == "v2_pure":
         result = _run_v2(run_dir, video, meta, mode="pure")
-    elif engine in ("v2_hybrid", "v2_split", "v3"):
+    elif engine in ("v2_hybrid", "v2_split", "v3", "v4"):
         # v2_split (V1.2) teilt nur den Bewertungsschritt auf zwei Calls. Transkript, Sprachstatistik
         # und Messwerte davor sind identisch — sonst wäre der Vergleich mit V1.1 wertlos.
         # v3 splittet aus demselben Grund: Produktiv läuft v2_split, und ein Vergleich V2/V3 soll
         # nur die Zielsteuerung messen, nicht zusätzlich den Wechsel von zwei Calls auf einen.
+        # v4 = v3 plus Aufwand, Effekt-Optionen und Vorgaenger-Abgleich — gleiche Call-Struktur.
         result = _run_v2(run_dir, video, meta, mode="hybrid",
-                         split=(engine in ("v2_split", "v3")))
+                         split=(engine in ("v2_split", "v3", "v4")), engine=engine)
     else:
         result = _run_v1(run_dir, video, meta)
     result.id = run_id
@@ -118,7 +119,8 @@ def _run(run_id: str, run_dir: Path) -> None:
     write_status(run_dir, "done", "Analyse abgeschlossen", done=True)
 
 
-def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str, split: bool = False):
+def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str, split: bool = False,
+            engine: str = ""):
     """Ein Gemini-Lauf bewertet das Video direkt (pure = nur Video; hybrid = Video + lokale Messwerte).
 
     `split=True` (V1.2) ersetzt den einen Bewertungs-Call durch zwei: Eröffnung, dann Handwerk.
@@ -152,6 +154,10 @@ def _run_v2(run_dir: Path, video: Path, meta: dict, mode: str, split: bool = Fal
         result = AnalystResult(id="", filename=filename, duration_sec=duration, scene_count=0, scenes=[])
 
     write_status(run_dir, "evaluate", "Analyse & Bewertung laufen…")
+    # Seit V4 steht die Engine VOR der Bewertung fest — die V4-Nachbearbeitung verzweigt daran.
+    # V3 haengt weiterhin an `gewaehltes_ziel` und merkt davon nichts.
+    if engine:
+        result.engine = engine
     result.geplante_texthook = meta.get("planned_text_hook", "")
     result.gewaehltes_format = meta.get("format", "")  # leer nur bei Altläufen vor der Pflicht-Auswahl
     result.gewaehltes_ziel = meta.get("ziel", "")

@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     # damit ein vergessenes .env nicht versehentlich alles freischaltet.
     admin_password: str = ""
 
+    # V4: Nutzer-Zuordnung. Aus = Anfragen ohne Header `X-Analyst-Nutzer` bleiben erlaubt
+    # (Uebergang, Browser-ID). An = ohne Nutzer 401 — fuer den Betrieb hinter dem Agentursystem,
+    # dessen Proxy den Header serverseitig setzt (siehe INTEGRATION.md).
+    analyst_nutzer_pflicht: bool = False
+
+    # V4: Nach wie vielen Tagen die Videodatei eines Laufs geloescht wird. Die Analyse bleibt.
+    analyst_video_tage: int = 30
+
     model_config = {"env_file": ".env"}
 
 
