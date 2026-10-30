@@ -125,9 +125,11 @@ und bleibt Python. Das Agentursystem bindet ihn per Proxy/Link ein und muss nur 
 1. Bei jeder Anfrage an den Analysten den Header `X-Analyst-Nutzer: <stabile User-ID>` setzen
    (serverseitig im Proxy, nicht im Browser) und `ANALYST_NUTZER_PFLICHT=1` setzen.
 2. Bei Account-Löschung `DELETE /api/analyst/meine` mit diesem Header aufrufen.
-Das Frontend nimmt einen vom Proxy gesetzten Nutzer automatisch, wenn `GET /api/analyst/ich`
-einen liefert, und erzeugt dann keine eigene Browser-ID mehr. Bestehende Browser-IDs lassen sich
-über `POST /api/analyst/meine/uebertragen` auf die Konto-ID umschreiben (einmal pro Nutzer).
+Das Frontend schickt seine Browser-ID immer doppelt: als `X-Analyst-Nutzer` und als
+`X-Analyst-Geraet`. Der Proxy überschreibt nur `X-Analyst-Nutzer` mit der Konto-ID. Weichen beide
+ab und ist `ANALYST_NUTZER_PFLICHT=1`, schreibt `GET /api/analyst/meine` die Läufe der
+Browser-ID einmalig auf die Konto-ID um. So nimmt jeder Kunde seine Übergangs-Historie ohne
+Zusatzcode mit.
 Vollständige Anleitung: `INTEGRATION.md`. Abnahme: Testsuite grün.
 
 Den Analysten in eine andere Sprache umzuschreiben ist ausdrücklich nicht vorgesehen — das wäre
