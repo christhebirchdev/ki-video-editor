@@ -65,6 +65,22 @@ Frame), **nicht** das Zurückdrehen der Rate — die Rate löst genau das Wahrne
 **Nicht betroffen:** `analyst_vlm.py` (Audio- und Blick-Pass) gehört zum V1-Pfad und bleibt bei 1 fps;
 beim Audio-Pass wäre eine höhere Bildrate ohnehin sinnlos.
 
+### V4 (Stand 2026-10-30)
+
+Spec `docs/superpowers/specs/2026-10-30-analyst-v4-design.md`, Plan `docs/superpowers/plans/2026-10-30-analyst-v4.md`.
+Engine `v4` = V3 plus: `aufwand` je Empfehlung (Top-3 nur Schnitt, `naechstes_video` für Neudrehs),
+Effekte aus `EffektVorschlag.optionen` statt festem „Whoosh", Neubewertung mit `vorgaenger`
+(`vorgaenger_abgleich`), Nutzer-Zuordnung (`services/analyst_nutzer.py`), Historie/Export/Löschen,
+Level (`services/analyst_fortschritt.py`), Video-Aufbewahrung (`services/analyst_aufbewahrung.py`).
+
+- **Schalter ist `result.engine == "v4"`** (`analyst_eval._ist_v4`). `_run_v2` setzt `engine` jetzt
+  aus `meta.json` VOR der Bewertung. V3 hängt weiterhin an `gewaehltes_ziel`.
+- V4-Prompt = V3-Skill + `V4_SKILL_ERSETZUNGEN` + `V4_NACHSATZ`, Vertrag = `v4_schema()`.
+  V2/V3-Prompts bleiben byte-gleich (`test_v3_prompt_bleibt_ohne_v4_flag_gleich`).
+- Frontend: V4 nur über den Admin-Umschalter „Version", Default bleibt `ANALYST_ENGINE = "v3"`.
+  Umstellen = diese eine Konstante in `static/app.jsx`.
+- Integration ins Agentursystem: `INTEGRATION.md`.
+
 ### V1.1: Rückfragen-Chat (Stand 2026-07-29)
 
 Zweite Analyst-Ansicht **neben** der bestehenden, Tab „Video Analyst V1.1". Beide rendern

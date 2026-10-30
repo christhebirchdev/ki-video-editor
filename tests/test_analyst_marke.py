@@ -252,7 +252,9 @@ def test_marken_feld_haengt_an_v3():
     quelle = _appjsx()
     stelle = quelle.index("Zielgruppe &amp; Strategie (optional)")
     davor = quelle[max(0, stelle - 900):stelle]
-    assert re.search(r'engine === "v3" && \(', davor)
+    # Seit V4: `mitZiel` = engine v3 ODER v4 — beide kennen das Feld.
+    assert re.search(r'mitZiel && \(', davor)
+    assert 'const mitZiel = engine === "v3" || engine === "v4";' in quelle
 
 
 # --- Frontend-Feinschliff (Feedback Chris, 2026-09-13) ------------------------------------------

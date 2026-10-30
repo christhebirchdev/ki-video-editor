@@ -33,7 +33,7 @@ def test_ziel_und_zielgruppendateien_sind_fuer_kunden_sichtbar():
     """Beide haengen an `engine === "v3"`. Mit V3 als Default greift das fuer jeden — genau das
     ist der Sinn der Umstellung."""
     quelle = _appjsx()
-    assert 'engine === "v3" && (' in quelle
+    assert 'mitZiel && (' in quelle   # seit V4: v3 ODER v4
     for feld in ("Ziel des Videos", "Zielgruppe &amp; Strategie (optional)"):
         assert feld in quelle, feld
 
@@ -42,7 +42,8 @@ def test_ohne_ziel_laesst_sich_nicht_starten():
     """Das Ziel ist bei V3 Pflicht (Spec 1.1) — der Server lehnt den Start sonst mit 422 ab.
     Der Knopf muss das vorher abfangen, sonst laeuft der Nutzer in eine Fehlermeldung."""
     quelle = _appjsx()
-    assert 'const canStart = !!analysisFile && !!format && (engine !== "v3" || !!ziel)' in quelle
+    assert 'const mitZiel = engine === "v3" || engine === "v4";' in quelle
+    assert '!!format && (!mitZiel || !!ziel)' in quelle
 
 
 def test_der_hinweis_nennt_was_wirklich_fehlt():
