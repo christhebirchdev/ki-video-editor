@@ -230,7 +230,9 @@ def test_fortschritt_endpunkt(client):
         rid = _upload(client, A)
         _fertig(client, rid, evaluation={"performance_score": 70, "hook": {"sprech_hook_score": 4}})
     e = client.get("/api/analyst/fortschritt", headers=A).json()
-    assert e["analysen"] == 3 and e["gesamt"]["level"] == 2
+    # 3 Analysen + Hook-Schnitt 4,0 (die anderen Bereiche ohne Score) → Koennens-Weg: Level 7
+    assert e["analysen"] == 3 and e["gesamt"]["level"] == 7
+    assert next(k for k in e["kategorien"] if k["key"] == "hook")["schnitt"] == 4.0
     assert client.get("/api/analyst/fortschritt", headers=B).json()["analysen"] == 0
 
 
@@ -263,3 +265,31 @@ def test_cache_check_verraet_keine_fremden_laeufe(client):
     r = client.get(f"/api/analyst/{eigen}/cache-check", headers=A,
                    params={"format": "Talking Head", "ziel": "MOFU", "engine": "v4"})
     assert r.json() == {"treffer": False}
+
+
+# ---------- Video einer frueheren Analyse abspielen ----------
+
+def test_video_endpunkt_ganz_und_mit_range(client):
+    rid = _upload(client, A)
+    r = client.get(f"/api/analyst/{rid}/video", headers=A)
+    assert r.status_code == 200 and r.content == VIDEO
+    assert r.headers["accept-ranges"] == "bytes"
+    r = client.get(f"/api/analyst/{rid}/video", headers={**A, "Range": "bytes=0-9"})
+    assert r.status_code == 206 and r.content == VIDEO[:10]
+    assert r.headers["content-range"] == f"bytes 0-9/{len(VIDEO)}"
+    r = client.get(f"/api/analyst/{rid}/video", headers={**A, "Range": "bytes=10-"})
+    assert r.status_code == 206 and r.content == VIDEO[10:]
+
+
+def test_video_endpunkt_fremd_und_geloescht(client):
+    rid = _upload(client, A)
+    assert client.get(f"/api/analyst/{rid}/video", headers=B).status_code == 404
+    for f in (client.runs / rid / "raw").iterdir():
+        f.unlink()
+    assert client.get(f"/api/analyst/{rid}/video", headers=A).status_code == 410
+
+
+def test_video_range_ausserhalb(client):
+    rid = _upload(client, A)
+    r = client.get(f"/api/analyst/{rid}/video", headers={**A, "Range": f"bytes={len(VIDEO)+5}-"})
+    assert r.status_code == 416

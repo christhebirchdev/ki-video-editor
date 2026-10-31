@@ -464,6 +464,62 @@ def chat_frage(run_id: str, body: ChatIn, nutzer: str = Depends(nutzer_der_anfra
     )
 
 
+# ---------- V4: Video einer frueheren Analyse abspielen ----------
+# Anlass (Chris, 2026-11-01): Beim Oeffnen einer alten Analyse soll man das Video noch einmal sehen,
+# um sicher zu sein, dass es das richtige ist. Mit Range-Unterstuetzung, weil Safari (iPhone) ohne
+# 206-Antworten gar nicht abspielt und Chrome sonst nicht spulen kann — Starlettes FileResponse kann
+# das in der eingesetzten Version (0.38) noch nicht.
+#
+# Kein Nutzer-Header moeglich: Ein <video>-Tag schickt keine eigenen Header. Ohne Pflichtmodus gilt
+# deshalb dieselbe Regel wie ueberall (wer die ID kennt, sieht den Lauf); im Pflichtmodus setzt der
+# Proxy den Header bei jeder Anfrage selbst, auch bei dieser.
+
+VIDEO_TYPEN = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+               ".webm": "video/webm", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo"}
+_STUECK = 1024 * 1024
+
+
+def _datei_stueckweise(pfad: Path, start: int, laenge: int):
+    with pfad.open("rb") as f:
+        f.seek(start)
+        rest = laenge
+        while rest > 0:
+            daten = f.read(min(_STUECK, rest))
+            if not daten:
+                break
+            rest -= len(daten)
+            yield daten
+
+
+@router.get("/{run_id}/video")
+def lauf_video(run_id: str, request: Request, nutzer: str = Depends(nutzer_der_anfrage)):
+    run_dir = _run_dir(run_id, nutzer)
+    raw = run_dir / "raw"
+    videos = sorted(f for f in raw.iterdir() if f.is_file()) if raw.is_dir() else []
+    if not videos:
+        raise HTTPException(status_code=410, detail="Das Video ist nicht mehr gespeichert.")
+    pfad = videos[0]
+    groesse = pfad.stat().st_size
+    typ = VIDEO_TYPEN.get(pfad.suffix.lower(), "application/octet-stream")
+    kopf = {"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=3600"}
+    m = re.fullmatch(r"bytes=(\d*)-(\d*)", request.headers.get("range", "").strip())
+    if not m or not (m.group(1) or m.group(2)):
+        return StreamingResponse(_datei_stueckweise(pfad, 0, groesse), media_type=typ,
+                                 headers={**kopf, "Content-Length": str(groesse)})
+    if m.group(1):
+        start = int(m.group(1))
+        ende = min(int(m.group(2)), groesse - 1) if m.group(2) else groesse - 1
+    else:   # "bytes=-500" = die letzten 500 Bytes
+        start, ende = max(0, groesse - int(m.group(2))), groesse - 1
+    if start >= groesse or start > ende:
+        raise HTTPException(status_code=416, detail="Bereich ausserhalb der Datei",
+                            headers={"Content-Range": f"bytes */{groesse}"})
+    laenge = ende - start + 1
+    return StreamingResponse(_datei_stueckweise(pfad, start, laenge), status_code=206, media_type=typ,
+                             headers={**kopf, "Content-Length": str(laenge),
+                                      "Content-Range": f"bytes {start}-{ende}/{groesse}"})
+
+
 # ---------- V4: Lauf loeschen, dasselbe Video neu bewerten ----------
 
 @router.delete("/{run_id}")

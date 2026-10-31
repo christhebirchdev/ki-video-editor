@@ -118,6 +118,15 @@ Level je Kategorie (1–10), sequentiell — Level k erfordert alle Bedingungen 
   Die Skill-Stufen beginnen deshalb bei 3,0 — darunter wären sie beim ersten Video geschenkt.
 - Zusätzlich „Dein Fokus": die Dimension, die in den letzten 5 Läufen am häufigsten ≤ 3 lag.
 
+### 5.1 Änderung 2026-11-01 (Chris)
+
+Kategorien zeigen kein Level mehr, sondern den Schnitt-Score (1–5) der letzten 5 Videos mit Trend.
+Das Gesamtlevel steigt auf zwei Wegen, der höhere zählt: Nutzung (1/3/5/8/12/17/23/30/40/50
+Analysen; Level 3 auch für die erste Neubewertung) oder Können (Gesamtschnitt der letzten 5 Videos
+≥ 3,0/3,3/3,6/3,9/4,2/4,5/4,8 für Level 4–10, ab 3 Analysen). Es sinkt nie.
+Frühere Analysen spielen ihr Video über `GET /{id}/video` ab, solange es gespeichert ist.
+„Anderes Ziel" ist aus der Oberfläche entfernt (Endpunkt bleibt).
+
 ## 6. Integration ins Agentursystem
 
 Empfehlung: Der Analyst zieht als **eigener Container** um (Dockerfile und Compose liegen vor)

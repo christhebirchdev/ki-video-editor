@@ -942,19 +942,17 @@ const DIMENSION_LABEL = {
 const KATEGORIE_TITEL = Object.fromEntries(OUTPUT_KATEGORIEN.map((k) => [k.key, k.titel]));
 const komma = (x) => String(x).replace(".", ",");
 
-// Was zum nächsten Level fehlt — in Worten statt als Formel.
-function naechstesZiel(k, fs) {
-  const n = k.naechstes;
+// Was zum nächsten Gesamtlevel fehlt — beide Wege in Worten.
+function naechstesLevelText(fs) {
+  const n = fs.gesamt.naechstes;
   if (!n) return "Höchstes Level erreicht.";
-  if (n.art === "analysen") {
-    const rest = Math.max(1, n.wert - fs.analysen);
-    return `Noch ${rest} ${rest === 1 ? "Analyse" : "Analysen"} bis Level ${k.level + 1}.`;
+  const rest = Math.max(1, n.analysen - fs.analysen);
+  let text = `Level ${n.level}: noch ${rest} ${rest === 1 ? "Analyse" : "Analysen"}`;
+  if (n.schnitt != null) {
+    text += ` — oder ein Gesamtschnitt von ${komma(n.schnitt.toFixed(1))} über deine letzten ${fs.fenster} Videos`;
+    if (fs.gesamt.schnitt != null) text += ` (aktuell ${komma(fs.gesamt.schnitt.toFixed(1))})`;
   }
-  if (n.art === "neubewertung_oder_analysen") {
-    return "Lad eine verbesserte Version eines Videos hoch — oder mach insgesamt 5 Analysen.";
-  }
-  return `Level ${k.level + 1}: Schnitt ${komma(n.wert.toFixed(1))} über deine letzten 5 Videos` +
-    (k.schnitt != null ? ` (aktuell ${komma(k.schnitt.toFixed(1))}).` : ".");
+  return text + ".";
 }
 
 function LevelBahn({ level, position, stufen, klein = false }) {
@@ -991,30 +989,35 @@ function Fortschritt({ stand }) {
   return (
     <details className="fs-leiste" open={offen} onToggle={umschalten}>
       <summary aria-label={`Dein Fortschritt: Level ${fs.gesamt.level} von ${fs.max_level}`}>
-        <span className="fs-gesamt">
+        <span className="fs-gesamt" title={naechstesLevelText(fs)}>
           <span className="fs-gesamt-zahl">Level {fs.gesamt.level}</span>
           <LevelBahn level={fs.gesamt.level} position={fs.gesamt.position} stufen={fs.stufen} />
         </span>
+        {/* Kategorien: kein Level, sondern der Schnitt-Score der letzten Videos (Chris, 2026-11-01). */}
         <span className="fs-kats">
           {fs.kategorien.map((k) => (
-            <span key={k.key} className="fs-kat" title={naechstesZiel(k, fs)}>
+            <span key={k.key} className="fs-kat"
+                  title={`Durchschnitt deiner letzten ${fs.fenster} Videos (1–5)`}>
               <span className="fs-kat-kopf">
                 <span>{KATEGORIE_TITEL[k.key] === "Auftreten, Bild & Ton" ? "Auftreten" : (KATEGORIE_TITEL[k.key] || k.key)}</span>
-                <b>{k.level}{k.trend === "hoch" ? " ↑" : ""}</b>
+                <b>{k.schnitt != null ? `Ø ${komma(k.schnitt.toFixed(1))}` : "–"}
+                  {k.trend === "hoch" ? " ↑" : k.trend === "runter" ? " ↓" : ""}</b>
               </span>
-              <LevelBahn klein level={k.level} position={k.position} stufen={fs.stufen} />
+              <LevelBahn klein level={0} position={k.position} stufen={fs.stufen} />
             </span>
           ))}
         </span>
         <span className="fs-pfeil" aria-hidden="true">▾</span>
       </summary>
       <div className="fs-details">
-        {fs.analysen === 0 && <div>Deine erste Analyse bringt dich auf Level 1.</div>}
-        {fs.kategorien.map((k) => (
-          <div key={k.key} className="fs-ziel">
-            <b>{KATEGORIE_TITEL[k.key] || k.key}</b> (Level {k.level}): {naechstesZiel(k, fs)}
-          </div>
-        ))}
+        <div>
+          <b>Gesamtlevel {fs.gesamt.level}</b> von {fs.max_level} — es steigt mit jeder Analyse und mit
+          besseren Scores und sinkt nie. {naechstesLevelText(fs)}
+        </div>
+        <div>
+          <b>Scores je Bereich:</b> Durchschnitt deiner letzten {fs.fenster} Videos auf der Skala 1–5.
+          ↑ / ↓ zeigt, ob sie besser oder schwächer waren als die {fs.fenster} davor.
+        </div>
         {fs.fokus && (
           <div className="lvl-fokus">
             🎯 <b>Dein Fokus:</b> {DIMENSION_LABEL[fs.fokus.dimension] || fs.fokus.dimension} — in {fs.fokus.anzahl}{" "}
@@ -1022,7 +1025,7 @@ function Fortschritt({ stand }) {
           </div>
         )}
         <div className="muted" style={{ fontSize: 12 }}>
-          {fs.analysen} {fs.analysen === 1 ? "Analyse" : "Analysen"} · Level steigen mit jedem Video und sinken nie.
+          {fs.analysen} {fs.analysen === 1 ? "Analyse" : "Analysen"} bisher.
         </div>
       </div>
     </details>
@@ -1236,6 +1239,9 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   const [v4Stand, setV4Stand] = useState(0);            // lädt Fortschritt/Liste neu
   const [chatOffen, setChatOffen] = useState(false);    // Messenger-Fenster (V4)
   const [chatEntwurf, setChatEntwurf] = useState(null); // {text, n} aus „Frag nach"
+  // Video einer früheren Analyse vom Server (Chris, 2026-11-01: „damit man zuordnen kann, ob es
+  // wirklich dieses Video war"). Nur gesetzt, wenn es noch gespeichert ist.
+  const [serverVideo, setServerVideo] = useState(null);   // {url, name}
   const [plannedTextHook, setPlannedTextHook] = useState("");  // Freifeld: geplante Texthook (falls noch nicht im Video)
   // Optionale Marken-/Zielgruppen-Datei. Sie liegt bis zum Start NUR im Browser: Die Lauf-ID
   // entsteht erst beim Video-Upload, und ein Zwischenspeicher auf dem Server ohne Lauf waere
@@ -1462,6 +1468,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     activePhaseRef.current = "";
     setPhaseStartMs(0);
     setVorgaenger(null);
+    setServerVideo(null);
     setChatOffen(false);
     setChatEntwurf(null);
   }
@@ -1476,6 +1483,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       reset();
       setRunId(lauf.id);
       setResult(d.result);
+      if (lauf.video_da) setServerVideo({ url: `/api/analyst/${lauf.id}/video`, name: lauf.filename });
       setPhase("done");
       setTimeout(() => document.getElementById("analyst-ergebnis")?.scrollIntoView({ behavior: "smooth" }), 80);
     } catch (e) { setError(e.message); }
@@ -1497,7 +1505,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   }
 
   // Player erst nach der Analyse — vorher gibt es kein „analysiertes Video".
-  const zeigePlayer = phase === "done" && !!videoUrl;
+  const playerSrc = videoUrl || serverVideo?.url || "";
+  const zeigePlayer = phase === "done" && !!playerSrc;
 
   // Scrollt der Player aus dem Bild, wandert er als kleiner Schwebe-Player mit nach unten.
   // Wichtig: Es ist DASSELBE <video>-Element, nur der Rahmen wechselt die Klasse. Würde man
@@ -1590,7 +1599,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       <Card
         icon={zeigePlayer ? <Ico.film /> : <Ico.upload />}
         title={zeigePlayer ? "Analysiertes Video" : "Video-Quelle"}
-        sub={zeigePlayer ? (analysisFile?.name || "") : "Lade dein Video hoch"}
+        sub={zeigePlayer ? (analysisFile?.name || serverVideo?.name || "") : "Lade dein Video hoch"}
       >
         {/* Nach der Analyse verschwindet der Upload-Bereich komplett — es gibt nichts mehr
             hochzuladen. Für einen neuen Durchlauf gibt es unten „Neue Analyse". */}
@@ -1651,8 +1660,10 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
         {zeigePlayer && (
           videoFehler ? (
             <div className="analyst-player-hinweis">
-              Dieses Format kann der Browser nicht abspielen (z.B. MKV oder AVI).
-              Die Analyse ist davon nicht betroffen.
+              {serverVideo && !analysisFile
+                ? "Das gespeicherte Video lässt sich hier nicht abspielen (z.B. MKV/AVI, oder es wurde inzwischen gelöscht)."
+                : "Dieses Format kann der Browser nicht abspielen (z.B. MKV oder AVI)."}
+              {" "}Die Analyse ist davon nicht betroffen.
             </div>
           ) : (
             <div
@@ -1664,7 +1675,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                               + (schwebt && result?.engine === "v4" ? " links" : "")}>
                 <video
                   ref={videoRef}
-                  src={videoUrl}
+                  src={playerSrc}
                   controls
                   playsInline
                   preload="metadata"
