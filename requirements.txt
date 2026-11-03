@@ -12,6 +12,12 @@ google-genai==2.8.0
 anthropic==0.39.0
 assemblyai==0.35.0
 faster-whisper==1.2.1
+# PyAV exakt gepinnt (2026-11-03): faster-whisper 1.2.1 ruft av.open(..., metadata_errors="ignore")
+# auf und verlangt nur av>=11. PyAV 19 hat dieses Argument entfernt -> jede Transkription bricht mit
+# "open() got an unexpected keyword argument 'metadata_errors'" ab, sobald ein Rebuild PyAV 19 zieht.
+# 17.1.0 ist die lokal verifizierte Version. Erst loesen, wenn faster-whisper > 1.2.1 (enthaelt den
+# Upstream-Fix SYSTRAN/faster-whisper#1495) installiert ist.
+av==17.1.0
 jinja2==3.1.4
 aiofiles==24.1.0
 pytest==8.3.3
