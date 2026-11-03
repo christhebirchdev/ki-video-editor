@@ -1034,3 +1034,115 @@
 /* Auf dem Handy hat das Panel einen eigenen Schließen-Knopf; der runde Knopf würde sonst über
    dem Senden-Pfeil liegen. */
 @media (max-width:640px){ .chat-fab.ist-offen{display:none;} }
+
+/* ===== V4 Design „Mentor" (Chris, 2026-11-03) — Meinfluss-CI von meinfluss.com:
+   Gold #BE9C67 → #7A6136 als Verlauf, Tinte #17140F, Text #4B453C, Fläche #F1ECE3, Poppins.
+   Gilt nur in der V4-Ansicht; V3 bleibt unverändert. */
+:root{
+  --surface-ci:#F1ECE3; --ink-ci:#17140F; --text-ci:#4B453C; --muted-ci:#857D70; --soft-ci:#A9A296;
+  --gold-grad:linear-gradient(100deg,#C9AA74,#9A7B47); --rose-ci:#B5615F; --rose-bg-ci:#F6E6E4;
+  --karte-schatten:0 12px 32px rgba(23,20,15,.07); --karte-rand:1px solid rgba(23,20,15,.06);
+}
+.v4-kopf{display:flex; align-items:center; gap:16px; margin-bottom:18px;}
+.v4-level{display:flex; align-items:center; gap:12px; flex:1; min-width:0; font-size:12.5px; color:var(--muted-ci);}
+.v4-level b{color:var(--ink-ci); font-size:14px; white-space:nowrap;}
+.v4-level .lvl-bahn{width:200px; flex:none;}
+.v4-level-text{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.v4-neu{margin-left:auto; background:var(--gold-grad); color:#1A140A; box-shadow:0 6px 16px rgba(154,123,71,.28);}
+.v4-neu:hover{filter:brightness(1.04);}
+
+.v4-layout{display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:24px; align-items:start;}
+.v4-main{min-width:0;}
+.v4-side{display:flex; flex-direction:column; gap:16px; min-width:0;}
+.v4-layout .card{border:var(--karte-rand); box-shadow:var(--karte-schatten); border-radius:20px;}
+.v4-layout .lvl-fuellung{background:var(--gold-grad);}
+
+/* Ergebnis als „Brief": Kartenkopf wird zur leisen Meta-Zeile, darunter der Mentor-Kopf. */
+.v4-layout #analyst-ergebnis .card{padding:34px 40px;}
+.v4-layout #analyst-ergebnis .card-head{margin-bottom:6px; flex-wrap:wrap; row-gap:8px;}
+.v4-layout #analyst-ergebnis .card-ico{display:none;}
+.v4-layout #analyst-ergebnis .card-head h2{font-size:13px; font-weight:500; color:var(--muted-ci);}
+.v4-mentor-kopf{display:flex; gap:28px; align-items:flex-start; justify-content:space-between; margin:8px 0 6px;}
+.v4-mentor-text{min-width:0;}
+.v4-pill{
+  display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); background:#fff;
+  border-radius:999px; padding:5px 12px 5px 8px; font-size:12.5px; font-weight:500; color:#7A6136;
+}
+.v4-pill:before{content:""; width:14px; height:14px; border-radius:50%; border:4px solid var(--surface-ci);
+  background:#BE9C67; box-shadow:0 0 0 1px var(--line);}
+.v4-h1{font-size:34px; line-height:1.15; font-weight:700; letter-spacing:-.04em; color:var(--ink-ci); margin:14px 0 10px; max-width:500px;}
+.v4-gold{background:var(--gold-grad); -webkit-background-clip:text; background-clip:text; color:transparent;}
+.v4-lead{color:var(--text-ci); font-size:14.5px; line-height:1.6; max-width:520px; margin:0;}
+.v4-einordnung{margin-top:8px; font-size:13px; font-weight:600; color:#7A6136;}
+.v4-ring{position:relative; width:132px; height:132px; flex:none;}
+.v4-ring svg{width:100%; height:100%;}
+.v4-ring b{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  font-size:40px; font-weight:800; letter-spacing:-.03em; line-height:1; color:var(--ink-ci);}
+.v4-ring b small{font-size:11px; font-weight:500; color:var(--muted-ci); margin-top:6px; letter-spacing:0;}
+
+/* Vergleich als ruhige Box */
+.v4-layout .v4-vergleich{background:#F7F4EE; border:none; border-radius:14px; padding:16px 18px; margin:20px 0 4px;}
+.v4-layout .v4-vergleich .analyst-eval-title{font-size:13px; color:var(--muted-ci); font-weight:600;}
+.v4-layout .v4-delta .plus{color:var(--ok-ink); font-size:22px; font-weight:800;}
+
+/* Checklisten */
+.v4-liste{margin-top:26px;}
+.v4-liste h2{font-size:20px; font-weight:700; letter-spacing:-.02em; color:var(--ink-ci); margin:0;}
+.v4-liste-sub{font-size:13.5px; color:var(--muted-ci); margin:2px 0 8px;}
+.v4-todo{display:grid; grid-template-columns:26px minmax(0,1fr); gap:12px; padding:14px 0; border-top:1px solid var(--surface-ci);}
+.v4-haken{width:22px; height:22px; margin-top:2px; border-radius:7px; border:2px solid var(--line-strong);
+  background:#fff; cursor:pointer; padding:0; position:relative;}
+.v4-haken:hover{border-color:#BE9C67;}
+.v4-haken:focus-visible{outline:3px solid var(--gold-tint); outline-offset:2px;}
+.v4-haken.an{background:var(--gold-grad); border-color:transparent;}
+.v4-haken.an:after{content:"✓"; position:absolute; inset:0; color:#fff; font-size:13px; font-weight:700; line-height:18px; text-align:center;}
+.v4-todo-text{font-size:14.5px; line-height:1.55; color:var(--ink-ci);}
+.v4-todo-meta{font-size:12.5px; font-weight:600; color:#7A6136; margin-top:3px;}
+.v4-wichtig{display:inline-block; font-size:11.5px; font-weight:600; color:#7A6136; background:var(--surface-ci);
+  border-radius:6px; padding:1px 8px; margin-bottom:4px;}
+.v4-todo.ist-erledigt .v4-todo-text{color:var(--soft-ci); text-decoration:line-through;}
+.v4-spaeter{background:var(--rose-bg-ci); border-radius:14px; padding:2px 18px 10px; margin-top:22px;}
+.v4-spaeter .v4-liste{margin-top:14px;}
+.v4-spaeter .v4-todo{border-top-color:rgba(181,97,95,.15);}
+.v4-spaeter .v4-todo-meta{color:var(--rose-ci);}
+
+/* Seitenleiste */
+.v4-karte{background:#fff; border:var(--karte-rand); border-radius:18px; box-shadow:var(--karte-schatten); padding:20px;}
+.v4-karte h3{font-size:15px; font-weight:700; color:var(--ink-ci); margin:0;}
+.v4-karte-sub{font-size:12px; color:var(--muted-ci); margin-bottom:6px;}
+.v4-bereich{margin-top:10px;}
+.v4-bereich-kopf{display:flex; justify-content:space-between; font-size:13.5px; margin-bottom:5px;}
+.v4-bereich-kopf b{font-weight:600; color:var(--ink-ci);}
+.v4-bereich .lvl-bahn{height:6px;}
+.v4-mehr-klein{margin-top:12px; font-size:12.5px; color:var(--text-ci);}
+.v4-mehr-klein summary{cursor:pointer; color:#7A6136; font-weight:600;}
+.v4-mehr-klein p{margin:8px 0 0; line-height:1.5;}
+.v4-frag{background:var(--ink-ci); color:#D9D2C6; border-radius:18px; padding:20px;}
+.v4-frag h3{color:#fff; font-size:15px; font-weight:700; margin:0 0 2px;}
+.v4-frag p{margin:0; font-size:13.5px;}
+.v4-frag-feld{display:block; width:100%; text-align:left; margin-top:12px; padding:10px 12px; border:none; cursor:pointer;
+  border-radius:10px; background:rgba(255,255,255,.09); color:#fff; font:inherit; font-size:13.5px;}
+.v4-frag-feld:hover{background:rgba(255,255,255,.15);}
+.v4-side .meine-box{margin:0; border-radius:18px; box-shadow:var(--karte-schatten); border:var(--karte-rand); padding:8px 18px;}
+.v4-side .meine-zeile{flex-direction:column; align-items:stretch;}
+.v4-side .meine-info{flex:none; min-width:0; max-width:100%;}
+.v4-side .meine-box{overflow:hidden;}
+.v4-side .meine-knoepfe{justify-content:flex-start;}
+
+/* Chat-Knopf und Fenster in CI-Tinte */
+.v4-layout ~ .chat-fab, .chat-fab{background:var(--ink-ci, #17140F);}
+
+@media (max-width:900px){
+  .v4-layout{grid-template-columns:minmax(0,1fr);}
+  .v4-frag{display:none;}           /* am Handy übernimmt der runde Chat-Knopf */
+}
+@media (max-width:640px){
+  .v4-kopf{gap:10px;}
+  .v4-level .lvl-bahn{width:90px;}
+  .v4-level-text{display:none;}
+  .v4-layout #analyst-ergebnis .card{padding:22px 18px;}
+  .v4-mentor-kopf{flex-direction:column-reverse; gap:6px;}
+  .v4-ring{width:104px; height:104px;}
+  .v4-ring b{font-size:32px;}
+  .v4-h1{font-size:25px;}
+}

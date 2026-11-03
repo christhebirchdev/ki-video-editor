@@ -511,6 +511,70 @@ function Handlungsempfehlungen({ steps, titel = "💡 Handlungsempfehlungen",
   );
 }
 
+// V4-Checkliste (Design „Mentor"): dieselben Schritte wie Handlungsempfehlungen, zum Abhaken.
+// Der Haken lebt nur in diesem Browser (localStorage, je Lauf) — er ist eine Merkhilfe, keine Bewertung.
+function Checkliste({ steps, runId, titel, hinweis, onFrage = null, wichtigste = true }) {
+  const schluessel = "analyst.erledigt." + runId;
+  const [erledigt, setErledigt] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(schluessel) || "[]"); } catch (_) { return []; }
+  });
+  function umschalten(text) {
+    const neu = erledigt.includes(text) ? erledigt.filter((x) => x !== text) : [...erledigt, text];
+    setErledigt(neu);
+    try { localStorage.setItem(schluessel, JSON.stringify(neu)); } catch (_) {}
+  }
+  return (
+    <div className="v4-liste">
+      <h2>{titel}</h2>
+      <div className="v4-liste-sub">{hinweis}</div>
+      {(steps || []).slice(0, 3).map((s, i) => {
+        const an = erledigt.includes(s.anweisung);
+        return (
+          <div key={i} className={"v4-todo" + (an ? " ist-erledigt" : "")}>
+            <button type="button" className={"v4-haken" + (an ? " an" : "")} onClick={() => umschalten(s.anweisung)}
+                    aria-pressed={an} aria-label={an ? "Als offen markieren" : "Als erledigt abhaken"} />
+            <div>
+              {wichtigste && i === 0 && <span className="v4-wichtig">Wichtigster Schritt</span>}
+              <div className="v4-todo-text">{s.anweisung}</div>
+              <div className="v4-todo-meta">
+                {s.zeitpunkt}
+                {onFrage && (
+                  <>{s.zeitpunkt ? " · " : ""}<button type="button" className="frag-nach" style={{ marginLeft: 0 }}
+                      onClick={() => onFrage(s)}>Frag nach</button></>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Überschrift des Ergebnisses — zwei Teile, der zweite in Gold (Meinfluss-CI).
+function mentorUeberschrift(score) {
+  if (score >= 75) return ["Dein Video ist", "richtig gut geworden."];
+  if (score >= 55) return ["Gute Basis —", "mit wenigen Änderungen richtig stark."];
+  if (score >= 35) return ["Solide Basis —", "ein paar Hebel bringen viel."];
+  return ["Guter Anfang —", "hier bringt jeder Schritt etwas."];
+}
+
+function ScoreRing({ score }) {
+  const r = 58, u = 2 * Math.PI * r;
+  const anteil = Math.max(0, Math.min(100, score || 0)) / 100;
+  return (
+    <div className="v4-ring">
+      <svg viewBox="0 0 132 132" aria-hidden="true">
+        <defs><linearGradient id="v4gold" x1="0" x2="1"><stop offset="0" stopColor="#C9AA74" /><stop offset="1" stopColor="#9A7B47" /></linearGradient></defs>
+        <circle cx="66" cy="66" r={r} fill="none" stroke="var(--surface-ci)" strokeWidth="9" />
+        <circle cx="66" cy="66" r={r} fill="none" stroke="url(#v4gold)" strokeWidth="9" strokeLinecap="round"
+                strokeDasharray={`${anteil * u} ${u}`} transform="rotate(-90 66 66)" />
+      </svg>
+      <b>{score}<small>von 100</small></b>
+    </div>
+  );
+}
+
 // Ordnet den Performance-Score ermutigend ein (Label + Farbe) statt nackter Zahl.
 // Der Score wird IMMER grün dargestellt — auch bei 20 von 100.
 // Vorgabe Chris: Die Farbe soll nicht demotivieren. Jedes veröffentlichte Video ist besser als
@@ -968,66 +1032,82 @@ function LevelBahn({ level, position, stufen, klein = false }) {
   );
 }
 
-const LS_FORTSCHRITT_OFFEN = "analyst.fortschrittOffen";
-
-// Fortschritt als schmale Leiste (Vorgabe Chris, 2026-10-30): eingeklappt nur Gesamtlevel und
-// die vier Kategorie-Level mit Mini-Balken. Aufgeklappt: was zum nächsten Level fehlt + Fokus.
-function Fortschritt({ stand }) {
+// Fortschritt einmal laden, an zwei Stellen zeigen: Level oben im Kopf, Bereiche in der Seitenleiste.
+function useFortschritt(stand, an) {
   const [fs, setFs] = useState(null);
-  const [offen, setOffen] = useState(() => {
-    try { return localStorage.getItem(LS_FORTSCHRITT_OFFEN) === "1"; } catch (_) { return false; }
-  });
   useEffect(() => {
+    if (!an) return;
     api("GET", "/api/analyst/fortschritt").then(setFs).catch(() => setFs(null));
-  }, [stand]);
-  if (!fs) return null;
-  function umschalten(e) {
-    const jetzt = e.currentTarget.open;
-    setOffen(jetzt);
-    try { localStorage.setItem(LS_FORTSCHRITT_OFFEN, jetzt ? "1" : "0"); } catch (_) {}
-  }
+  }, [stand, an]);
+  return fs;
+}
+
+// V4-Kopfzeile (Design „Mentor", Chris 2026-11-03): Level mit Balken + „Neue Analyse".
+function V4Kopf({ fs, zeigeNeu, onNeu }) {
   return (
-    <details className="fs-leiste" open={offen} onToggle={umschalten}>
-      <summary aria-label={`Dein Fortschritt: Level ${fs.gesamt.level} von ${fs.max_level}`}>
-        <span className="fs-gesamt" title={naechstesLevelText(fs)}>
-          <span className="fs-gesamt-zahl">Level {fs.gesamt.level}</span>
+    <div className="v4-kopf">
+      {fs && (
+        <div className="v4-level" title={naechstesLevelText(fs)}>
+          <b>Level {fs.gesamt.level}</b>
           <LevelBahn level={fs.gesamt.level} position={fs.gesamt.position} stufen={fs.stufen} />
-        </span>
-        {/* Kategorien: kein Level, sondern der Schnitt-Score der letzten Videos (Chris, 2026-11-01). */}
-        <span className="fs-kats">
-          {fs.kategorien.map((k) => (
-            <span key={k.key} className="fs-kat"
-                  title={`Durchschnitt deiner letzten ${fs.fenster} Videos (1–5)`}>
-              <span className="fs-kat-kopf">
-                <span>{KATEGORIE_TITEL[k.key] === "Auftreten, Bild & Ton" ? "Auftreten" : (KATEGORIE_TITEL[k.key] || k.key)}</span>
-                <b>{k.schnitt != null ? `Ø ${komma(k.schnitt.toFixed(1))}` : "–"}
-                  {k.trend === "hoch" ? " ↑" : k.trend === "runter" ? " ↓" : ""}</b>
-              </span>
-              <LevelBahn klein level={0} position={k.position} stufen={fs.stufen} />
-            </span>
-          ))}
-        </span>
-        <span className="fs-pfeil" aria-hidden="true">▾</span>
-      </summary>
-      <div className="fs-details">
-        <div>
-          <b>Gesamtlevel {fs.gesamt.level}</b> von {fs.max_level}. {naechstesLevelText(fs)}
+          <span className="v4-level-text">{naechstesLevelText(fs)}</span>
         </div>
-        <div>
-          <b>Scores je Bereich:</b> Durchschnitt deiner letzten {fs.fenster} Videos auf der Skala 1–5.
-          ↑ / ↓ zeigt, ob sie besser oder schwächer waren als die {fs.fenster} davor.
-        </div>
-        {fs.fokus && (
-          <div className="lvl-fokus">
-            🎯 <b>Dein Fokus:</b> {DIMENSION_LABEL[fs.fokus.dimension] || fs.fokus.dimension} — in {fs.fokus.anzahl}{" "}
-            von {fs.fokus.von} deiner letzten Videos noch schwach. Hier bringt dich die nächste Verbesserung am weitesten.
+      )}
+      {zeigeNeu && (
+        <button className="btn btn-primary v4-neu" onClick={onNeu}>
+          <Ico.upload width="16" height="16" /> Neue Analyse
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Seitenleiste: Schnitt-Score je Bereich (letzte 5 Videos), Fokus und die Level-Erklärung.
+function BereicheKarte({ fs }) {
+  if (!fs) return null;
+  return (
+    <section className="v4-karte">
+      <h3>Deine Bereiche</h3>
+      <div className="v4-karte-sub">Schnitt deiner letzten {fs.fenster} Videos</div>
+      {fs.kategorien.map((k) => (
+        <div key={k.key} className="v4-bereich">
+          <div className="v4-bereich-kopf">
+            <span>{KATEGORIE_TITEL[k.key] === "Auftreten, Bild & Ton" ? "Auftreten" : (KATEGORIE_TITEL[k.key] || k.key)}</span>
+            <b>{k.schnitt != null ? komma(k.schnitt.toFixed(1)) : "–"}
+              {k.trend === "hoch" ? " ↑" : k.trend === "runter" ? " ↓" : ""}</b>
           </div>
-        )}
-        <div className="muted" style={{ fontSize: 12 }}>
-          {fs.analysen} {fs.analysen === 1 ? "Analyse" : "Analysen"} bisher.
+          <LevelBahn klein level={0} position={k.position} stufen={fs.stufen} />
         </div>
-      </div>
-    </details>
+      ))}
+      {fs.fokus && (
+        <div className="lvl-fokus" style={{ marginTop: 14 }}>
+          🎯 <b>Dein Fokus:</b> {DIMENSION_LABEL[fs.fokus.dimension] || fs.fokus.dimension} — in {fs.fokus.anzahl}{" "}
+          von {fs.fokus.von} deiner letzten Videos noch schwach.
+        </div>
+      )}
+      <details className="v4-mehr-klein">
+        <summary>So funktionieren Level und Scores</summary>
+        <p><b>Gesamtlevel {fs.gesamt.level}</b> von {fs.max_level}. {naechstesLevelText(fs)}</p>
+        <p>Die Scores je Bereich sind der Durchschnitt deiner letzten {fs.fenster} Videos auf der
+          Skala 1–5. ↑ / ↓ zeigt, ob sie besser oder schwächer waren als die {fs.fenster} davor.</p>
+        <p className="muted">{fs.analysen} {fs.analysen === 1 ? "Analyse" : "Analysen"} bisher.</p>
+      </details>
+    </section>
+  );
+}
+
+// Dunkle Karte „Etwas unklar?" — öffnet den Messenger-Chat (Desktop; am Handy gibt es den Knopf).
+function FragKarte({ aktiv, onOeffnen }) {
+  return (
+    <section className="v4-frag">
+      <h3>Etwas unklar?</h3>
+      <p>{aktiv ? "Frag direkt zu dieser Analyse." : "Nach der Analyse kannst du hier Rückfragen stellen."}</p>
+      {aktiv && (
+        <button type="button" className="v4-frag-feld" onClick={onOeffnen}>
+          Stell deine Frage …
+        </button>
+      )}
+    </section>
   );
 }
 
@@ -1236,6 +1316,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   // V4: Neubewertung einer verbesserten Fassung — {id, filename} der vorherigen Analyse.
   const [vorgaenger, setVorgaenger] = useState(null);
   const [v4Stand, setV4Stand] = useState(0);            // lädt Fortschritt/Liste neu
+  const v4Ansicht = engine === "v4";
+  const fs = useFortschritt(v4Stand, v4Ansicht);
   const [chatOffen, setChatOffen] = useState(false);    // Messenger-Fenster (V4)
   const [chatEntwurf, setChatEntwurf] = useState(null); // {text, n} aus „Frag nach"
   // Video einer früheren Analyse vom Server (Chris, 2026-11-01: „damit man zuordnen kann, ob es
@@ -1578,19 +1660,11 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
         </div>
       )}
 
-      {/* V4: schmale Fortschrittsleiste, „Neue Analyse" und die Historie oben. */}
-      {engine === "v4" && <Fortschritt stand={v4Stand} />}
-      {engine === "v4" && phase === "done" && (
-        <div className="v4-neu-leiste">
-          <button className="btn btn-primary" onClick={() => { reset(); nachOben(); }}>
-            <Ico.upload width="16" height="16" /> Neue Analyse starten
-          </button>
-        </div>
-      )}
-      {engine === "v4" && (
-        <MeineAnalysen stand={v4Stand} aktiveId={phase === "done" ? runId : ""}
-                       onOeffnen={oeffneAnalyse} onVerbessert={verbesserteVersion} />
-      )}
+      {/* V4 (Design „Mentor"): Kopf mit Level und „Neue Analyse", darunter zwei Spalten —
+          links Eingabe bzw. Ergebnis, rechts Bereiche, Rückfragen und deine Videos. */}
+      {v4Ansicht && <V4Kopf fs={fs} zeigeNeu={phase === "done"} onNeu={() => { reset(); nachOben(); }} />}
+      <div className={v4Ansicht ? "v4-layout" : undefined}>
+      <div className={v4Ansicht ? "v4-main" : undefined}>
 
       {/* Eingabe — in V4 nach Abschluss nur noch als Player, wenn das Video lokal vorliegt.
           Nach dem Öffnen aus der Historie gibt es kein lokales Video: dann ganz weg. */}
@@ -2022,8 +2096,31 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
             const v4 = result.engine === "v4";
             return (
             <div className="analyst-eval">
+              {/* V4: Mentor-Kopf — Ziel, Überschrift, Score-Ring. Alle Inhalte des alten
+                  Score-Blocks bleiben erhalten (Einordnung, Erklärung, Feedback). */}
+              {v4 && (() => {
+                const [vorne, gold] = mentorUeberschrift(ev.performance_score);
+                return (
+                  <div className="v4-mentor-kopf">
+                    <div className="v4-mentor-text">
+                      {result.gewaehltes_ziel && (
+                        <span className="v4-pill">Ziel: {ZIEL_LABEL[result.gewaehltes_ziel] || result.gewaehltes_ziel}</span>
+                      )}
+                      <h1 className="v4-h1">{vorne} <span className="v4-gold">{gold}</span></h1>
+                      <p className="v4-lead">
+                        Der Umsetzungs-Score misst, wie gut das Video für dein Ziel gemacht ist — nicht,
+                        wie viele Views es bekommt. Hier ist, was du jetzt noch rausholen kannst.
+                      </p>
+                      {ez.label && <div className="v4-einordnung">{ez.label}</div>}
+                      <Feedback field="performance_score" />
+                    </div>
+                    <ScoreRing score={ev.performance_score} />
+                  </div>
+                );
+              })()}
+
               {/* 1. Score + Einordnung */}
-              <div className="analyst-score">
+              {!v4 && <div className="analyst-score">
                 <div className="analyst-score-num" style={{ color: ez.color }}>{ev.performance_score}</div>
                 <div className="analyst-score-label">
                   {v4
@@ -2047,24 +2144,29 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
                   <span className="analyst-funnel">{ev.funnel}</span>
                 )}
                 <Feedback field="performance_score" />
-              </div>
+              </div>}
 
               {/* V4: oben nur, was man jetzt tun kann — Rest eingeklappt (MehrDetails). */}
               {v4 && <VorgaengerVergleich result={result} />}
               {v4 && (ev.action_steps?.length > 0 ? (
-                <><Handlungsempfehlungen steps={ev.action_steps} titel="💡 Jetzt im Schnitt verbessern"
-                    hinweis="Geht alles mit deinem vorhandenen Material — ohne neu zu drehen."
+                <><Checkliste key={"s" + runId} steps={ev.action_steps} runId={runId}
+                    titel="Das schaffst du heute im Schnitt"
+                    hinweis="Ohne neu zu drehen. Hak ab, was du erledigt hast."
                     onFrage={chat ? fragNach : null} /><Feedback field="action_steps" /></>
               ) : (
-                <div className="analyst-eval-block">
-                  <div className="analyst-eval-title">💡 Jetzt im Schnitt verbessern</div>
-                  <div className="muted" style={{ fontSize: 13 }}>Im Schnitt gibt es nichts Dringendes mehr.</div>
+                <div className="v4-liste">
+                  <h2>Das schaffst du heute im Schnitt</h2>
+                  <div className="v4-liste-sub">Im Schnitt gibt es nichts Dringendes mehr.</div>
                 </div>
               ))}
               {v4 && ev.naechstes_video?.length > 0 && (
-                <><Handlungsempfehlungen steps={ev.naechstes_video} titel="🎬 Fürs nächste Video"
-                    hinweis="Dafür bräuchtest du eine neue Aufnahme — nimm es dir für den nächsten Dreh vor."
-                    onFrage={chat ? fragNach : null} /><Feedback field="naechstes_video" /></>
+                <div className="v4-spaeter">
+                  <Checkliste key={"d" + runId} steps={ev.naechstes_video} runId={runId} wichtigste={false}
+                    titel="Merk dir fürs nächste Video"
+                    hinweis="Dafür bräuchtest du eine neue Aufnahme."
+                    onFrage={chat ? fragNach : null} />
+                  <Feedback field="naechstes_video" />
+                </div>
               )}
 
               <MehrDetails an={v4}>
@@ -2275,6 +2377,20 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
         </Card>
         </div>
       )}
+
+      </div>
+      {v4Ansicht && (
+        <aside className="v4-side">
+          <BereicheKarte fs={fs} />
+          {chat && (
+            <FragKarte aktiv={phase === "done" && !!result && result.engine === "v4"}
+                       onOeffnen={() => setChatOffen(true)} />
+          )}
+          <MeineAnalysen stand={v4Stand} aktiveId={phase === "done" ? runId : ""}
+                         onOeffnen={oeffneAnalyse} onVerbessert={verbesserteVersion} />
+        </aside>
+      )}
+      </div>
 
       {/* V1.1: Chat erscheint erst, wenn eine Analyse fertig ist — vorher gibt es nichts zu fragen. */}
       {chat && phase === "done" && result && result.engine === "v4" && (
