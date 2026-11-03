@@ -1126,7 +1126,10 @@
 .v4-side .meine-box{margin:0; border-radius:18px; box-shadow:var(--karte-schatten); border:var(--karte-rand); padding:8px 18px;}
 .v4-side .meine-zeile{flex-direction:column; align-items:stretch;}
 .v4-side .meine-info{flex:none; min-width:0; max-width:100%;}
-.v4-side .meine-box{overflow:hidden;}
+/* Kein overflow:hidden — sonst schneidet die Box den Info-Tooltip ab (Bug 2026-11-03).
+   Lange Dateinamen kürzt .meine-name selbst mit Ellipsis. */
+.v4-side .meine-info{overflow:hidden;}
+.v4-side .info-text{left:0; right:auto; width:min(250px, calc(100vw - 48px));}
 .v4-side .meine-knoepfe{justify-content:flex-start;}
 
 /* Chat-Knopf und Fenster in CI-Tinte */
