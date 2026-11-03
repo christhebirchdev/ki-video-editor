@@ -309,12 +309,6 @@ const ABGLEICH_HINWEIS = {
   andere_zielgruppe: "Das Video spricht erkennbar jemand anderen an als deine Zielgruppe.",
 };
 
-const ANALYST_FEATURES = [
-  { ico: "🎯", title: "Inhaltsanalyse",    desc: "Themen, Kernaussagen & Story-Struktur erkennen" },
-  { ico: "🎙️", title: "Sprach-Qualität",   desc: "Füllwörter, Pausen, Sprechtempo & Verständlichkeit" },
-  { ico: "✂️",  title: "Schnitt-Bewertung", desc: "Übergänge, Pacing & Engagement-Kurve" },
-  { ico: "📊", title: "Performance-Score", desc: "Plattform-Potenzial & konkrete Optimierungstipps" },
-];
 
 // Bewertungs-Engines zum Vergleich. Gleiches Ergebnis-Layout, gleicher Bewertungsprompt —
 // nur WER/WIE bewertet ändert sich.
@@ -1594,6 +1588,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   // ein zweites rendern, würde die Wiedergabe beim Umschalten von vorn starten.
   useEffect(() => {
     if (!zeigePlayer) { setMini(false); setMiniAus(false); return; }
+    if (v4Ansicht) return;   // V4: der Player schwebt von Anfang an (siehe schwebt)
     const el = slotRef.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
     const obs = new IntersectionObserver(
@@ -1611,9 +1606,11 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [zeigePlayer]);
+  }, [zeigePlayer, v4Ansicht]);
 
-  const schwebt = mini && !miniAus;
+  // V4 (Chris, 2026-11-03): Nach der Analyse steht das Video nicht mehr oben eingebettet,
+  // sondern gleich als skalierbares Fenster unten links — wie beim Runterscrollen in V3.
+  const schwebt = v4Ansicht && zeigePlayer ? !miniAus : (mini && !miniAus);
 
   // Standardgröße des schwebenden Players: so groß, dass er den freien Rand rechts neben dem
   // Inhalt ausfüllt, aber keinen Text überdeckt. Der Inhalt ist auf 1040px + 2×28px Polsterung
@@ -1626,6 +1623,8 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
       const rand = Math.max(0, (window.innerWidth - 1096) / 2 - 24);
       const ausRand = rand > 120 ? rand / seiten : 0;   // schmaler Rand → nicht daran ausrichten
       const grenze = window.innerHeight * 0.78;
+      // Am Handy kleiner, damit das Fenster nicht die halbe Analyse verdeckt.
+      if (window.innerWidth < 640) { setMiniH(Math.round(Math.min(grenze, 200))); return; }
       setMiniH(Math.round(Math.min(grenze, Math.max(220, ausRand || 300))));
     }
     passeAn();
@@ -1651,6 +1650,69 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     window.addEventListener("pointerup", loslassen);
   }
 
+  // Player einmal gebaut, an zwei Orten genutzt: V3 in der Karte „Analysiertes Video",
+  // V4 frei schwebend unten links (ohne Karte).
+  // <video controls> bringt Abspielen, Pausieren, Scrubbing, Lautstärke und Vollbild mit —
+  // inklusive Tastatur- und Screenreader-Bedienung.
+  const playerBlock = (
+zeigePlayer && (
+          videoFehler ? (
+            <div className="analyst-player-hinweis">
+              {serverVideo && !analysisFile
+                ? "Das gespeicherte Video lässt sich hier nicht abspielen (z.B. MKV/AVI, oder es wurde inzwischen gelöscht)."
+                : "Dieses Format kann der Browser nicht abspielen (z.B. MKV oder AVI)."}
+              {" "}Die Analyse ist davon nicht betroffen.
+            </div>
+          ) : (
+            <div
+              className="analyst-player-slot"
+              ref={slotRef}
+              style={schwebt && slotHoehe ? { height: slotHoehe } : undefined}
+            >
+              <div className={"analyst-player-rahmen" + (schwebt ? " ist-mini" : "")
+                              + (schwebt && result?.engine === "v4" ? " links" : "")}>
+                <video
+                  ref={videoRef}
+                  src={playerSrc}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  style={schwebt && miniH ? { height: miniH, width: "auto", maxHeight: "none" } : undefined}
+                  onLoadedMetadata={(e) => {
+                    const v = e.currentTarget;
+                    if (v.videoWidth && v.videoHeight) setSeiten(v.videoWidth / v.videoHeight);
+                  }}
+                  onError={() => setVideoFehler(true)}
+                />
+                {schwebt && (
+                  <>
+                    {/* Anfasser oben links: nach oben ziehen macht größer. Oben links, weil
+                        unten rechts die Video-Steuerelemente liegen. */}
+                    <div
+                      className="analyst-mini-griff"
+                      onPointerDown={starteZiehen}
+                      role="separator"
+                      aria-label="Größe des Players ziehen"
+                      title="Ziehen, um die Größe zu ändern"
+                    >
+                      <span /><span />
+                    </div>
+                    <button
+                      type="button"
+                      className="analyst-mini-zu"
+                      onClick={() => setMiniAus(true)}
+                      aria-label="Schwebenden Player ausblenden"
+                    >
+                      <Ico.x width="13" height="13" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )
+        )
+  );
+
   return (
     <AdminCtx.Provider value={{ admin: !!adminPw, password: adminPw, runId }}>
       {error && (
@@ -1668,7 +1730,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
 
       {/* Eingabe — in V4 nach Abschluss nur noch als Player, wenn das Video lokal vorliegt.
           Nach dem Öffnen aus der Historie gibt es kein lokales Video: dann ganz weg. */}
-      {(engine !== "v4" || phase !== "done" || zeigePlayer) && (
+      {(engine !== "v4" || phase !== "done") && (
       <Card
         icon={zeigePlayer ? <Ico.film /> : <Ico.upload />}
         title={zeigePlayer ? "Analysiertes Video" : "Video-Quelle"}
@@ -1728,85 +1790,15 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
           </div>
         )}
 
-        {/* Player nach der Analyse. <video controls> bringt Abspielen, Pausieren, Scrubbing,
-            Lautstärke und Vollbild mit — inklusive Tastatur- und Screenreader-Bedienung. */}
-        {zeigePlayer && (
-          videoFehler ? (
-            <div className="analyst-player-hinweis">
-              {serverVideo && !analysisFile
-                ? "Das gespeicherte Video lässt sich hier nicht abspielen (z.B. MKV/AVI, oder es wurde inzwischen gelöscht)."
-                : "Dieses Format kann der Browser nicht abspielen (z.B. MKV oder AVI)."}
-              {" "}Die Analyse ist davon nicht betroffen.
-            </div>
-          ) : (
-            <div
-              className="analyst-player-slot"
-              ref={slotRef}
-              style={schwebt && slotHoehe ? { height: slotHoehe } : undefined}
-            >
-              <div className={"analyst-player-rahmen" + (schwebt ? " ist-mini" : "")
-                              + (schwebt && result?.engine === "v4" ? " links" : "")}>
-                <video
-                  ref={videoRef}
-                  src={playerSrc}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  style={schwebt && miniH ? { height: miniH, width: "auto", maxHeight: "none" } : undefined}
-                  onLoadedMetadata={(e) => {
-                    const v = e.currentTarget;
-                    if (v.videoWidth && v.videoHeight) setSeiten(v.videoWidth / v.videoHeight);
-                  }}
-                  onError={() => setVideoFehler(true)}
-                />
-                {schwebt && (
-                  <>
-                    {/* Anfasser oben links: nach oben ziehen macht größer. Oben links, weil
-                        unten rechts die Video-Steuerelemente liegen. */}
-                    <div
-                      className="analyst-mini-griff"
-                      onPointerDown={starteZiehen}
-                      role="separator"
-                      aria-label="Größe des Players ziehen"
-                      title="Ziehen, um die Größe zu ändern"
-                    >
-                      <span /><span />
-                    </div>
-                    <button
-                      type="button"
-                      className="analyst-mini-zu"
-                      onClick={() => setMiniAus(true)}
-                      aria-label="Schwebenden Player ausblenden"
-                    >
-                      <Ico.x width="13" height="13" />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          )
-        )}
+        {!v4Ansicht && playerBlock}
       </Card>
       )}
 
-      {/* Analyse-Umfang + Start-Button — in V4 nach Abschluss ausgeblendet (Vorgabe Chris):
+      {/* Angaben + Start-Button — in V4 nach Abschluss ausgeblendet (Vorgabe Chris):
           dann steht nur noch die Analyse da, „Neue Analyse starten" holt die Eingabe zurück. */}
+      {/* Die Info-Kacheln zum Analyse-Umfang sind entfernt (Chris, 2026-11-03). */}
       {(engine !== "v4" || phase !== "done") && (
-      <Card icon={<Ico.chart />} title="Analyse-Umfang" sub="Was der AI Video Analyst prüft">
-        <div className="analyst-features">
-          {ANALYST_FEATURES.map((f) => (
-            <div key={f.title} className="analyst-feature">
-              <span className="analyst-feature-ico">{f.ico}</span>
-              <div>
-                <div className="analyst-feature-title">
-                  {engine === "v4" && f.title === "Performance-Score" ? "Umsetzungs-Score" : f.title}
-                </div>
-                <div className="analyst-feature-desc">{f.desc}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
+      <Card icon={<Ico.chart />} title="Analyse starten" sub="Ein paar Angaben zu deinem Video">
         <div className="analyst-action">
           {/* Format-Auswahl (Pflicht, genau eines). Der Nutzer kennt sein Video — seine Angabe ist für die
               Bewertung bindend und verhindert, dass die KI z.B. ein Reaction-Video als Talking Head liest. */}
@@ -2391,6 +2383,13 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
         </aside>
       )}
       </div>
+
+      {v4Ansicht && zeigePlayer && playerBlock}
+      {v4Ansicht && zeigePlayer && !videoFehler && miniAus && (
+        <button type="button" className="v4-video-zeigen" onClick={() => setMiniAus(false)}>
+          ▶ Video zeigen
+        </button>
+      )}
 
       {/* V1.1: Chat erscheint erst, wenn eine Analyse fertig ist — vorher gibt es nichts zu fragen. */}
       {chat && phase === "done" && result && result.engine === "v4" && (
