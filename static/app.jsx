@@ -548,6 +548,45 @@ function Checkliste({ steps, runId, titel, hinweis, onFrage = null, wichtigste =
   );
 }
 
+// V4: Ziel-Warnung oben (Chris, 2026-11-03). Zwei Satzhälften je Funnel-Stufe:
+// „Du wolltest <Absicht>. Das Video <Wirkung>."
+const ZIEL_ABSICHT = {
+  TOFU: "neue Menschen erreichen",
+  MOFU: "Vertrauen und Expertenstatus aufbauen",
+  BOFU: "Kundenanfragen gewinnen",
+};
+const ZIEL_WIRKUNG = {
+  TOFU: "sorgt eher für Reichweite bei neuen Menschen",
+  MOFU: "sorgt eher für Vertrauensaufbau und zeigt Expertise",
+  BOFU: "zielt eher darauf, Anfragen zu bekommen",
+};
+
+function ZielWarnung({ result }) {
+  const ev = result.evaluation || {};
+  const ziel = result.gewaehltes_ziel;
+  if (!ev.funnel_wirkung || !ziel || ev.funnel_wirkung === ziel) return null;
+  return (
+    <details className="v4-zielwarnung">
+      <summary>
+        <span className="v4-zielwarnung-ico" aria-hidden="true">!</span>
+        <span>
+          Du wolltest {ZIEL_ABSICHT[ziel] || ZIEL_LABEL[ziel] || ziel}. Das Video{" "}
+          {ZIEL_WIRKUNG[ev.funnel_wirkung] || `zahlt eher auf ${ZIEL_LABEL[ev.funnel_wirkung] || ev.funnel_wirkung} ein`}.
+        </span>
+        <span className="v4-zielwarnung-pfeil" aria-hidden="true">▾</span>
+      </summary>
+      <div className="v4-zielwarnung-text">
+        {ev.funnel_wirkung_grund && <p><b>Warum:</b> {ev.funnel_wirkung_grund}</p>}
+        {ev.funnel_wirkung_empfehlung && <p><b>So passt es zu deinem Ziel:</b> {ev.funnel_wirkung_empfehlung}</p>}
+        {!ev.funnel_wirkung_grund && !ev.funnel_wirkung_empfehlung && (
+          <p>Zu dieser Abweichung liegt keine ausführlichere Erklärung vor.</p>
+        )}
+        <Feedback field="funnel_wirkung" />
+      </div>
+    </details>
+  );
+}
+
 // Überschrift des Ergebnisses — zwei Teile, der zweite in Gold (Meinfluss-CI).
 function mentorUeberschrift(score) {
   if (score >= 75) return ["Dein Video ist", "richtig gut geworden."];
@@ -2181,6 +2220,7 @@ zeigePlayer && (
               </div>}
 
               {/* V4: oben nur, was man jetzt tun kann — Rest eingeklappt (MehrDetails). */}
+              {v4 && <ZielWarnung result={result} />}
               {v4 && <VorgaengerVergleich result={result} />}
               {v4 && (ev.action_steps?.length > 0 ? (
                 <><Checkliste key={"s" + runId} steps={ev.action_steps} runId={runId}
@@ -2234,7 +2274,7 @@ zeigePlayer && (
                   Ziel und tatsächliche Wirkung überein, steht hier nichts — ein „passt" wäre
                   Fülltext. `gewaehltes_ziel` wird mitgeprüft, weil ohne Ziel (v2, Altlauf) der
                   Satz „Du wolltest —" keinen Sinn ergäbe; dort ist `funnel_wirkung` ohnehin leer. */}
-              {ev.funnel_wirkung && result.gewaehltes_ziel && ev.funnel_wirkung !== result.gewaehltes_ziel && (
+              {!v4 && ev.funnel_wirkung && result.gewaehltes_ziel && ev.funnel_wirkung !== result.gewaehltes_ziel && (
                 <div className="analyst-funnel-warnung">
                   ⚠ Du wolltest <b>{ZIEL_LABEL[result.gewaehltes_ziel] || result.gewaehltes_ziel}</b>. Dieses
                   Video zahlt eher auf <b>{ZIEL_LABEL[ev.funnel_wirkung] || ev.funnel_wirkung}</b> ein
