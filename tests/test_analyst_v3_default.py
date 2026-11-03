@@ -11,7 +11,7 @@ def _appjsx():
     return pathlib.Path("static/app.jsx").read_text(encoding="utf-8")
 
 
-def test_der_default_ist_v3():
+def test_der_default_ist_v4():
     import re
     quelle = _appjsx()
     treffer = re.search(r'const ANALYST_ENGINE = "([^"]+)"', quelle)
