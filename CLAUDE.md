@@ -77,8 +77,8 @@ Level (`services/analyst_fortschritt.py`), Video-Aufbewahrung (`services/analyst
   aus `meta.json` VOR der Bewertung. V3 hängt weiterhin an `gewaehltes_ziel`.
 - V4-Prompt = V3-Skill + `V4_SKILL_ERSETZUNGEN` + `V4_NACHSATZ`, Vertrag = `v4_schema()`.
   V2/V3-Prompts bleiben byte-gleich (`test_v3_prompt_bleibt_ohne_v4_flag_gleich`).
-- Frontend: V4 nur über den Admin-Umschalter „Version", Default bleibt `ANALYST_ENGINE = "v3"`.
-  Umstellen = diese eine Konstante in `static/app.jsx`.
+- Frontend: **V4 ist seit 2026-11-03 Standard** (`ANALYST_ENGINE = "v4"` in `static/app.jsx`).
+  V3 und V2 bleiben über den Admin-Umschalter „Version" erreichbar.
 - Integration ins Agentursystem: `INTEGRATION.md`.
 
 ### V1.1: Rückfragen-Chat (Stand 2026-07-29)

@@ -15,7 +15,8 @@ def test_der_default_ist_v3():
     import re
     quelle = _appjsx()
     treffer = re.search(r'const ANALYST_ENGINE = "([^"]+)"', quelle)
-    assert treffer and treffer.group(1) == "v3", "Kunden bekommen sonst weiter V2"
+    # Seit 2026-11-03 ist V4 der Standard; V3 bleibt im Admin-Umschalter (siehe unten).
+    assert treffer and treffer.group(1) == "v4", "Kunden bekommen sonst weiter V3"
 
 
 def test_der_admin_kann_weiterhin_auf_v2_umschalten():

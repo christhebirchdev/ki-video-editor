@@ -321,7 +321,10 @@ const ABGLEICH_HINWEIS = {
 // V2 (`v2_split`) bleibt erreichbar, aber nur über den Umschalter in der Admin-Ansicht: Ohne die
 // Möglichkeit, denselben Clip gegen die alte Fassung laufen zu lassen, gäbe es keine Grundlage
 // mehr für die Aussage, dass V3 besser ist.
-const ANALYST_ENGINE = "v3";
+// Seit 2026-11-03 V4 (Vorgabe Chris): Aufwand-Trennung, Effekt-Optionen, Neubewertung, Historie,
+// Fortschritt und Design „Mentor" für alle Kunden. V3 und V2 bleiben über den Admin-Umschalter
+// erreichbar — als Vergleichsbasis.
+const ANALYST_ENGINE = "v4";
 const ANALYST_ENGINE_ALT = "v2_split";
 
 // Stufen für die Fortschrittsbalken. est = geschätzte Dauer in Sekunden aus echten Läufen. Die
