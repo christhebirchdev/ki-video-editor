@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from config import settings
 from models.analyst import FORMATE, ZIELE, AnalystResult
-from services import analyst_cache, analyst_chat, analyst_marke, analyst_nutzer, analyst_vlm
+from services import analyst_cache, analyst_chat, analyst_marke, analyst_nutzer, analyst_profil, analyst_vlm
 from services.analyst_engine import ANALYST_PATH, RUNNING_PHASES, run_analysis, write_status
 
 router = APIRouter()
@@ -131,6 +131,7 @@ def _meine(request: Request, nutzer: str) -> list[tuple[Path, dict]]:
     # Proxy davor koennte jeder einen fremden Geraete-Header schicken und Laeufe an sich ziehen.
     if settings.analyst_nutzer_pflicht:
         analyst_nutzer.uebertrage(ANALYST_PATH, analyst_nutzer.geraet(request), nutzer)
+        analyst_profil.uebertrage(ANALYST_PATH, analyst_nutzer.geraet(request), nutzer)
     return analyst_nutzer.eigene_laeufe(ANALYST_PATH, nutzer)
 
 
@@ -143,7 +144,7 @@ def meine_analysen(request: Request, nutzer: str = Depends(nutzer_der_anfrage)):
 @router.get("/meine/export")
 def meine_exportieren(request: Request, nutzer: str = Depends(nutzer_der_anfrage)):
     """Alle eigenen Analysen mit vollem Ergebnis (Datenauskunft, Umzug in ein anderes System)."""
-    return {"nutzer": nutzer, "analysen": [
+    return {"nutzer": nutzer, "marke": analyst_profil.lade_marke(ANALYST_PATH, nutzer), "analysen": [
         {**_eintrag(d, m), "analyse": _lies_json(d / "analysis.json") or None,
          "chat": analyst_chat.lade_verlauf(d)}
         for d, m in _meine(request, nutzer)]}
@@ -157,7 +158,24 @@ def meine_loeschen(request: Request, nutzer: str = Depends(nutzer_der_anfrage)):
     laeufe = analyst_nutzer.eigene_laeufe(ANALYST_PATH, nutzer)
     for d, _ in laeufe:
         shutil.rmtree(d, ignore_errors=True)
+    analyst_profil.loesche_profil(ANALYST_PATH, nutzer)
     return {"geloescht": len(laeufe)}
+
+
+@router.get("/marke")
+def gemerkte_marke(nutzer: str = Depends(nutzer_der_anfrage)):
+    """Die gemerkte Zielgruppen-/Strategiedatei dieses Nutzers (ohne den Text selbst)."""
+    m = analyst_profil.lade_marke(ANALYST_PATH, nutzer)
+    if not m:
+        return {"gespeichert": False}
+    return {"gespeichert": True, "dateien": m.get("dateien", []), "woerter": len(m.get("text", "").split()),
+            "gekuerzt": bool(m.get("gekuerzt")), "gespeichert_am": m.get("gespeichert_am", "")}
+
+
+@router.delete("/marke")
+def marke_vergessen(nutzer: str = Depends(nutzer_der_anfrage)):
+    analyst_profil.loesche_profil(ANALYST_PATH, nutzer)
+    return {"ok": True}
 
 
 @router.get("/fortschritt")
@@ -206,8 +224,29 @@ def upload_marke(run_id: str, files: list[UploadFile] = File(...),
     meta["marke_gekuerzt"] = gekuerzt
     meta["marke_hash"] = analyst_marke.hash_von(text)
     meta_path.write_text(json.dumps(meta, ensure_ascii=False))
+    # Je Nutzer merken (Chris, 2026-11-03) — beim naechsten Video muss er sie nicht neu hochladen.
+    analyst_profil.speichere_marke(ANALYST_PATH, nutzer, namen, text, gekuerzt)
     return {"id": run_id, "dateien": namen, "woerter": len(text.split()),
             "gekuerzt": gekuerzt, "limit": analyst_marke.MAX_WOERTER}
+
+
+@router.post("/{run_id}/marke-gespeichert")
+def marke_aus_profil(run_id: str, nutzer: str = Depends(nutzer_der_anfrage)):
+    """Die gemerkte Zielgruppen-/Strategiedatei in diesen Lauf uebernehmen — dieselben meta-Felder
+    wie beim Hochladen, damit Bewertung und Cache-Key nicht unterscheiden koennen, woher sie kommt."""
+    run_dir = _run_dir(run_id, nutzer)
+    m = analyst_profil.lade_marke(ANALYST_PATH, nutzer)
+    if not m or not m.get("text"):
+        raise HTTPException(status_code=404, detail="Es ist keine Zielgruppen- oder Strategiedatei gespeichert.")
+    meta_path = run_dir / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["marke_datei"] = ", ".join(m.get("dateien", []))
+    meta["marke_text"] = m["text"]
+    meta["marke_gekuerzt"] = bool(m.get("gekuerzt"))
+    meta["marke_hash"] = analyst_marke.hash_von(m["text"])
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False))
+    return {"id": run_id, "dateien": m.get("dateien", []), "woerter": len(m["text"].split()),
+            "gekuerzt": bool(m.get("gekuerzt")), "limit": analyst_marke.MAX_WOERTER}
 
 
 def _eingaben(run_dir, format: str, ziel: str, planned_text_hook: str) -> dict:

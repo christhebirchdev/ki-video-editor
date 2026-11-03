@@ -1315,6 +1315,14 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   const [v4Stand, setV4Stand] = useState(0);            // lädt Fortschritt/Liste neu
   const v4Ansicht = engine === "v4";
   const fs = useFortschritt(v4Stand, v4Ansicht);
+  useEffect(() => {
+    if (!mitZiel) return;
+    api("GET", "/api/analyst/marke").then(setGemerkteMarke).catch(() => setGemerkteMarke(null));
+  }, [v4Stand, mitZiel]);
+  async function markeVergessen() {
+    try { await api("DELETE", "/api/analyst/marke"); setGemerkteMarke({ gespeichert: false }); }
+    catch (e) { setError(e.message); }
+  }
   const [chatOffen, setChatOffen] = useState(false);    // Messenger-Fenster (V4)
   const [chatEntwurf, setChatEntwurf] = useState(null); // {text, n} aus „Frag nach"
   // Video einer früheren Analyse vom Server (Chris, 2026-11-01: „damit man zuordnen kann, ob es
@@ -1329,6 +1337,10 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
   // sagt, WER angesprochen wird, die andere, WORAUF das Konto hinarbeitet.
   const [markeFiles, setMarkeFiles] = useState([]);
   const [markeInfo, setMarkeInfo] = useState(null);   // Antwort des Servers: Woerter, gekuerzt
+  // Gemerkte Zielgruppen-/Strategiedatei dieses Nutzers (Chris, 2026-11-03): wird automatisch
+  // verwendet, solange keine neuen Dateien gewählt sind und der Nutzer sie nicht abwählt.
+  const [gemerkteMarke, setGemerkteMarke] = useState(null);
+  const [gemerkteNutzen, setGemerkteNutzen] = useState(true);
   // Rueckfrage vor dem Start, wenn es zu dieser Datei schon eine Analyse gibt.
   // `{ runId, quelle, erstelltAm, abweichung }` — null heisst: keine Frage offen.
   const [rueckfrage, setRueckfrage] = useState(null);
@@ -1445,6 +1457,9 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
         const mfd = new FormData();
         markeFiles.forEach((f) => mfd.append("files", f));
         setMarkeInfo(await api("POST", `/api/analyst/${up.id}/marke`, mfd));
+      } else if (mitZiel && gemerkteMarke?.gespeichert && gemerkteNutzen) {
+        setProgress("Deine gespeicherten Dateien werden übernommen …");
+        setMarkeInfo(await api("POST", `/api/analyst/${up.id}/marke-gespeichert`));
       }
       setProgress(ANALYSE_LAEUFT);
       // Body nur im Admin-Modus: er enthält das Passwort für den Force-Rerun. Ohne Body
@@ -1540,6 +1555,7 @@ function VideoAnalystPage({ adminPw = "", chat = false }) {
     setZiel("");   // engine bleibt bewusst stehen (Admin-Versionswahl über mehrere Läufe)
     setMarkeFiles([]);
     setMarkeInfo(null);
+    setGemerkteNutzen(true);
     setRueckfrage(null);
     setRunId("");
     setActivePhase("");
@@ -1870,6 +1886,29 @@ zeigePlayer && (
               <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                 Zielgruppe &amp; Strategie (optional)
               </label>
+              {gemerkteMarke?.gespeichert && markeFiles.length === 0 && (
+                <div className={"fileitem marke-gemerkt" + (gemerkteNutzen ? "" : " ist-aus")} style={{ marginBottom: 6 }}>
+                  <span className="fi-ico"><Ico.datei width="16" height="16" /></span>
+                  <span className="fi-name" title={gemerkteMarke.dateien.join(", ")}>
+                    {gemerkteMarke.dateien.join(", ")}
+                    <small>{gemerkteNutzen ? "Gespeichert — wird automatisch verwendet"
+                                           : "Gespeichert — für diese Analyse abgewählt"}</small>
+                  </span>
+                  <button type="button" className="btn btn-ghost btn-klein" disabled={phase === "running"}
+                          onClick={() => setGemerkteNutzen(!gemerkteNutzen)}>
+                    {gemerkteNutzen ? "Diesmal nicht" : "Wieder verwenden"}
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-klein" disabled={phase === "running"}
+                          onClick={markeVergessen} title="Gespeicherte Dateien löschen">
+                    Vergessen
+                  </button>
+                </div>
+              )}
+              {gemerkteMarke?.gespeichert && markeFiles.length > 0 && (
+                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+                  Die neuen Dateien ersetzen deine gespeicherten.
+                </div>
+              )}
               {/* Eine Zeile je Datei — dieselbe .fileitem wie im Video-Upload, damit der Nutzer
                   nicht zwei Sprachen fuer dieselbe Sache lernen muss. */}
               {markeFiles.map((f, i) => (

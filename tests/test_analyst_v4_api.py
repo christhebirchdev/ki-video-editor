@@ -293,3 +293,66 @@ def test_video_range_ausserhalb(client):
     rid = _upload(client, A)
     r = client.get(f"/api/analyst/{rid}/video", headers={**A, "Range": f"bytes={len(VIDEO)+5}-"})
     assert r.status_code == 416
+
+
+# ---------- Zielgruppen-/Strategiedatei je Nutzer merken ----------
+
+def _marke_hochladen(client, rid, headers, text="Zielgruppe: Muetter 35-50, die ihre Kinder emotional begleiten."):
+    return client.post(f"/api/analyst/{rid}/marke", headers=headers,
+                       files=[("files", ("zielgruppe.md", text.encode(), "text/markdown"))])
+
+
+def test_marke_wird_je_nutzer_gemerkt(client):
+    rid = _upload(client, A)
+    assert _marke_hochladen(client, rid, A).status_code == 200
+    m = client.get("/api/analyst/marke", headers=A).json()
+    assert m["gespeichert"] is True and m["dateien"] == ["zielgruppe.md"] and m["woerter"] > 3
+    assert client.get("/api/analyst/marke", headers=B).json() == {"gespeichert": False}
+    assert client.get("/api/analyst/marke").json() == {"gespeichert": False}
+
+
+def test_gemerkte_marke_in_neuen_lauf_uebernehmen(client):
+    rid = _upload(client, A)
+    _marke_hochladen(client, rid, A)
+    neu = _upload(client, A)
+    r = client.post(f"/api/analyst/{neu}/marke-gespeichert", headers=A)
+    assert r.status_code == 200, r.text
+    m, alt = _meta(client, neu), _meta(client, rid)
+    assert m["marke_text"] == alt["marke_text"] and m["marke_hash"] == alt["marke_hash"]
+    assert m["marke_datei"] == "zielgruppe.md"
+
+
+def test_ohne_gemerkte_marke_404(client):
+    neu = _upload(client, B)
+    assert client.post(f"/api/analyst/{neu}/marke-gespeichert", headers=B).status_code == 404
+
+
+def test_marke_vergessen(client):
+    rid = _upload(client, A)
+    _marke_hochladen(client, rid, A)
+    assert client.delete("/api/analyst/marke", headers=A).status_code == 200
+    assert client.get("/api/analyst/marke", headers=A).json() == {"gespeichert": False}
+
+
+def test_konto_loeschen_entfernt_auch_die_marke(client):
+    rid = _upload(client, A)
+    _marke_hochladen(client, rid, A)
+    client.delete("/api/analyst/meine", headers=A)
+    assert client.get("/api/analyst/marke", headers=A).json() == {"gespeichert": False}
+
+
+def test_marke_wandert_beim_uebergang_mit(client, monkeypatch):
+    from config import settings
+    alt = {"X-Analyst-Nutzer": "browser-1234-abcd", "X-Analyst-Geraet": "browser-1234-abcd"}
+    rid = _upload(client, alt)
+    _marke_hochladen(client, rid, alt)
+    monkeypatch.setattr(settings, "analyst_nutzer_pflicht", True)
+    konto = {"X-Analyst-Nutzer": "konto-42-xyz-0000", "X-Analyst-Geraet": "browser-1234-abcd"}
+    client.get("/api/analyst/meine", headers=konto)
+    assert client.get("/api/analyst/marke", headers=konto).json()["gespeichert"] is True
+
+
+def test_profil_verzeichnis_stoert_die_laufliste_nicht(client):
+    rid = _upload(client, A)
+    _marke_hochladen(client, rid, A)
+    assert [x["id"] for x in client.get("/api/analyst/meine", headers=A).json()["laeufe"]] == [rid]

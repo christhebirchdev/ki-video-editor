@@ -75,6 +75,8 @@ verlängern (`konto-42`) — und dieses Präfix dann immer gleich verwenden.
 | `GET /{id}` | Status, Queue-Platz, Ergebnis (`result`) |
 | `GET/POST /{id}/chat` | Rückfragen-Chat (Antwort gestreamt) |
 | `GET /meine` | eigene Analysen, neueste zuerst |
+| `GET/DELETE /marke` | gemerkte Zielgruppen-/Strategiedatei des Nutzers anzeigen / vergessen |
+| `POST /{id}/marke-gespeichert` | gemerkte Datei in einen Lauf übernehmen |
 | `GET /fortschritt` | Gesamtlevel + Schnitt-Score je Kategorie (letzte 5 Videos) |
 | `GET /{id}/video` | gespeichertes Video abspielen (mit Range, 410 wenn gelöscht) |
 | `GET /meine/export` | alle eigenen Analysen mit Chat (Datenauskunft) |

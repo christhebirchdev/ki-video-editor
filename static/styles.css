@@ -1153,3 +1153,10 @@
   background:#fff; color:var(--ink-ci, #17140F); font:inherit; font-size:13.5px; font-weight:600;
   border-radius:999px; padding:11px 16px; box-shadow:0 8px 24px rgba(23,20,15,.18);
 }
+
+/* Gemerkte Zielgruppen-/Strategiedatei */
+.marke-gemerkt{flex-wrap:wrap; gap:8px 10px;}
+.marke-gemerkt .fi-name{flex:1 1 180px; min-width:0;}
+.marke-gemerkt .fi-name small{display:block; font-size:12px; color:var(--ok-ink); font-weight:500;}
+.marke-gemerkt.ist-aus .fi-name small{color:var(--taupe);}
+.marke-gemerkt.ist-aus .fi-ico, .marke-gemerkt.ist-aus .fi-name{opacity:.6;}
