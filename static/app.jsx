@@ -1011,8 +1011,7 @@ function Fortschritt({ stand }) {
       </summary>
       <div className="fs-details">
         <div>
-          <b>Gesamtlevel {fs.gesamt.level}</b> von {fs.max_level} — es steigt mit jeder Analyse und mit
-          besseren Scores und sinkt nie. {naechstesLevelText(fs)}
+          <b>Gesamtlevel {fs.gesamt.level}</b> von {fs.max_level}. {naechstesLevelText(fs)}
         </div>
         <div>
           <b>Scores je Bereich:</b> Durchschnitt deiner letzten {fs.fenster} Videos auf der Skala 1–5.
